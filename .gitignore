@@ -1,0 +1,74 @@
+# --- Game-derived material: never commit (SPEC §3.3) ---
+src/recomp/gen/
+game/
+game_files/
+extracted/
+*.xbe
+*.iso
+*.xiso
+*.cso
+*.cue
+*.bin
+*.chd
+*.xbx
+*.sav
+*.gzf
+*.gpr
+*.rep/
+*.dmp
+
+# Working files (logs, reports, Ghidra project)
+_work/
+
+# Build artifacts
+build/
+build-*/
+out/
+*.obj
+*.o
+*.lib
+*.a
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.map
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeUserPresets.json
+
+# Visual Studio
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets and local settings
+.env
+.env.*
+*.key
+*.pem
+.claude/settings.local.json
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# runtime log, written to the folder the .exe starts in
+xbox_kernel.log
+
+# Launcher build output
+launcher/bin/
+launcher/obj/

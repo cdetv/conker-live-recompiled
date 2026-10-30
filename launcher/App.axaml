@@ -1,0 +1,95 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ConkerLauncher.App"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <!-- Dark with the original Xbox's green (SPEC 9.3). -->
+    <Color x:Key="XboxGreen">#FF5DBB1E</Color>
+    <Color x:Key="XboxGreenDark">#FF107C10</Color>
+    <SolidColorBrush x:Key="XboxGreenBrush" Color="{StaticResource XboxGreen}" />
+    <SolidColorBrush x:Key="PanelBrush" Color="#CC101611" />
+    <SolidColorBrush x:Key="PanelBorderBrush" Color="#FF24341F" />
+    <SolidColorBrush x:Key="DimTextBrush" Color="#FF8C9A88" />
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Dark" Accent="#FF5DBB1E" RegionColor="#FF0A0E0A" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+
+    <!-- Own window frame (SPEC 9.3): the drawn title bar keeps only minimise and close.
+         The theme binds the title panel's own IsVisible, so the text inside it is hidden instead. -->
+    <Style Selector="Panel#PART_TitleTextPanel > TextBlock">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector=":is(Control)#PART_FullScreenButton">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector=":is(Control)#PART_MaximizeButton">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <!-- Tabs: big uppercase headers, green when chosen. -->
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="16,0" />
+      <Setter Property="MinHeight" Value="44" />
+    </Style>
+    <Style Selector="TabItem:selected">
+      <Setter Property="Foreground" Value="{StaticResource XboxGreenBrush}" />
+    </Style>
+    <!-- The Controls tab's own tabs (F3's): smaller. -->
+    <Style Selector="TabControl.inner TabItem">
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="MinHeight" Value="34" />
+    </Style>
+
+    <!-- A key another row of the tab also uses, as F3 colours it. -->
+    <Style Selector="Button.clash">
+      <Setter Property="Foreground" Value="#FFE0A040" />
+    </Style>
+    <Style Selector="Button.clash /template/ ContentPresenter">
+      <Setter Property="Foreground" Value="#FFE0A040" />
+    </Style>
+
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource XboxGreenBrush}" />
+    </Style>
+    <Style Selector="TextBlock.error">
+      <Setter Property="Foreground" Value="#FFF07060" />
+    </Style>
+    <Style Selector="TextBlock.ok">
+      <Setter Property="Foreground" Value="#FFA8E080" />
+    </Style>
+
+    <Style Selector="Button.play">
+      <Setter Property="Background" Value="{StaticResource XboxGreenDark}" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="MinWidth" Value="180" />
+      <Setter Property="Height" Value="48" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Button.play:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource XboxGreen}" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="MinWidth" Value="120" />
+      <Setter Property="Height" Value="48" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+  </Application.Styles>
+</Application>

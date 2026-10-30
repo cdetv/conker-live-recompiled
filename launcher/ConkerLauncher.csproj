@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- conker-launcher.exe (SPEC 9.3). Publish: one self-contained .exe, no .NET install needed:
+       dotnet publish launcher -c Release -o <dir> -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <RootNamespace>ConkerLauncher</RootNamespace>
+    <AssemblyName>conker-launcher</AssemblyName>
+    <Product>Conker: Live &amp; Recompiled launcher</Product>
+    <!-- Same version as conker.exe: the repo's VERSION file. -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\VERSION').Trim())</Version>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <DebugType>embedded</DebugType>
+    <!-- The user's art, copied in by scripts/make_art.py (gitignored, never in the repo). -->
+    <ArtDir>$(MSBuildThisFileDirectory)..\art\</ArtDir>
+    <ApplicationIcon>$(ArtDir)launcher.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="$(ArtDir)launcher.ico" Link="Assets\launcher.ico" />
+    <AvaloniaResource Include="$(ArtDir)logo.png" Link="Assets\logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="SharpCompress" Version="0.50.7" />
+  </ItemGroup>
+
+  <Target Name="CheckArt" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(ArtDir)launcher.ico') Or !Exists('$(ArtDir)logo.png')"
+           Text="art\launcher.ico or art\logo.png is missing: run .venv\Scripts\python scripts\make_art.py first." />
+  </Target>
+
+</Project>
