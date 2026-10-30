@@ -52,7 +52,8 @@ of PC upgrades.
 This port was made with the help of AI coding tools (such as Anthropic's
 Claude Code). Most of the code was written by AI under the author's
 direction; changes were tested by playing the game and by comparing it with
-the real game running in xemu.
+the real game running in xemu and various gameplay footage from Xbox, Xbox
+360, and Xbox One.
 
 ## Getting started
 
