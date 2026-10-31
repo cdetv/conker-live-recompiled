@@ -797,6 +797,9 @@ static void save(const char *key, const char *value)
 static FILE *s_dump;
 static bool s_dump_first;
 static const char *s_dump_needs;
+/* The single player scheme the entries being shown belong to (the launcher
+ * shows them under that scheme only). */
+static const char *s_dump_scheme;
 
 /* Opens the entry's JSON object, with the fields every entry has; the
  * caller adds its own and closes it. False when no dump is running. */
@@ -814,6 +817,8 @@ static bool dump_item(const char *type, const char *label, const char *key)
     }
     if (s_dump_needs)
         fprintf(s_dump, ", \"needs\": \"%s\"", s_dump_needs);
+    if (s_dump_scheme)
+        fprintf(s_dump, ", \"scheme\": \"%s\"", s_dump_scheme);
     return true;
 }
 
@@ -1039,10 +1044,10 @@ static void choice(const char *label, const char *key,
                 if (!s_error[0] && !strcmp(key, "cutscene_blur")
                     && !settings_env_override(key))
                     conker_SetCutsceneBlur(i);
-                if (!s_error[0] && !strcmp(key, "mp_zoom_mode")) {
+                if (!s_error[0] && (!strcmp(key, "mp_zoom_mode")
+                                    || !strcmp(key, "story_slingshot_aim"))) {
                     controls_apply();
-                    fprintf(stderr, "[OVERLAY] mp_zoom_mode = %s\n",
-                            values[i]);
+                    fprintf(stderr, "[OVERLAY] %s = %s\n", key, values[i]);
                 }
             }
             if (sel)
@@ -2126,6 +2131,16 @@ static void story_tab(void)
         save("story_scheme", values[scheme]);
         controls_apply();
         fprintf(stderr, "[OVERLAY] story_scheme = %s\n", values[scheme]);
+    }
+    /* Modern only (user 2026-10-30): the context key toggles a slingshot
+     * pad's slingshot, as Classic's B, instead of the aim key holding it. */
+    if (scheme == 1 || s_dump) {
+        static const char *const sling_values[] = { "hold", "toggle" };
+        static const char *const sling_names[] = { "Hold", "Toggle" };
+        s_dump_scheme = "modern";
+        choice("Slingshot Aim", "story_slingshot_aim", sling_values,
+               sling_names, 2, true);
+        s_dump_scheme = NULL;
     }
     controls_tab(CONTROLS_STORY);
 }

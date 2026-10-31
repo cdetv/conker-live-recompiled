@@ -40,7 +40,7 @@
                 ToolTip.Tip="{Binding Tip}" Margin="0,2" />
     </DataTemplate>
     <DataTemplate DataType="vm:ChoiceItem">
-      <StackPanel Spacing="4" Margin="0,4" ToolTip.Tip="{Binding Tip}" Background="Transparent">
+      <StackPanel Spacing="4" Margin="0,4" ToolTip.Tip="{Binding Tip}" Background="Transparent" IsVisible="{Binding IsShown}">
         <TextBlock Text="{Binding Label}" />
         <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}" AutomationProperties.Name="{Binding Label}"
                   HorizontalAlignment="Stretch" IsEnabled="{Binding IsAvailable}">

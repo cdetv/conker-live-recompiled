@@ -29,6 +29,13 @@ public abstract partial class SettingItem(MenuEntry entry) : ObservableObject
     [ObservableProperty]
     public partial bool IsAvailable { get; set; } = true;
 
+    /// <summary>The single player scheme the row belongs to; null for both.</summary>
+    public string? Scheme { get; } = entry.Scheme;
+
+    /// <summary>Shown under the chosen scheme (or both).</summary>
+    [ObservableProperty]
+    public partial bool IsShown { get; set; } = true;
+
     /// <summary>Shows a value from the file without saving it.</summary>
     public abstract void Show(string value);
 }

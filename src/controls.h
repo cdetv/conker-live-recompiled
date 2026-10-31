@@ -120,6 +120,9 @@ int controls_mode(void);
  * context, aim and attack keys (inputs as above); the game thread drives
  * those from the game's state (recomp_manual.c). */
 int controls_modern(int *context, int *aim, int *attack);
+/* Modern's slingshot (story_slingshot_aim = toggle): 1 when the context key
+ * turns a slingshot pad's slingshot on and off instead of the aim key. */
+int controls_sling_toggle(void);
 /* Multiplayer's zoom held (mp_zoom_mode = hold): 1 when chosen, with the
  * zoom key; the game thread zooms by the game's state (recomp_manual.c). */
 int controls_zoom_hold(int *zoom);

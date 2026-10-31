@@ -112,9 +112,6 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 
     public string? Section { get; } = entry.Section;
 
-    /// <summary>The single player scheme the row belongs to; null for both.</summary>
-    public string? Scheme { get; } = entry.Scheme;
-
     /// <summary>Photo mode's two keys that work anywhere: they clash with every row of the tab.</summary>
     public bool ClashesAll { get; } = entry.ClashesAll;
 
@@ -130,10 +127,6 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
     public bool IsChanged => !Value.Equals(defaultKey, StringComparison.OrdinalIgnoreCase);
 
     public string ResetTip => $"Back to the default ({owner.KeyLabel(defaultKey)})";
-
-    /// <summary>Shown under the chosen scheme (or both).</summary>
-    [ObservableProperty]
-    public partial bool IsShown { get; set; } = true;
 
     /// <summary>Another row's label using the same key for another button, if any.</summary>
     [ObservableProperty]

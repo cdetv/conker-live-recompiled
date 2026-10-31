@@ -3266,6 +3266,9 @@ static int weapon_kind(uint32_t k)
 }
 
 #define KIND_SHOTGUN   0x37u
+#define KIND_SLING     0x02u /* a slingshot pad (0x13 too: both 0x0032B260) */
+#define KIND_SLING2    0x13u
+#define LEVEL_VERTEX   0x36u /* Heist, "Enter the Vertex" */
 #define MODERN_B_MS    100   /* one press of B, about three frames */
 #define MODERN_WAIT_MS 700   /* then the game's answer, before another */
 #define MODERN_FIRE_MS 150   /* the shotgun fires on letting go of RT */
@@ -3331,6 +3334,41 @@ static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
     return 0;
 }
 
+/* RECOMP_MODERN_LOG=1: a [MODERN] line whenever what modern_poll reads
+ * changes (zone, level weapon, what B is doing, the inputs). */
+static int modern_log_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_MODERN_LOG");
+        on = e && *e && *e != '0';
+    }
+    return on;
+}
+
+static void modern_log(long now, uint32_t aim, int ctx, int aiming, int att,
+                       int owned, int foot, int mpad, int mjump, int b, int rt)
+{
+    static uint32_t was[8];
+    uint32_t v[8];
+
+    v[0] = MEM8(aim + 0x97u);
+    v[1] = MEM32(aim + 0xACu);
+    v[2] = MEM32(aim + 0xA0u);
+    v[3] = MEM32(aim + 0x1F8u);
+    v[4] = (uint32_t)(ctx | aiming << 1 | att << 2);
+    v[5] = (uint32_t)(owned | foot << 1 | mpad << 2 | mjump << 3);
+    v[6] = (uint32_t)(b | rt << 1);
+    v[7] = MEM32(0x008470DCu) ? MEM8(MEM32(0x008470DCu)) : 0;
+    if (!memcmp(v, was, sizeof v))
+        return;
+    memcpy(was, v, sizeof v);
+    fprintf(stderr, "[MODERN] t=%ld zone 0x%02X weapon 0x%02X B-doing 0x%02X "
+            "+1F8 %u cam0 %u | ctx %d aim %d att %d | owned %d foot %d "
+            "vertex pad %d jump %d | out B %d RT %d\n", now, v[0], v[1], v[2],
+            v[3], v[7], ctx, aiming, att, owned, foot, mpad, mjump, b, rt);
+}
+
 /* Returns 1 while the controller's Modern layout on foot applies. */
 static int modern_poll(int set)
 {
@@ -3341,6 +3379,7 @@ static int modern_poll(int set)
     uint32_t aim = chr ? MEM32(chr + 0x568u) : 0;
     uint32_t act, cur;
     int ctx_k, aim_k, att_k, ctx, aiming, att, out, pad, foot;
+    int vertex, mpad, mjump, sling;
     int b = 0, rt = 0;
     long now = attach_ms();
 
@@ -3350,8 +3389,18 @@ static int modern_poll(int set)
             xbox_KbmForce(XBOX_KBM_B, 0);
             xbox_KbmForce(XBOX_KBM_RT, 0);
         }
-        on_was = att_was = rt_was = owned = 0;
+        /* Photo mode and the pause menu keep whose the weapon is: the aim
+         * key let go there puts it away on return (user 2026-10-30). */
+        if (set != CONTROLS_PHOTO && set != CONTROLS_PAUSE)
+            owned = 0;
+        on_was = att_was = rt_was = 0;
         b_until = wait_until = fire_until = 0;
+        /* Leaving photo mode stops the shotgun's laser while the game still
+         * has RT held, and until RT is let go B does not put it away: aimed
+         * on return, RT is let go for a moment (the laser is off, so no
+         * shot) and the laser comes back. */
+        if (set == CONTROLS_PHOTO)
+            fire_until = now + MODERN_FIRE_MS;
         InterlockedExchange(&s_pad_out_b, 0);
         InterlockedExchange(&s_pad_out_rt, 0);
         return 0;
@@ -3374,12 +3423,26 @@ static int modern_poll(int set)
         aiming |= (int)s_pad_in_lt;
         att |= (int)s_pad_in_rt;
     }
+    /* Enter the Vertex's slow-motion jumps (conker-notes 2026-10-30,
+     * Vertex): there the SMG's code (0x00329610) takes B with the gun out
+     * as the jump when Conker stands on a pad (character +0x534 = 1; 2 off
+     * them), and 0x0084A680 is set while the jump lasts. */
+    vertex = MEM32(0x007FA1F8u) == LEVEL_VERTEX;
+    mpad = vertex && MEM32(chr + 0x534u) == 1u;
+    mjump = vertex && MEM32(0x0084A680u) != 0;
+    /* Slingshot Aim = Toggle (story_slingshot_aim; user 2026-10-30): on a
+     * slingshot pad the context key turns the slingshot on and off, as
+     * Classic's B, and the aim key does nothing there. */
+    sling = (act == KIND_SLING || act == KIND_SLING2)
+            && controls_sling_toggle();
     /* A weapon out is the aim input's once it is held with the weapon out
      * (or took it out). Only that one is put away when it is let go, not
-     * one the game or Classic's B took out (user 2026-10-30). */
+     * one the game or Classic's B took out (user 2026-10-30). In the
+     * Vertex every weapon out is: the game hands Conker the gun aimed when
+     * the level starts and after each jump (user 2026-10-30). */
     if (!out)
         owned = 0;
-    else if (aiming)
+    else if (aiming || vertex)
         owned = 1;
 
     if (!foot) {
@@ -3390,9 +3453,15 @@ static int modern_poll(int set)
         b_until = wait_until = fire_until = 0;
     } else if (now < b_until) {
         b = 1;
-    } else if (pad) {
+    } else if (mjump) {
+        /* Nothing presses B during a slow-motion jump. */
+    } else if (mpad && out) {
+        /* A slow-motion pad with the gun out: the context key is the jump;
+         * letting go of the aim key puts nothing away (that B would jump). */
+        b = ctx;
+    } else if (pad || sling) {
         /* A B pad: the context key, nothing else (the game has put a
-         * weapon away by itself). */
+         * weapon away by itself). A slingshot pad toggled the same way. */
         b = ctx;
     } else if (aiming != out && (aiming || owned) && now >= wait_until) {
         /* Take the weapon out or put it away: one press of B, then wait
@@ -3404,7 +3473,9 @@ static int modern_poll(int set)
                 "now 0x%02X)\n", now, aiming ? "take out" : "put away",
                 act, cur);
     }
-    if (foot && out && aiming) {
+    if (foot && out && (aiming || mjump || sling)) {
+        /* In a slow-motion jump, and with the slingshot toggled on, Attack
+         * fires without the aim key. */
         if (cur == KIND_SHOTGUN) {
             /* Aiming holds RT (the laser); Attack lets go for a moment,
              * which fires; the laser comes back while aiming. */
@@ -3421,6 +3492,9 @@ static int modern_poll(int set)
     }
     att_was = att;
     rt_was = rt;
+    if (modern_log_on())
+        modern_log(now, aim, ctx, aiming, att, owned, foot, mpad, mjump, b,
+                   rt);
     xbox_KbmForce(XBOX_KBM_B, b);
     xbox_KbmForce(XBOX_KBM_RT, rt);
     InterlockedExchange(&s_pad_out_b, b);
@@ -3553,7 +3627,9 @@ static void bat_poll(int set)
     if (set != CONTROLS_BAT_AIR || (key <= 0 && !modern) || !chr) {
         if (on_was)
             xbox_KbmForce(XBOX_KBM_LT, 0);
-        on_was = held_was = want = owned = 0;
+        if (set != CONTROLS_PHOTO && set != CONTROLS_PAUSE)
+            owned = 0;   /* as modern_poll's weapon */
+        on_was = held_was = want = 0;
         tap_until = wait_until = 0;
         InterlockedExchange(&s_pad_out_lt, 0);
         return;

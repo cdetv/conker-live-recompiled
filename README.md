@@ -1,12 +1,3 @@
-<!--
-  Draft of the public repo's front page (SPEC 9.4). Copy to the root of
-  cdetv/conker-live-recompiled; the images go in images/ beside it there,
-  never in this private repo (SPEC 3.3). They are staged (untracked) in
-  _work/public_repo/images/: the user's screenshots (hero.png at the top) from
-  D:\Claude\Resources\ConkerXboxRecompile\Readme Screenshots\, with
-  Conker-Recompiled-Logo-noTM.png renamed to logo.png (same as art/logo.png).
--->
-
 <p align="center">
   <img src="images/logo.png" alt="Conker: Live & Recompiled" width="640">
 </p>
@@ -134,6 +125,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   **Modern** (hold the right mouse button to aim, a separate action key).
 - **PlayStation 4 and 5 controllers** (DualShock 4, DualSense) work directly,
   no extra programs. Xbox controllers of course too.
+- **Rumble** on Xbox and PlayStation controllers, as on the Xbox.
 - **Slots**: choose which controller, or the keyboard, is which player.
 - Multiplayer keyboard and mouse controls, with a zoom key.
 
@@ -240,18 +232,6 @@ Saves, settings, photos and logs are in `%LOCALAPPDATA%\conker-lr-recomp\`.
 - Parts of It's War (the beach) can drop below 60 fps.
 - Opening photo mode during a cutscene can break the cutscene's sound. For
   example, during the Great Mighty Poo song it removes the voice lines.
-
-With the **Modern** controller layout (fixes are planned for the next update):
-
-- If you open photo mode while aiming, Conker keeps aiming after exiting. Aim
-  again to fix.
-- *Heist – Enter the Vertex*: the context pads that start the slow-motion
-  jumps don't work the normal way. Requires you to aim while activating, then
-  release aim button. When aim button is released, Conker will then jump and
-  go in slow mo. You then need to press the aim button again to fire.
-- The slingshot's context pads don't react to the context button. Hold the
-  aim button to use them instead, as with the other weapons. (More a quirk
-  than a bug; this will become an option.)
 
 Found something else? Please open an [issue](../../issues) and attach the
 newest log (launcher → Files → Logs).

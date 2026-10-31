@@ -321,11 +321,12 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         string scheme = ValueOf("story_scheme");
         foreach (ControlsTab tab in Tabs)
         {
-            var keys = tab.Items.OfType<KeyItem>().ToList();
-            foreach (KeyItem k in keys)
+            foreach (SettingItem item in tab.Items)
             {
-                k.IsShown = k.Scheme is null || k.Scheme.Equals(scheme, StringComparison.OrdinalIgnoreCase);
+                item.IsShown = item.Scheme is null || item.Scheme.Equals(scheme, StringComparison.OrdinalIgnoreCase);
             }
+
+            var keys = tab.Items.OfType<KeyItem>().ToList();
 
             foreach (KeyItem k in keys)
             {

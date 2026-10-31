@@ -557,6 +557,12 @@ static int zoom_hold_set(void)
 static volatile LONG s_modern, s_modern_keys[3];
 static volatile LONG s_zoom_hold, s_zoom_key;
 static volatile LONG s_bat_aim_key;
+static volatile LONG s_sling_toggle;
+
+int controls_sling_toggle(void)
+{
+    return (int)s_sling_toggle;
+}
 
 int controls_bat_aim(int *aim)
 {
@@ -704,6 +710,9 @@ static void apply_set(int set)
                             controls_parse_key(settings_get("story_attack")));
         InterlockedExchange(&s_bat_aim_key,
                             controls_parse_key(settings_get("story_bat_aim")));
+        InterlockedExchange(&s_sling_toggle,
+                            !strcmp(settings_get("story_slingshot_aim"),
+                                    "toggle"));
         InterlockedExchange(&s_modern, modern);
     }
     if (set == CONTROLS_MP) {

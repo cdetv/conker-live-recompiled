@@ -237,6 +237,11 @@ static const Option s_options[] = {
       "out and puts it away, and is the context action); modern = hold\n"
       "story_aim to take the weapon out, Attack fires only while aiming,\n"
       "story_context is the context action only." },
+    { "controls_story", "story_slingshot_aim", OPT_CHOICE, "hold", "hold", NULL,
+      "hold toggle",
+      "Modern only: how a slingshot pad's slingshot aims. hold (default;\n"
+      "aimed while story_aim is held, as the other weapons) or toggle\n"
+      "(story_context turns it on and off, as Classic's weapon key)." },
     { "controls_story", "story_move_forward", OPT_KEY, "w", "w", NULL, NULL,
       "One key per action; F3 says what each does (menus have fixed\n"
       "keys: WASD/arrows, Space/E/Enter, Q/Backspace, Esc).\n"
