@@ -15,7 +15,8 @@ public sealed record SettingOption(
 /// <summary>
 /// One entry of the F2 or F3 menu, in the menu's order: a section heading, checkbox, choice or
 /// slider; F3 also has tabs, notes, radio buttons, key rows, fixed keys (Menus tab), reset
-/// buttons and the Slots table. A key row's Button is the controller button it presses (shown
+/// buttons and the Slots table. Parent: the checkbox the entry sits under (shown, indented, only
+/// while it is on). A key row's Button is the controller button it presses (shown
 /// unless ButtonShown is false), Section the heading it is under, Scheme the single player scheme
 /// it belongs to (null: both), ClashesAll that its key clashes with every row of its tab. A reset
 /// button's Keys are what it puts back; a fixed row's FixedKeys its keys as text.
@@ -26,7 +27,8 @@ public sealed record MenuEntry(
     double Min, double Max, string? Neutral, int Decimals, string? Unit, string? ResetTip,
     string? Button = null, bool ButtonShown = true, string? Section = null, string? Scheme = null,
     bool ClashesAll = false, string? Question = null, IReadOnlyList<string>? Keys = null,
-    string? FixedKeys = null, int Count = 0, string? KeyboardKey = null, string? KeyboardOnKey = null);
+    string? FixedKeys = null, int Count = 0, string? KeyboardKey = null, string? KeyboardOnKey = null,
+    string? Parent = null);
 
 /// <summary>A key name settings.ini takes and what the F3 menu calls it ("space", "Space").</summary>
 public sealed record KeyName(string Name, string Label);
@@ -112,7 +114,7 @@ public sealed class SettingsSchema
         Button: Str(m, "button"), ButtonShown: Bool(m, "button_shown") ?? true, Section: Str(m, "section"),
         Scheme: Str(m, "scheme"), ClashesAll: Bool(m, "clashes_all") ?? false, Question: Str(m, "question"),
         Keys: List(m, "keys"), FixedKeys: Str(m, "keys"), Count: (int)Num(m, "count"),
-        KeyboardKey: Str(m, "keyboard_key"), KeyboardOnKey: Str(m, "keyboard_on_key"));
+        KeyboardKey: Str(m, "keyboard_key"), KeyboardOnKey: Str(m, "keyboard_on_key"), Parent: Str(m, "parent"));
 
     /// <summary>
     /// A value as the game would store it, or null when the game would ignore it (and use the

@@ -32,7 +32,9 @@
  * F2 / F3 menu is open: it has the pad and keys then.
  *
  * Zoom is the render camera's field of view (+0x104, degrees) written
- * before the projection build, and put back on leaving. The HUD (hidden
+ * before the projection build, and put back on leaving; the aspect (+0x108)
+ * follows a render resolution changed while frozen (conker_AspectRefresh,
+ * as the frozen world update would). The HUD (hidden
  * by default) is the game's two HUD draws, both skipped while the pause
  * flag is set: 0x00317780 inside 0x002A5DB0 (the flag cleared for that
  * call) and 0x002A5EB0 in the draw right after 0x002A60B0 (called again
@@ -809,6 +811,7 @@ void photo_render_begin(void)
     put_matrix(cam + 0x50u, w);
     put_matrix(rec + 0x80u, w);
     MEMF(cam + 0x104u) = s_opt.fov;
+    conker_AspectRefresh(cam);
     build_projection(cam);
     memcpy((void *)XBOX_PTR(rec + 0x148u), (const void *)XBOX_PTR(cam + 0x114u),
            0x2A * 4);

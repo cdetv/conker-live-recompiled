@@ -78,7 +78,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | Texture filtering | Original | Original, or anisotropic up to 16x |
 | Anti-aliasing | — | FXAA or SMAA |
 | Sharpening | — | AMD FidelityFX CAS, adjustable |
-| Pop-in | Grass, fur and distant characters thin out or vanish | **Pop-in Fix**: full detail at any distance |
+| Pop-in | Grass, fur and distant characters thin out or vanish | **Pop-in Fix**: full detail at any distance; foliage, characters, fur and ambient particle (experimental) can each be turned on or off |
 | Cutscene blur (depth of field) | Original | Off, original, updated or cinematic |
 | Glow | Always on | Adjustable 0–100 % |
 | Haze | Always on | Can be turned off for a clear view (e.g. the green gas in some levels) |
@@ -222,6 +222,25 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 
 Saves, settings, photos and logs are in `%LOCALAPPDATA%\conker-lr-recomp\`.
 
+## Planned features
+
+Ideas for future updates, in no particular order. Plans can change.
+
+- Linux / Steam Deck support
+- Language selection
+- Cutscene skip
+- Other FPS options
+- VSync
+- Accurate audio DSP emulation + expanded sound profiles
+- Mouse controls for menus
+- Gyro aiming
+- HD-friendly GUI / expanded button prompts
+- Improved shadows
+- Improved water and fluids
+- Achievements
+- Working online play (via System Link emulation)
+- Expanded multiplayer features
+
 ## Known issues
 
 - Xbox Live and System Link are not available (multiplayer against bots works).
@@ -284,9 +303,12 @@ minutes.
   built on (used through the fork [cdetv/xboxrecomp](https://github.com/cdetv/xboxrecomp)).
 - **[xemu](https://github.com/xemu-project/xemu)**: the sound chip emulation,
   and the reference the port was checked against.
-- **nastys, Vaani and Theconker64**: the decensor patch.
-- **codepdbh/xboxrecomp-conker**, the moddb *Conker Xbox 60fps + widescreen*
-  patch, **XboxDev/ghidra-xbe** and **Ghidra**: knowledge and tools along the way.
+- **nastys, Vaani and Theconker64**: [the decensor patch](https://github.com/nastys/conker-live-and-reloaded-decensor).
+- **[codepdbh/xboxrecomp-conker](https://github.com/codepdbh/xboxrecomp-conker)**,
+  the *[Conker Xbox 60fps + Widescreen patch](https://www.moddb.com/mods/conker-live-reloaded-wip-60fps-patch)
+  by picardsfish*, **[XboxDev/ghidra-xbe](https://github.com/XboxDev/ghidra-xbe)**
+  and **[Ghidra](https://github.com/nationalsecurityagency/ghidra)**: knowledge
+  and tools along the way.
 - Dear ImGui, SDL3, AMD FidelityFX CAS and FSR 1, NVIDIA FXAA, SMAA, .NET,
   Avalonia, CommunityToolkit.Mvvm and SharpCompress.
 

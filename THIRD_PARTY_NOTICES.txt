@@ -20,7 +20,7 @@ PART 1: conker.exe and xemu_apu.dll (the game)
 
 https://github.com/sp00nznet/xboxrecomp by Ned Heller (sp00nznet) and
 contributors, used through the fork https://github.com/cdetv/xboxrecomp
-(version v0.13.1-332-g54ad2ee). It translated the game's code and provides
+(version v0.13.1-336-geade5ec). It translated the game's code and provides
 the runtime around it: the Xbox kernel, graphics, sound and controllers.
 MIT licence:
 
@@ -498,8 +498,8 @@ Credits for knowledge used (no code from these is included)
     offsets, kernel export ordinals, structure layouts).
   - codepdbh/xboxrecomp-conker: an earlier attempt at recompiling Conker with
     xboxrecomp, a useful map of the road.
-  - The "Conker Xbox 60fps + widescreen" patch (moddb): where the game keeps
-    its frame-rate and screen settings.
+  - The "Conker Xbox 60fps + Widescreen" patch by picardsfish (ModDB): where
+    the game keeps its frame-rate and screen settings.
   - XboxDev/ghidra-xbe and Ghidra (NSA): loading and studying the game's code.
   - nastys, Vaani and Theconker64: the Conker: Live & Reloaded decensor patch.
     It is not included; the launcher downloads it from their GitHub releases

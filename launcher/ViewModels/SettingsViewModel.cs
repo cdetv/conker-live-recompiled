@@ -81,6 +81,11 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
                     item.Tip ??= option.Help;
                 }
 
+                if (item.Parent is { } parent && Items.FirstOrDefault(i => i.Key == parent) is { } up)
+                {
+                    item.Depth = up.Depth + 1;
+                }
+
                 Items.Add(item);
             }
         }
@@ -124,6 +129,23 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             item.Show(value);
             item.IsAvailable = item.Needs != "decensor" || haveDecensor;
         }
+
+        ShowChildren();
+    }
+
+    /// <summary>
+    /// As in F2, a row under a checkbox (the Pop-in Fix's parts, the particle density under one of
+    /// them) shows only while that checkbox is on and shown itself; parents come first in the menu.
+    /// </summary>
+    private void ShowChildren()
+    {
+        foreach (SettingItem item in Items)
+        {
+            if (item.Parent is { } parent && Items.OfType<CheckItem>().FirstOrDefault(c => c.Key == parent) is { } check)
+            {
+                item.IsShown = check.IsOn && check.IsShown;
+            }
+        }
     }
 
     /// <summary>Writes the changes not saved yet (Play calls this before the game starts).</summary>
@@ -154,6 +176,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         pending[key] = value;
         saveTimer.Stop();
         saveTimer.Start();
+        ShowChildren();
     }
 
     [RelayCommand]
@@ -181,6 +204,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             }
         }
 
+        ShowChildren();
         Flush();
     }
 }

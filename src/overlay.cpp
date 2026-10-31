@@ -131,6 +131,8 @@ void conker_SetCutsceneBlur(int mode);
 void conker_SetFrameRate(int fps);
 void conker_SetDipFix(int on);
 void conker_SetGrassFull(int on);
+void conker_SetPopinPart(int part, int on);
+void conker_SetParticleDensity(float percent);
 void conker_SetScreenHaze(int on);
 void conker_StartSoak(void);
 int conker_SoakState(void);
@@ -800,6 +802,9 @@ static const char *s_dump_needs;
 /* The single player scheme the entries being shown belong to (the launcher
  * shows them under that scheme only). */
 static const char *s_dump_scheme;
+/* The checkbox the entries being shown sit under (shown only while it is
+ * on, indented). */
+static const char *s_dump_parent;
 
 /* Opens the entry's JSON object, with the fields every entry has; the
  * caller adds its own and closes it. False when no dump is running. */
@@ -819,6 +824,8 @@ static bool dump_item(const char *type, const char *label, const char *key)
         fprintf(s_dump, ", \"needs\": \"%s\"", s_dump_needs);
     if (s_dump_scheme)
         fprintf(s_dump, ", \"scheme\": \"%s\"", s_dump_scheme);
+    if (s_dump_parent)
+        fprintf(s_dump, ", \"parent\": \"%s\"", s_dump_parent);
     return true;
 }
 
@@ -887,6 +894,10 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetDipFix(on);
         if (!strcmp(key, "grass_full_detail") && !settings_env_override(key))
             conker_SetGrassFull(on);
+        if (!strncmp(key, "popin_", 6) && !settings_env_override(key))
+            conker_SetPopinPart(!strcmp(key, "popin_grass") ? 0
+                                : !strcmp(key, "popin_characters") ? 1
+                                : !strcmp(key, "popin_fur") ? 2 : 3, on);
         if (!strcmp(key, "screen_haze") && !settings_env_override(key))
             conker_SetScreenHaze(on);
         /* Audio waits for the next start: the voice banks stay open. */
@@ -1080,6 +1091,7 @@ static Slide s_slides[] = {
     { "story_mouse_y", 100.0f, false },
     { "mp_mouse_x", 100.0f, false },
     { "mp_mouse_y", 100.0f, false },
+    { "particle_density", 15.0f, false },
 };
 #define NUM_SLIDES ((int)(sizeof(s_slides) / sizeof(s_slides[0])))
 
@@ -1124,6 +1136,11 @@ static void apply_slider(const char *key, bool saved)
     if (!strncmp(key, "story_", 6) || !strncmp(key, "mp_", 3)) {
         if (saved)
             controls_apply();
+        return;
+    }
+    if (!strcmp(key, "particle_density")) {
+        if (!settings_env_override(key))
+            conker_SetParticleDensity(slide_value(slide_for(key)));
         return;
     }
     apply_picture();
@@ -1371,7 +1388,9 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         "front (debug)",
     };
 
-    place_window(MENU_SETTINGS, "menu_window", w, h, 22.0f, 0.0f);
+    /* 24 wide: "Ambient Particles (experimental)", indented, is the widest
+     * line (clipped at 22, 2026-10-31). */
+    place_window(MENU_SETTINGS, "menu_window", w, h, 24.0f, 0.0f);
     ImGui::Begin("Settings", NULL,
                  ImGuiWindowFlags_NoCollapse
                  | ImGuiWindowFlags_NoSavedSettings);
@@ -1412,6 +1431,32 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     checkbox("Pop-in Fix", "grass_full_detail", true,
              "Eliminates pop-in for elements such as grass, fur, and distant "
              "characters");
+    /* Its parts, shown while it is on (user 2026-10-31). The dump always
+     * lists them: the launcher shows and hides them by their parent. */
+    if (s_dump || strcmp(settings_get("grass_full_detail"), "0")) {
+        ImGui::Indent();
+        s_dump_parent = "grass_full_detail";
+        checkbox("Grass & flowers", "popin_grass", true,
+                 "Grass keeps waving and flowers never thin out or vanish "
+                 "with distance");
+        checkbox("Characters", "popin_characters", true,
+                 "Characters no longer fade out far from the camera");
+        checkbox("Fur", "popin_fur", true,
+                 "Fur stays full at any distance instead of thinning out");
+        checkbox("Ambient Particles (experimental)", "popin_particles", true,
+                 "Falling leaves, fluff and dust fill the whole area instead "
+                 "of only a small box around the camera");
+        if (s_dump || strcmp(settings_get("popin_particles"), "0")) {
+            ImGui::Indent();
+            s_dump_parent = "popin_particles";
+            slider("Particle density", "particle_density", 0.0f, 100.0f,
+                   "15", "%.0f %%", "Back to the default (15 %)");
+            s_dump_parent = "grass_full_detail";
+            ImGui::Unindent();
+        }
+        s_dump_parent = NULL;
+        ImGui::Unindent();
+    }
     choice("Frame rate", "frame_rate", fps_values, fps_names,
            (int)(sizeof(fps_values) / sizeof(fps_values[0])), true);
     /* The dip fix at 30 is on by default and a debug choice (user

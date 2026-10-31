@@ -32,7 +32,19 @@ public abstract partial class SettingItem(MenuEntry entry) : ObservableObject
     /// <summary>The single player scheme the row belongs to; null for both.</summary>
     public string? Scheme { get; } = entry.Scheme;
 
-    /// <summary>Shown under the chosen scheme (or both).</summary>
+    /// <summary>The checkbox this row sits under (indented, shown only while it is on); null for none.</summary>
+    public string? Parent { get; } = entry.Parent;
+
+    /// <summary>How many parents up the row has (set by the tab as it builds its rows, before showing them).</summary>
+    public int Depth { get; set; }
+
+    /// <summary>A checkbox's margin: indented under its parent.</summary>
+    public Avalonia.Thickness Indent => new(Depth * 24, 2, 0, 2);
+
+    /// <summary>A slider's margin: indented under its parent.</summary>
+    public Avalonia.Thickness SliderIndent => new(Depth * 24, 4, 0, 4);
+
+    /// <summary>Shown under the chosen scheme (or both), and while its parent is on.</summary>
     [ObservableProperty]
     public partial bool IsShown { get; set; } = true;
 

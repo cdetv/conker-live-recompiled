@@ -68,6 +68,9 @@ int photo_cut_blur(void);
 void photo_toggle_cut_blur(void);
 /* From recomp_manual.c: the F2 cutscene blur is not off. */
 int conker_CutsceneBlurOn(void);
+/* From recomp_manual.c (game thread): camera cam's aspect (+0x108) to the
+ * display shape, which the frozen world update no longer does. */
+void conker_AspectRefresh(unsigned cam);
 
 /* From overlay.cpp: a menu (F2 / F3 / the photo panel) is open, so the pad
  * and keys are its own; and whether the menu has the pad (blocked for the

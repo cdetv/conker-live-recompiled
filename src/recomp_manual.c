@@ -318,12 +318,29 @@ static float display_widen(void)
     return widen;
 }
 
+/* The widening in the camera's aspect: the one last applied here. */
+static float s_widen_applied;
+
 void sub_000645C0_enter(void)
 {
     float widen = display_widen();
     aspect_log();
+    s_widen_applied = widen;
     if (widen != 1.0f)
         g_xmm1.f[0] *= widen;
+}
+
+/* Photo mode freezes the world update, so the call above stops and a
+ * render resolution changed meanwhile left the 4:3 picture stretched
+ * (user 2026-10-31). The camera's aspect (+0x108) is brought to the shape
+ * shown, before photo mode's projection build. */
+void conker_AspectRefresh(unsigned cam)
+{
+    float widen = display_widen();
+    if (s_widen_applied > 0.0f && widen != s_widen_applied) {
+        MEMF(cam + 0x108u) *= widen / s_widen_applied;
+        s_widen_applied = widen;
+    }
 }
 
 /* ── Conker: the main menu's save frame at wide shapes ─────────────────────
@@ -1969,23 +1986,51 @@ void sub_00537360_enter(void)
  * whose entry hook writes the real centre back to the patch and to the
  * pushed arguments. Every patch in range of the level's own culling is then
  * drawn as if near. RECOMP_GRASS_FULL=0 (or grass_full_detail = 0) = the
- * original; conker_SetGrassFull from the F2 menu. */
+ * original; conker_SetGrassFull from the F2 menu.
+ * Each part of the fix (grass, characters, fur, ambient particles below)
+ * also has its own switch under that one (user 2026-10-31):
+ * RECOMP_POPIN_GRASS, _CHARACTERS, _FUR = 0 (popin_* in settings.ini)
+ * leaves that part as the original; the particles part is experimental
+ * and off unless RECOMP_POPIN_PARTICLES=1 (user 2026-10-31);
+ * conker_SetPopinPart from the F2 menu. */
+enum { POPIN_GRASS, POPIN_CHARACTERS, POPIN_FUR, POPIN_PARTICLES,
+       POPIN_PARTS };
 static volatile int g_grass_full = -1;
+static volatile int g_popin_part[POPIN_PARTS] = { -1, -1, -1, -1 };
+static const char *const k_popin_env[POPIN_PARTS] = {
+    "RECOMP_POPIN_GRASS", "RECOMP_POPIN_CHARACTERS", "RECOMP_POPIN_FUR",
+    "RECOMP_POPIN_PARTICLES"
+};
 static uint32_t s_grass_patch, s_grass_pos[3];
 
-static int grass_full_on(void)
+static int env_on(const char *name, int def)
 {
-    if (g_grass_full < 0) {
-        const char *e = getenv("RECOMP_GRASS_FULL");
-        g_grass_full = !(e && *e == '0');
-    }
-    return g_grass_full;
+    const char *e = getenv(name);
+    return e && *e ? *e != '0' : def;
+}
+
+/* The pop-in fix's part (POPIN_*) is on: the main switch and its own. */
+static int popin_on(int part)
+{
+    if (g_grass_full < 0)
+        g_grass_full = env_on("RECOMP_GRASS_FULL", 1);
+    if (g_popin_part[part] < 0)
+        g_popin_part[part] = env_on(k_popin_env[part],
+                                    part != POPIN_PARTICLES);
+    return g_grass_full && g_popin_part[part];
 }
 
 /* For the F2 menu (overlay.cpp): applies from the next frame. */
 void conker_SetGrassFull(int on)
 {
     g_grass_full = on != 0;
+}
+
+/* part: 0 grass, 1 characters, 2 fur, 3 particles (POPIN_*). */
+void conker_SetPopinPart(int part, int on)
+{
+    if (part >= 0 && part < POPIN_PARTS)
+        g_popin_part[part] = on != 0;
 }
 
 static void grass_put_back(void)
@@ -2003,7 +2048,7 @@ void sub_001A9540_enter(void)
     uint32_t patch = MEM32(g_esp + 4), players = MEM32(0x008470DCu), cam;
     int16_t player = (int16_t)MEM16(g_esp + 8);
     grass_put_back();                   /* never left moved by a missed call */
-    if (!grass_full_on() || !xact_va_ok(patch) || !xact_va_ok(players)
+    if (!popin_on(POPIN_GRASS) || !xact_va_ok(patch) || !xact_va_ok(players)
         || player < 0 || player > 3)
         return;
     cam = MEM32(players + (uint32_t)player * 0x770u + 0x3E0u);
@@ -2035,7 +2080,7 @@ void sub_00080DA0(void)
     uint32_t c = MEM32(g_esp + 4);
     uint16_t lim;
 
-    if (!grass_full_on() || !xact_va_ok(c)) {
+    if (!popin_on(POPIN_CHARACTERS) || !xact_va_ok(c)) {
         sub_00080DA0_gen();
         return;
     }
@@ -2062,11 +2107,171 @@ void sub_003E1EE0(void)
     int fur = MEM32(g_esp) == 0x0008210Cu;
 
     sub_003E1EE0_gen();
-    if (!fur || !grass_full_on())
+    if (!fur || !popin_on(POPIN_FUR))
         return;
     full = g_xmm3.f[0] > 0.0f ? g_xmm3.f[0] * 0.4f : 400.0f;
     if (g_xmm0.f[0] > full)
         g_xmm0.f[0] = full;
+}
+
+/* Ambient particles too (user 2026-10-31: the field's falling leaves and
+ * dandelion fluff follow the camera, seen flying away in photo mode).
+ * 0x001A6850 draws one particle emitter (cdecl: emitter, short player) as
+ * a point list. Kinds 2 and 4 (+0x2C) are a fixed set of points kept in a
+ * box of +0x68 x +0x6C x +0x68 units (1000 x 500 x 1000 in the field)
+ * around that player's camera (player record +0x330): the vertex program
+ * wraps each point into the box, so the cloud moves with the camera and
+ * ends half a box away. With the fix on, the emitter is drawn again with
+ * the box moved by whole box sizes, which the wrap turns into the
+ * neighbouring part of one endless cloud: tiles out to
+ * RECOMP_PARTICLE_TILES boxes each way across (default 3) and one box above
+ * and below, the far ones first (the points blend over each other). Each
+ * added box draws only part of the points (+0x4C, the count drawn):
+ * particle_density percent (RECOMP_PARTICLE_DENSITY, default 15) in the
+ * first ring of boxes, divided by r^2 in ring r, as boxes behind boxes
+ * add up (all of them at full count was a blizzard, user 2026-10-31);
+ * 50 was cluttered and showed particles clipping into walls; the user
+ * picked 15. conker_SetParticleDensity from the F2 slider. */
+static volatile int g_particle_density = -1;
+
+/* For the F2 menu (overlay.cpp): applies from the next frame. */
+void conker_SetParticleDensity(float percent)
+{
+    g_particle_density = percent < 0.0f ? 0
+                       : percent > 100.0f ? 100 : (int)(percent + 0.5f);
+}
+
+/* RECOMP_PARTICLE_LOG=1: a [PARTICLES] line when an effect starts being
+ * drawn (not seen in the last 3 s), e.g. per map in a soak run: what (an
+ * emitter of 0x001A6850 with its kind, box and count, or the other camera
+ * box effect, 0x001BFE30's streaks). */
+static void particle_log(const char *what, uint32_t em)
+{
+    static int on = -1, n;
+    static struct { uint32_t em, kind, box; clock_t seen; } s[64];
+    uint32_t kind = em ? MEM32(em + 0x2Cu) : 0, box = em ? MEM32(em + 0x68u) : 0;
+    uint32_t count = em ? MEM32(em + 0x4Cu) : 0;
+    clock_t now = clock();
+    int i;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_PARTICLE_LOG");
+        on = e && *e == '1';
+    }
+    if (!on)
+        return;
+    for (i = 0; i < n; i++)             /* the count grows as it fades in */
+        if (s[i].em == em && s[i].kind == kind && s[i].box == box)
+            break;
+    if (i == n) {
+        if (n == 64)
+            return;
+        n++;
+        s[i].em = em; s[i].kind = kind; s[i].box = box;
+        s[i].seen = now - 10 * CLOCKS_PER_SEC;
+    }
+    if (now - s[i].seen > 3 * CLOCKS_PER_SEC) {
+        if (em)
+            fprintf(stderr, "[PARTICLES] %s %08X kind %u box %.0f x %.0f count %u"
+                    " tex %d/%08X\n", what, em, kind, MEMF(em + 0x68u),
+                    MEMF(em + 0x6Cu), count, (int32_t)MEM32(em + 0x58u),
+                    MEM32(em + 0x5Cu));
+        else
+            fprintf(stderr, "[PARTICLES] %s\n", what);
+    }
+    s[i].seen = now;
+}
+
+/* It's War's streaks and any other user of this camera box effect, logged
+ * only (RECOMP_PARTICLE_LOG). */
+extern void sub_001BFE30_gen(void);
+void sub_001BFE30(void)
+{
+    particle_log("camera streaks 0x001BFE30", 0);
+    sub_001BFE30_gen();
+}
+
+extern void sub_001A6850_gen(void);
+void sub_001A6850(void)
+{
+    enum { MAXT = 8, MAXN = (2 * MAXT + 1) * (2 * MAXT + 1) * 3 };
+    static int tiles = -1;
+    int density;
+    uint32_t sp = g_esp, ret = MEM32(sp), em = MEM32(sp + 4), count;
+    uint32_t a2 = MEM32(sp + 8), players = MEM32(0x008470DCu), rec;
+    int16_t player = (int16_t)a2;
+    int32_t kind;
+    float bx, by, c[3];
+    struct { float d; int8_t x, y, z; } t[MAXN], tmp;
+    int n = 0, i, j, k;
+
+    if (tiles < 0) {
+        const char *e = getenv("RECOMP_PARTICLE_TILES");
+        tiles = e ? atoi(e) : 3;
+        if (tiles < 0) tiles = 0;
+        if (tiles > MAXT) tiles = MAXT;
+    }
+    if (xact_va_ok(em))
+        particle_log("emitter", em);
+    if (!popin_on(POPIN_PARTICLES) || !tiles || !xact_va_ok(em)
+        || !xact_va_ok(players) || player < 0 || player > 3) {
+        sub_001A6850_gen();
+        return;
+    }
+    if (g_particle_density < 0) {
+        const char *e = getenv("RECOMP_PARTICLE_DENSITY");
+        conker_SetParticleDensity(e ? (float)atof(e) : 15.0f);
+    }
+    density = g_particle_density;
+    kind = (int32_t)MEM32(em + 0x2Cu);
+    count = MEM32(em + 0x4Cu);
+    bx = MEMF(em + 0x68u);
+    by = MEMF(em + 0x6Cu);
+    if ((kind != 2 && kind != 4) || !(bx > 0.0f) || !(by > 0.0f)) {
+        sub_001A6850_gen();
+        return;
+    }
+    rec = players + (uint32_t)player * 0x770u + 0x330u;
+    c[0] = MEMF(rec);
+    c[1] = MEMF(rec + 4);
+    c[2] = MEMF(rec + 8);
+    for (i = -tiles; i <= tiles; i++)
+        for (j = -1; j <= 1; j++)
+            for (k = -tiles; k <= tiles; k++) {
+                float dx = i * bx, dy = j * by, dz = k * bx;
+                t[n].d = dx * dx + dy * dy + dz * dz;
+                t[n].x = (int8_t)i; t[n].y = (int8_t)j; t[n].z = (int8_t)k;
+                n++;
+            }
+    for (i = 1; i < n; i++)             /* farthest first */
+        for (j = i; j > 0 && t[j - 1].d < t[j].d; j--) {
+            tmp = t[j]; t[j] = t[j - 1]; t[j - 1] = tmp;
+        }
+    for (i = 0; i < n; i++) {
+        uint32_t keep = count;
+        int ring = abs(t[i].x) > abs(t[i].z) ? abs(t[i].x) : abs(t[i].z);
+        if (abs(t[i].y) > ring)
+            ring = abs(t[i].y);
+        if (ring)                       /* ring r: density / r^2 */
+            keep = (uint32_t)((uint64_t)count * (uint32_t)density / 100u
+                              / (uint32_t)(ring * ring));
+        if (!keep)
+            continue;
+        MEM32(em + 0x4Cu) = keep;
+        MEMF(rec) = c[0] + t[i].x * bx;
+        MEMF(rec + 4) = c[1] + t[i].y * by;
+        MEMF(rec + 8) = c[2] + t[i].z * bx;
+        g_esp = sp;
+        MEM32(sp) = ret;
+        MEM32(sp + 4) = em;
+        MEM32(sp + 8) = a2;
+        sub_001A6850_gen();
+    }
+    MEM32(em + 0x4Cu) = count;
+    MEMF(rec) = c[0];
+    MEMF(rec + 4) = c[1];
+    MEMF(rec + 8) = c[2];
+    g_esp = sp + 4;                     /* as after one call */
 }
 
 /* 0x004288F5: D3DX matrix translation (out in EAX; x, y, z on the stack). */

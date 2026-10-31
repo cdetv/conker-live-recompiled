@@ -103,6 +103,25 @@ static const Option s_options[] = {
       "out with distance, fur stays on), 0 = the original (grass still and\n"
       "thinned out a few steps away, gone further off; characters hidden\n"
       "past their distance limit; fur fading out with distance)." },
+    { "display", "popin_grass", OPT_BOOL, "1", "1", "RECOMP_POPIN_GRASS",
+      NULL,
+      "The Pop-in Fix's parts, each 1 = fixed, 0 = as the original; they\n"
+      "apply only while grass_full_detail = 1. popin_grass: grass and\n"
+      "flowers, popin_characters: characters, popin_fur: fur (all three on\n"
+      "by default), popin_particles: ambient particles (falling leaves,\n"
+      "dust) all round instead of only near the camera (experimental, off\n"
+      "by default)." },
+    { "display", "popin_characters", OPT_BOOL, "1", "1",
+      "RECOMP_POPIN_CHARACTERS", NULL, NULL },
+    { "display", "popin_fur", OPT_BOOL, "1", "1", "RECOMP_POPIN_FUR", NULL,
+      NULL },
+    { "display", "popin_particles", OPT_BOOL, "0", "0",
+      "RECOMP_POPIN_PARTICLES", NULL, NULL },
+    { "display", "particle_density", OPT_NUM, "15", "15",
+      "RECOMP_PARTICLE_DENSITY", NULL,
+      "How many ambient particles popin_particles adds beyond the game's\n"
+      "own box round the camera, 0 to 100 percent (default 15; fewer the\n"
+      "further away; 0 = only the game's own).", 0.0f, 100.0f },
     { "display", "fps_counter", OPT_CHOICE, "0", "0", NULL, "0 1 2",
       "Frame rate in the top left corner: 0 = off (default), 1 = frames\n"
       "per second, 2 = also how long a frame takes (average and longest).\n"
