@@ -69,8 +69,9 @@
  * filter chain; from the next present, also while paused; the glow slider,
  * conker_SetGlow, scales the game's own glow from its next frame, and
  * cutscene blur, conker_SetCutsceneBlur, likewise; the
- * frame rate, the dip fix, grass detail and screen haze, conker_SetFrameRate,
- * conker_SetDipFix, conker_SetGrassFull and conker_SetScreenHaze in
+ * frame rate, the dip fix, grass detail, screen haze, vignette and screen
+ * drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
+ * conker_SetScreenHaze, conker_SetVignette and conker_SetScreenDrops in
  * recomp_manual.c, from the
  * game's next frame; uncensored text, decensor_set, from the next
  * level that loads) also
@@ -134,6 +135,8 @@ void conker_SetGrassFull(int on);
 void conker_SetPopinPart(int part, int on);
 void conker_SetParticleDensity(float percent);
 void conker_SetScreenHaze(int on);
+void conker_SetVignette(int on);
+void conker_SetScreenDrops(int on);
 void conker_StartSoak(void);
 int conker_SoakState(void);
 void overlay_init(void);
@@ -900,6 +903,10 @@ static void checkbox(const char *label, const char *key, bool applies_now,
                                 : !strcmp(key, "popin_fur") ? 2 : 3, on);
         if (!strcmp(key, "screen_haze") && !settings_env_override(key))
             conker_SetScreenHaze(on);
+        if (!strcmp(key, "vignette") && !settings_env_override(key))
+            conker_SetVignette(on);
+        if (!strcmp(key, "screen_drops") && !settings_env_override(key))
+            conker_SetScreenDrops(on);
         /* Audio waits for the next start: the voice banks stay open. */
         if (!strcmp(key, "uncensored_text") && !settings_env_override(key))
             decensor_set(1, on);
@@ -1482,6 +1489,12 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     checkbox("Haze", "screen_haze", true,
              "The mist or colour wash in some levels. Off = a clear view "
              "(e.g. no green gas in Chemical Warfare)");
+    checkbox("Vignette", "vignette", true,
+             "The dark corners round the picture in some levels. Off = "
+             "the picture as bright at the edges as in the middle");
+    checkbox("Screen drops", "screen_drops", true,
+             "Water and blood drops on the screen and the streaks they "
+             "leave. Off = a clean screen");
     choice("Cutscene blur", "cutscene_blur", dof_values, dof_names,
            (int)(sizeof(dof_values) / sizeof(dof_values[0])), true);
     choice("CRT / scanlines", "crt", crt_values, crt_names,
@@ -1502,6 +1515,18 @@ static void build_menu(unsigned w, unsigned h, bool *close)
            false);
     checkbox("3D sound (HRTF)", "hrtf", false);
     checkbox("Silence sound while paused", "pause_silence", true);
+
+    /* RECOMP_LANGUAGE: the toolkit's answer to XGetLanguage, read once. */
+    section("Language");
+    static const char *const lang_values[] = { "english", "french", "german",
+                                               "italian", "spanish",
+                                               "japanese" };
+    static const char *const lang_names[] = { "English", "French", "German",
+                                              "Italian", "Spanish",
+                                              "Japanese" };
+    choice("Text and menus", "language", lang_values, lang_names,
+           (int)(sizeof(lang_values) / sizeof(lang_values[0])), false);
+    note("    Voices are English in every language");
 
     /* The decensor patch (decensor.c): greyed out without it. */
     section("Uncensored");

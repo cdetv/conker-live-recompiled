@@ -197,8 +197,20 @@
                 <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
                            Text="The decensor patch is made by nastys, Vaani and Theconker64 and is downloaded from their GitHub releases. It is not part of this launcher." />
 
-                <!-- Folders -->
-                <TextBlock Classes="section" Text="Folders" Margin="0,8,0,0" />
+                <!-- User files: where they are kept (SPEC 9.3); a change moves them. -->
+                <TextBlock Classes="section" Text="User files" Margin="0,8,0,0" />
+                <StackPanel Spacing="4" DataContext="{Binding UserFiles}" x:DataType="vm:UserFilesViewModel">
+                  <TextBlock Text="Saves, settings, photos and logs are kept in:" TextWrapping="Wrap" />
+                  <RadioButton GroupName="UserFiles" Content="The game folder (userdata)" IsChecked="{Binding InGameFolder}"
+                               IsEnabled="{Binding CanChoose}" />
+                  <RadioButton GroupName="UserFiles" Content="{Binding AppDataText}" IsChecked="{Binding InAppData}"
+                               IsEnabled="{Binding CanChoose}" />
+                  <TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
+                             IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                  <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap"
+                             Classes.error="{Binding StatusIsError}" Classes.ok="{Binding !StatusIsError}"
+                             IsVisible="{Binding StatusText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button Content="Logs" Command="{Binding OpenLogsCommand}" />
                   <Button Content="Saves" Command="{Binding OpenSavesCommand}" />
@@ -262,6 +274,8 @@
     </DockPanel>
 
     <!-- First launch: offer the import (SPEC 9.3); it can be closed, Play stays off. -->
+    <!-- Not over the user files pop-ups: those come first. -->
+    <Panel IsVisible="{Binding !UserFiles.IsBusy}">
     <Border Background="#B0000000" IsVisible="{Binding ShowImportPrompt}">
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="480" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -275,6 +289,43 @@
           </StackPanel>
         </StackPanel>
       </Border>
+    </Border>
+    </Panel>
+
+    <!-- User files being moved, and a save slot found in both places (SPEC 9.3): one slot at a time. -->
+    <Border Background="#B0000000" DataContext="{Binding UserFiles}" x:DataType="vm:UserFilesViewModel"
+            IsVisible="{Binding IsBusy}">
+      <Panel>
+        <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+                CornerRadius="10" Padding="28,24" Width="480" HorizontalAlignment="Center" VerticalAlignment="Center"
+                IsVisible="{Binding Conflict, Converter={x:Static ObjectConverters.IsNull}}">
+          <StackPanel Spacing="12">
+            <TextBlock Classes="section" Text="Moving user files" />
+            <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" />
+            <ProgressBar IsIndeterminate="True" />
+          </StackPanel>
+        </Border>
+        <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+                CornerRadius="10" Padding="28,24" Width="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                IsVisible="{Binding Conflict, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <StackPanel Spacing="14">
+            <TextBlock Text="{Binding Question}" TextWrapping="Wrap" FontSize="16" />
+            <TextBlock Text="{Binding SaveLine}" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" />
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" IsVisible="{Binding !ConfirmDelete}">
+              <Button Content="Backup and Transfer" Command="{Binding BackupAndTransferCommand}" ToolTip.Tip="{Binding TransferTip}" />
+              <Button Content="Backup and Delete" Command="{Binding BackupAndDeleteCommand}" ToolTip.Tip="{Binding BackupTip}" />
+              <Button Content="{Binding DeleteText}" Command="{Binding AskDeleteCommand}" />
+            </StackPanel>
+            <StackPanel Spacing="10" IsVisible="{Binding ConfirmDelete}">
+              <TextBlock Text="{Binding DeleteQuestion}" TextWrapping="Wrap" Foreground="#FFE0A040" />
+              <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                <Button Content="Delete" Command="{Binding DeleteCommand}" />
+                <Button Content="Cancel" Command="{Binding CancelDeleteCommand}" />
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Panel>
     </Border>
 
     <!-- Controls tab: "Press a key" for a key row, as F3 asks. Every key is the answer (the

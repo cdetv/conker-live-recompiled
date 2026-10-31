@@ -17,9 +17,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         this.folder = folder;
         updater = new Updater(folder);
-        Files = new FilesViewModel(folder, picker);
+        // First: it decides where SaveFolder is, which the other tabs read.
+        UserFiles = new UserFilesViewModel(folder, IsGameRunning);
+        Files = new FilesViewModel(folder, picker, UserFiles);
         Settings = new SettingsViewModel(folder, LaunchDebugCommand);
         Controls = new ControlsViewModel(folder);
+        UserFiles.StateChanged += (_, _) =>
+        {
+            if (UserFiles.IsBusy)
+            {
+                Flush();
+            }
+            else if (!Settings.IsLocked)
+            {
+                Settings.Reload();
+                Controls.Reload();
+            }
+
+            PlayCommand.NotifyCanExecuteChanged();
+            LaunchDebugCommand.NotifyCanExecuteChanged();
+            UpdateCommand.NotifyCanExecuteChanged();
+        };
         Files.StateChanged += (_, _) =>
         {
             PlayCommand.NotifyCanExecuteChanged();
@@ -61,6 +79,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string UpdateButtonText => NewRelease is { } r ? $"Update to v{Updater.TagVersion(r.Tag)}" : "Update";
 
     public FilesViewModel Files { get; }
+
+    /// <summary>Where the user files are kept; also the window's move and save-conflict pop-ups.</summary>
+    public UserFilesViewModel UserFiles { get; }
 
     public SettingsViewModel Settings { get; }
 
@@ -149,11 +170,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         Flush();
         var start = new ProcessStartInfo(folder.GameExe) { WorkingDirectory = folder.Root, UseShellExecute = false };
-        if (SaveFolder.Override is { } saveDir)
-        {
-            start.ArgumentList.Add("--save-dir");
-            start.ArgumentList.Add(saveDir);
-        }
+        // Always: the launcher decides where the user files are (SPEC 9.1).
+        start.ArgumentList.Add("--save-dir");
+        start.ArgumentList.Add(SaveFolder.Root);
 
         if (debug)
         {
@@ -173,7 +192,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         CloseRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    private bool CanPlay() => Files.GameFilesImported && !Files.IsBusy && !IsUpdating;
+    private bool CanPlay() => Files.GameFilesImported && !Files.IsBusy && !IsUpdating && !UserFiles.IsBusy;
 
     /// <summary>Locks Settings and Controls while this folder's conker.exe runs; after it ends, shows what F2/F3 left.</summary>
     private void WatchGame()
@@ -196,6 +215,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             Settings.Reload();
             Controls.Reload();
+            // A copied-in folder or another version may have left files in the other place.
+            _ = UserFiles.MoveInAsync();
         }
     }
 
@@ -288,5 +309,5 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Files.Updating = false;
     }
 
-    private bool CanUpdate() => NewRelease is not null && !IsUpdating && !Files.IsBusy;
+    private bool CanUpdate() => NewRelease is not null && !IsUpdating && !Files.IsBusy && !UserFiles.IsBusy;
 }

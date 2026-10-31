@@ -10,8 +10,9 @@
  *               Default: a "game" folder next to the .exe (the launcher
  *               imports the disc there; a dev build has a link there to
  *               CONKER_GAME_DIR, see CMakeLists.txt).
- *   --save-dir  where T:/U:/cache/partition images go.
- *               Default: %LOCALAPPDATA%\conker-lr-recomp.
+ *   --save-dir  where T:/U:/cache/partition images go (the user files).
+ *               Default: "userdata" next to the .exe, or
+ *               %LOCALAPPDATA%\conker-lr-recomp (default_save_dir).
  *   --debug     the F2 menu also shows debug-only choices, and the title
  *               bar the frame rate.
  *
@@ -122,6 +123,7 @@ static char s_save_dir[MAX_PATH];
  * edits it (src/overlay.cpp). */
 #include "settings.h"
 #include "decensor.h"
+#include "save_names.h"
 extern void overlay_init(void);
 extern void overlay_dump_settings(FILE *f);
 extern void overlay_list_pads(FILE *f);
@@ -249,6 +251,91 @@ static void open_log(void)
     }
 }
 
+/* The save folder without --save-dir (SPEC 9.1, user files): "userdata"
+ * next to the .exe, or %LOCALAPPDATA%\conker-lr-recomp when
+ * user_files_in_appdata.txt sits next to the .exe (the launcher's choice),
+ * when the folder can't be written (Program Files), or when it doesn't exist
+ * yet while the AppData one holds an older version's files: the launcher
+ * moves those in at its next start, and until then the game keeps using
+ * them. The launcher always passes --save-dir, so these rules only matter
+ * for a double-clicked conker.exe. */
+static void default_save_dir(char *out)
+{
+    char exe[MAX_PATH], path[MAX_PATH], appdata_dir[MAX_PATH], *slash;
+    const char *appdata = getenv("LOCALAPPDATA");
+    BOOL use_appdata;
+    HANDLE h;
+
+    /* Our own folder rather than the runtime's shared default
+     * (%LOCALAPPDATA%\xboxrecomp), so saves and partition images from
+     * other recompiled games never mix with Conker's. */
+    sprintf_s(appdata_dir, MAX_PATH, "%s\\conker-lr-recomp",
+              appdata ? appdata : ".");
+    GetModuleFileNameA(NULL, exe, MAX_PATH);
+    slash = strrchr(exe, '\\');
+    if (slash)
+        *slash = '\0';
+    sprintf_s(out, MAX_PATH, "%s\\userdata", exe);
+
+    sprintf_s(path, MAX_PATH, "%s\\user_files_in_appdata.txt", exe);
+    use_appdata = GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+    if (!use_appdata && GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES) {
+        char ini[MAX_PATH], udata[MAX_PATH];
+        sprintf_s(ini, MAX_PATH, "%s\\settings.ini", appdata_dir);
+        sprintf_s(udata, MAX_PATH, "%s\\UserData", appdata_dir);
+        use_appdata = GetFileAttributesA(ini) != INVALID_FILE_ATTRIBUTES
+                      || GetFileAttributesA(udata) != INVALID_FILE_ATTRIBUTES;
+    }
+    if (!use_appdata) {
+        /* Writable? A probe file, as a folder's read-only flag says nothing. */
+        CreateDirectoryA(out, NULL);
+        sprintf_s(path, MAX_PATH, "%s\\write_test.tmp", out);
+        h = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
+                        NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            CloseHandle(h);
+            return;
+        }
+    }
+    strcpy_s(out, MAX_PATH, appdata_dir);
+}
+
+/* The language (settings.ini language, RECOMP_LANGUAGE; the toolkit answers
+ * the game's XGetLanguage with it) needs its text on the disc, in
+ * dvddata\aid\text\<Language>: the PAL disc has all six. Without it the game
+ * would have no menus, so English instead. */
+static void check_language(void)
+{
+    static const char *const folders[] = { "English", "Japanese", "German",
+                                           "French", "Spanish", "Italian" };
+    const char *lang = getenv("RECOMP_LANGUAGE");
+    char dir[MAX_PATH];
+    int i, id = 0;
+
+    if (!lang || !*lang)
+        return;
+    for (i = 0; i < 6; i++)
+        if (!_stricmp(lang, folders[i]))
+            id = i + 1;
+    if (!id)
+        id = atoi(lang);
+    if (id < 1 || id > 6) {
+        fprintf(stderr, "[LANGUAGE] %s is not one of Conker's: English\n", lang);
+        _putenv_s("RECOMP_LANGUAGE", "");
+        return;
+    }
+    sprintf_s(dir, MAX_PATH, "%s\\dvddata\\aid\\text\\%s", s_game_dir,
+              folders[id - 1]);
+    if (GetFileAttributesA(dir) == INVALID_FILE_ATTRIBUTES) {
+        fprintf(stderr, "[LANGUAGE] no %s text on this disc: English\n",
+                folders[id - 1]);
+        _putenv_s("RECOMP_LANGUAGE", "");
+        return;
+    }
+    fprintf(stderr, "[LANGUAGE] %s\n", folders[id - 1]);
+}
+
 /* Fill s_game_dir and s_save_dir from the command line, falling back to the
  * defaults described at the top of this file. settings.ini is read in
  * between: it lives in the save folder, and its game_dir comes after
@@ -277,12 +364,7 @@ static BOOL parse_args(int argc, char **argv)
     if (save_dir) {
         strcpy_s(s_save_dir, MAX_PATH, save_dir);
     } else {
-        /* Our own folder rather than the runtime's shared default
-         * (%LOCALAPPDATA%\xboxrecomp), so saves and partition images from
-         * other recompiled games never mix with Conker's. */
-        const char *appdata = getenv("LOCALAPPDATA");
-        sprintf_s(s_save_dir, MAX_PATH, "%s\\conker-lr-recomp",
-                  appdata ? appdata : ".");
+        default_save_dir(s_save_dir);
     }
     open_log();
 
@@ -349,6 +431,7 @@ static BOOL parse_args(int argc, char **argv)
         while (n > 1 && (s_game_dir[n - 1] == '\\' || s_game_dir[n - 1] == '/'))
             s_game_dir[--n] = '\0';
     }
+    check_language();
     return TRUE;
 }
 
@@ -741,6 +824,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     /* The decensor patch's redirect (src/decensor.c), before any open. */
     decensor_init(s_save_dir);
+    /* Save folders named after their saves (src/save_names.c); after the
+     * decensor redirect, which it passes other paths on to. */
+    save_names_init(s_save_dir);
 
     /* Step 5: Initialize kernel bridge (thunk table in Xbox memory) */
     printf("Initializing kernel bridge...\n");

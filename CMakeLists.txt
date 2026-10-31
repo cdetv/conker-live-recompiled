@@ -103,6 +103,7 @@ set(GAME_SOURCES
     src/controls.c
     src/photo_mode.c
     src/decensor.c
+    src/save_names.c
     src/overlay.cpp
     # Add game-specific sources here, e.g.:
     # src/asset_loader.c

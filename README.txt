@@ -68,13 +68,21 @@ can set things up before playing.
 WHERE YOUR FILES ARE
 --------------------
 
-Saves, settings.ini, photos, logs and the shader cache live in
+Saves, settings.ini, photos, logs and the shader cache live in the userdata
+folder next to conker.exe (use the Saves, Photos and Logs buttons on the
+launcher's Files tab). To back up your saves, copy that folder. Updates
+never touch it, but deleting the game's folder deletes your saves with it.
 
-  %LOCALAPPDATA%\conker-lr-recomp\
+Each save has its own folder in userdata\saves: Game1, Game2 and Game3 for
+the story, and one named after each multiplayer profile. Saves from older
+versions (folders like 10C2167B1950) are renamed automatically.
 
-(paste that into the Explorer address bar, or use the Saves, Photos and
-Logs buttons on the launcher's Files tab). To back up your saves, copy that
-folder. Deleting the game's folder never touches it.
+The launcher's Files tab can keep them in AppData instead
+(%LOCALAPPDATA%\conker-lr-recomp\), which is also where versions before
+0.1.3 kept them: the launcher moves those into the game folder by itself.
+If both places hold the same save slot, it asks what to do; backups go to
+the backups folder inside userdata. If the game's folder can't be written
+to (for example under Program Files), AppData is used.
 
 
 UPDATES

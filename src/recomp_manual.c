@@ -35,6 +35,7 @@
 #include "controls.h"
 #include "xbox_kbm.h"
 #include "photo_mode.h"
+#include "save_names.h"
 
 /* ── Manual function overrides ─────────────────────────────── */
 
@@ -581,6 +582,25 @@ static int xact_short_wave_fix_on(void)
         on = !(e && !strcmp(e, "old"));
     }
     return on;
+}
+
+/* XAPI turning a save name into its folder name (0x0042E6BB, stdcall: the
+ * name as UTF-16, the 13-byte output): save_names.c learns which name the
+ * hex is for, so a save the game creates gets a named folder at once. */
+void sub_0042E6BB_enter(void)
+{
+    uint32_t p = MEM32(g_esp + 4);
+    wchar_t name[64];
+    int i;
+
+    if (p < 0x00010000u || p >= 0x84000000u)
+        return;
+    for (i = 0; i < 63 && MEM16(p + 2 * i); i++)
+        name[i] = (wchar_t)MEM16(p + 2 * i);
+    if (MEM16(p + 2 * i))
+        return;
+    name[i] = L'\0';
+    save_names_seen(name);
 }
 
 void sub_0054E95D_enter(void)
@@ -4074,8 +4094,9 @@ void sub_000780E0(void)
 }
 
 /* 0x0015CAF0 (cdecl): the draw of object types 0x7A (layer 3, drawn by
- * 0x000D9950 every frame, paused too) and 0x72: the weapon sight, e.g. the
- * SMG's green cross in Chemical Warfare. Part of photo mode's HUD. */
+ * 0x000D9950 every frame, paused too): the weapon sight, e.g. the SMG's
+ * green cross in Chemical Warfare; and 0x72, the vignette (below). Part
+ * of photo mode's HUD. */
 /* 0x001BCBC0 (cdecl): the draw of object type 0x78 (layer 3), the screen
  * haze some levels have: Chemical Warfare's green gas, the haunted house's
  * mist, a light haze elsewhere (9 of the soak's maps, conker-notes
@@ -4102,6 +4123,34 @@ void sub_001BCBC0(void)
     sub_001BCBC0_gen();
 }
 
+/* 0x001B0B70 (cdecl): the draw of object type 0x70 (layer 2), a sprite
+ * that bends the picture behind it (bump-env). With bit 0 of +0x30 set it
+ * is drawn in screen space by 0x001B0730: the water and blood drops on the
+ * screen and the streaks they leave (2026-10-31; bit 2 = tinted with the
+ * colour at +0x100). The rest are in the world and stay.
+ * RECOMP_SCREEN_DROPS=0 (or screen_drops = 0) leaves the screen ones out;
+ * conker_SetScreenDrops from the F2 menu. */
+static volatile int g_screen_drops = -1;
+
+void conker_SetScreenDrops(int on)
+{
+    g_screen_drops = on != 0;
+}
+
+extern void sub_001B0B70_gen(void);
+void sub_001B0B70(void)
+{
+    if (g_screen_drops < 0) {
+        const char *e = getenv("RECOMP_SCREEN_DROPS");
+        g_screen_drops = !(e && *e == '0');
+    }
+    if (!g_screen_drops && (MEM8(MEM32(g_esp + 4) + 0x30) & 1)) {
+        g_esp += 4;                     /* ret (cdecl) */
+        return;
+    }
+    sub_001B0B70_gen();
+}
+
 /* Speech bubbles (cutscenes and in play): object type 0x7C of the draw
  * layers (layer 3), made by 0x000E0850 with the "speechbubble" textures.
  * Left out with the HUD in photo mode, like the weapon sight (user
@@ -4116,10 +4165,26 @@ void sub_000E1880(void)
     sub_000E1880_gen();
 }
 
+/* The same draw also does type 0x72 (layer 2): a full-screen vignette,
+ * dark corners round a circle at 320,240 of radius 300 (e.g. Chemical
+ * Warfare; 2026-10-31). RECOMP_VIGNETTE=0 (or vignette = 0) leaves it
+ * out; conker_SetVignette from the F2 menu (GitHub issue 5). */
+static volatile int g_vignette = -1;
+
+void conker_SetVignette(int on)
+{
+    g_vignette = on != 0;
+}
+
 extern void sub_0015CAF0_gen(void);
 void sub_0015CAF0(void)
 {
-    if (photo_hud_hidden()) {
+    if (g_vignette < 0) {
+        const char *e = getenv("RECOMP_VIGNETTE");
+        g_vignette = !(e && *e == '0');
+    }
+    if (photo_hud_hidden() ||
+        (!g_vignette && MEM8(MEM32(g_esp + 4)) == 0x72)) {
         g_esp += 4;                     /* ret (cdecl) */
         return;
     }

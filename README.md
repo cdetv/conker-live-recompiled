@@ -82,6 +82,8 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | Cutscene blur (depth of field) | Original | Off, original, updated or cinematic |
 | Glow | Always on | Adjustable 0–100 % |
 | Haze | Always on | Can be turned off for a clear view (e.g. the green gas in some levels) |
+| Vignette | Always on | Can be turned off |
+| Screen drops | Always on | Water and blood drops on the screen can be turned off |
 | Picture adjustments | — | Gamma, contrast, saturation |
 | Retro look | — | Scanlines or CRT effect, adjustable |
 
@@ -151,6 +153,12 @@ frame, adjust the depth of field, and take pictures (saved as PNG files).
 - Speaker mix and 3D sound (HRTF) options.
 - Sound can be silenced while paused.
 
+### Language
+
+Text, menus and subtitles in English, French, German, Italian, Spanish or
+Japanese, chosen in F2 or the launcher (on the Xbox it followed the
+console's language). Voices are English in all of them.
+
 ### Uncensored
 
 With the fan-made [decensor patch](https://github.com/nastys/conker-live-and-reloaded-decensor)
@@ -179,6 +187,8 @@ A few glitches the Xbox version has too are fixed:
 - Every in-game setting and control, in tabs, before you start.
 - **Updates itself**: when a new version is out, one click installs it and
   keeps your game files and patch.
+- Keeps your saves, settings and photos next to the game (or in AppData if
+  you prefer), and moves saves from older versions over by itself.
 - Buttons to open your saves, photos and logs.
 
 <table>
@@ -220,14 +230,13 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 | F1 | | Frame rate counter |
 | P | | Pause or resume |
 
-Saves, settings, photos and logs are in `%LOCALAPPDATA%\conker-lr-recomp\`.
+Saves, settings, photos and logs are in the `userdata` folder next to `conker.exe` (from 0.1.3; the launcher's Files tab can keep them in `%LOCALAPPDATA%\conker-lr-recomp\` instead, where older versions kept them).
 
 ## Planned features
 
 Ideas for future updates, in no particular order. Plans can change.
 
 - Linux / Steam Deck support
-- Language selection
 - Cutscene skip
 - Other FPS options
 - VSync

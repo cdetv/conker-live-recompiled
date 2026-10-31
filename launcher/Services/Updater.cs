@@ -7,7 +7,7 @@ namespace ConkerLauncher.Services;
 /// <summary>
 /// Updates the launcher's folder to the latest release of <see cref="Repo"/> (SPEC 9.3): the
 /// release zip's files replace ours, everything else in the folder stays (<c>game\</c>,
-/// <c>decensor\</c>, anything the player added).
+/// <c>decensor\</c>, the user files in <c>userdata\</c>, anything the player added).
 /// </summary>
 /// <remarks>
 /// The zip is downloaded to <c>update.download</c> and unpacked to <c>update.tmp\</c> next to
@@ -27,7 +27,7 @@ public sealed class Updater(GameFolder folder)
     private static readonly string[] Extensions = [".zip"];
 
     // Never written by an update: the player's files (SPEC 9.1).
-    private static readonly string[] Protected = ["game/", "decensor/", "settings.ini"];
+    private static readonly string[] Protected = ["game/", "decensor/", "userdata/", "settings.ini", UserFiles.MarkerName];
 
     private string Download => Path.Combine(folder.Root, "update.download");
 

@@ -14,10 +14,11 @@ public sealed partial class FilesViewModel : ObservableObject
     private readonly IFilePicker picker;
     private CancellationTokenSource? job;
 
-    public FilesViewModel(GameFolder folder, IFilePicker picker)
+    public FilesViewModel(GameFolder folder, IFilePicker picker, UserFilesViewModel userFiles)
     {
         this.folder = folder;
         this.picker = picker;
+        UserFiles = userFiles;
         importer = new GameImporter(folder);
         decensor = new DecensorPatch(folder);
         try
@@ -32,6 +33,9 @@ public sealed partial class FilesViewModel : ObservableObject
 
         Refresh();
     }
+
+    /// <summary>The User files section: where they are kept.</summary>
+    public UserFilesViewModel UserFiles { get; }
 
     /// <summary>Raised when the game files or the busy state change (Play depends on both).</summary>
     public event EventHandler? StateChanged;

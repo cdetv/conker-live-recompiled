@@ -23,6 +23,8 @@ public sealed partial class App : Application
             bool justUpdated = desktop.Args?.Contains("--updated") == true;
             window.Opened += async (_, _) =>
             {
+                // Before the tabs read settings.ini: an older version's may still be in AppData.
+                await viewModel.UserFiles.MoveInAsync();
                 await viewModel.LoadAsync();
                 await Task.WhenAll(viewModel.Files.CheckLatestDecensorAsync(), viewModel.CheckForUpdateAsync(justUpdated));
             };

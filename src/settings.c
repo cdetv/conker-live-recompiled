@@ -171,6 +171,13 @@ static const Option s_options[] = {
       "The game's screen haze in some levels (a mist or colour wash over\n"
       "the whole view, e.g. the green gas in Chemical Warfare): 1 = on as\n"
       "the original (default), 0 = off (a clear view)." },
+    { "picture", "vignette", OPT_BOOL, "1", "1", "RECOMP_VIGNETTE", NULL,
+      "The dark corners round the picture in some levels (e.g. Chemical\n"
+      "Warfare): 1 = on as the original (default), 0 = off." },
+    { "picture", "screen_drops", OPT_BOOL, "1", "1", "RECOMP_SCREEN_DROPS",
+      NULL,
+      "Water and blood drops on the screen (rain, splashes, hits) and\n"
+      "the streaks they leave: 1 = on as the original (default), 0 = off." },
     { "picture", "cutscene_blur", OPT_CHOICE, "updated", "updated",
       "RECOMP_DOF", "off original updated cinematic",
       "Depth of field in cutscenes (the background or foreground out of\n"
@@ -189,6 +196,12 @@ static const Option s_options[] = {
     { "audio", "pause_silence", OPT_BOOL, "1", "1", NULL, NULL,
       "While the game is paused with F4, the sound stops too and carries\n"
       "on where it stopped: 1 = on (default), 0 = the sound keeps playing." },
+    { "language", "language", OPT_CHOICE, "english", "english",
+      "RECOMP_LANGUAGE", "english french german italian spanish japanese",
+      "Language of the game's text, menus and subtitles: english (default),\n"
+      "french, german, italian, spanish or japanese. Voices are English in\n"
+      "every language. Applies when the game is started again. Saves made in\n"
+      "one language load in all the others." },
     { "uncensored", "uncensored_audio", OPT_BOOL, "1", "1",
       "RECOMP_UNCENSORED_AUDIO", NULL,
       "With the decensor patch installed (paths.decensor_dir): the\n"

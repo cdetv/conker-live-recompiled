@@ -1,16 +1,20 @@
 namespace ConkerLauncher.Services;
 
 /// <summary>
-/// The game's save folder, <c>%LOCALAPPDATA%\conker-lr-recomp</c> (SPEC 5): saves,
+/// The game's save folder, where <see cref="UserFiles"/> keeps them (SPEC 9.1): saves,
 /// <c>settings.ini</c>, <c>logs\</c> and <c>Photos\</c> (or <c>photo_folder</c> from settings.ini).
+/// Play passes it to the game as <c>--save-dir</c>.
 /// </summary>
 public static class SaveFolder
 {
-    public static string Root => Override ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "conker-lr-recomp");
+    /// <summary>Set once at start-up.</summary>
+    public static UserFiles? Files { get; set; }
+
+    public static string Root => Override ?? Files?.Active ?? UserFiles.AppDataPath;
 
     /// <summary>
     /// <c>CONKER_LAUNCHER_SAVE_DIR</c> (development only): another save folder, so trying the
-    /// Settings tab never touches the real settings.ini; Play then passes it as <c>--save-dir</c>.
+    /// Settings tab never touches the real settings.ini. Nothing is moved while it is set.
     /// </summary>
     public static string? Override =>
         Environment.GetEnvironmentVariable("CONKER_LAUNCHER_SAVE_DIR") is { Length: > 0 } dir ? Path.GetFullPath(dir) : null;
