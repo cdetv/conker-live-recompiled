@@ -970,6 +970,91 @@ void sub_004CB1E7_enter(void)
     }
 }
 
+/* D3D_BlockOnTime (0x0053C190, stdcall (time, flags)): the game's wait for
+ * the GPU, from D3DDevice_Swap every frame (the fence of the frame before
+ * last) and from resource waits. It ends in a loop that spins on the
+ * GPU-time word ([dev+0x30]) until the GPU has passed `time`: the game thread
+ * sat at 100% of a core, 83-92% of it in this loop, at 30 and 60 fps alike
+ * (2026-11-01, GitHub issue 11: "single core maxed out"). xemu spins the
+ * same.
+ *
+ * Here the thread sleeps until the executor's fence mirror has moved the word
+ * past `time` (it wakes the sleepers when it does); the original then finds
+ * the GPU done and returns at its first test. Only for a fence already
+ * submitted (`time` != the next fence time [dev+0x2C], else the original
+ * submits it first) and without a block callback ([dev+0x19FC], which the
+ * original calls before waiting). After 100 ms the original takes over, so a
+ * fence that needs the original's own push to arrive costs that, not a hang.
+ * RECOMP_GPU_WAIT_SLEEP=0 = the original spin. */
+extern uint32_t xbox_Nv2aFenceGeneration(void);
+extern void xbox_Nv2aWaitFence(uint32_t seen, DWORD ms);
+
+void sub_0053C190_enter(void)
+{
+    static int on = -1;
+    static unsigned timeouts;
+    uint32_t dev, time, next, word;
+    ULONGLONG t0 = 0;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_GPU_WAIT_SLEEP");
+        on = !(e && *e == '0');
+    }
+    dev = MEM32(0x005499E8u);
+    if (!on || !dev || MEM32(dev + 0x19FC))
+        return;
+    time = MEM32(g_esp + 4);
+    next = MEM32(dev + 0x2C);
+    word = MEM32(dev + 0x30);
+    if (time == next || !word)
+        return;
+    for (;;) {
+        uint32_t gen = xbox_Nv2aFenceGeneration();
+        if (next - time >= next - MEM32(word))   /* the original's "passed" */
+            return;
+        if (!t0)
+            t0 = GetTickCount64();
+        else if (GetTickCount64() - t0 >= 100) {
+            if (timeouts++ < 8) {
+                fprintf(stderr, "[GPUWAIT] fence %08X not reached in 100 ms"
+                        " (GPU at %08X, next %08X); the original waits\n",
+                        time, MEM32(word), next);
+                fflush(stderr);
+            }
+            return;
+        }
+        xbox_Nv2aWaitFence(gen, 2);
+    }
+}
+
+/* 0x0053C630 d3d_pfb_flush: sets 0x100410 bit 16 and spins until the "GPU"
+ * clears it. Here the executor (ack thread) answers it at the top of its next
+ * pass, after the segment it is running, so this waits as long as the
+ * executor is busy (the barrier D3D's fence waits rely on, architecture
+ * gotchas). Same flush, but the thread sleeps until it is answered, and the
+ * request wakes the executor, which now sleeps when idle (toolkit
+ * xbox_Nv2aWaitHandshake, RECOMP_EXEC_SLEEP; =0 is the original spin).
+ * CDevice_KickOff (0x0053C450) and the kick-and-wait at 0x0053C500 write
+ * DMA_PUT right after: kick_follows keeps the executor awake for it. Same
+ * registers out as the original: eax = the register base, ecx = old | bit. */
+extern void xbox_Nv2aWaitHandshake(volatile uint32_t *reg, uint32_t mask,
+                                   int kick_follows);
+
+void sub_0053C630(void)
+{
+    uint32_t ret = MEM32(g_esp);
+    uint32_t regs = MEM32(MEM32(0x005499E8u) + 0x1C28u);
+    volatile uint32_t *flush = (volatile uint32_t *)XBOX_PTR(regs + 0x100410u);
+    uint32_t v = *flush | 0x10000u;
+
+    *flush = v;
+    xbox_Nv2aWaitHandshake(flush, 0x10000u,
+                           ret >= 0x0053C450u && ret < 0x0053C630u);
+    g_eax = regs;
+    g_ecx = v;
+    g_esp += 4;                     /* ret */
+}
+
 /* RECOMP_EMITTER_WATCH=<cue name> (with RECOMP_AUDIO_LOG=2): follow one
  * sound emitter from CAudioSoundEmitterContainer::Add to its removal, and
  * print each frame which dwords of the emitter (first 0x100 bytes) and of

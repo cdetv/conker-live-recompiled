@@ -26,7 +26,7 @@
 
 ## What is this?
 
-*Conker: Live & Reloaded* was never released on PC. This project translates
+*Conker: Live & Reloaded* was never released natively on PC. This project translates
 ("statically recompiles") the game's original Xbox program into C, which is
 then built as a normal Windows program. It is **not an emulator**: the game's
 own logic runs natively, while a small runtime stands in for the Xbox's
