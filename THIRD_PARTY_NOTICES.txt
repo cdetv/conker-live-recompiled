@@ -20,7 +20,7 @@ PART 1: conker.exe and xemu_apu.dll (the game)
 
 https://github.com/sp00nznet/xboxrecomp by Ned Heller (sp00nznet) and
 contributors, used through the fork https://github.com/cdetv/xboxrecomp
-(version v0.13.1-344-g3bd3203). It translated the game's code and provides
+(version v0.13.1-346-g3151bca). It translated the game's code and provides
 the runtime around it: the Xbox kernel, graphics, sound and controllers.
 MIT licence:
 

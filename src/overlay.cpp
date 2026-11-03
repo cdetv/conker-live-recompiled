@@ -71,7 +71,8 @@
  * cutscene blur, conker_SetCutsceneBlur, likewise; the
  * frame rate, the dip fix, grass detail, screen haze, vignette and screen
  * drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
- * conker_SetScreenHaze, conker_SetVignette and conker_SetScreenDrops in
+ * conker_SetScreenHaze, conker_SetVignette, conker_SetScreenDrops,
+ * conker_SetUnderwaterOverlay and conker_SetPooFix in
  * recomp_manual.c, from the
  * game's next frame; uncensored text, decensor_set, from the next
  * level that loads) also
@@ -137,6 +138,8 @@ void conker_SetParticleDensity(float percent);
 void conker_SetScreenHaze(int on);
 void conker_SetVignette(int on);
 void conker_SetScreenDrops(int on);
+void conker_SetUnderwaterOverlay(int on);
+void conker_SetPooFix(int on);
 void conker_StartSoak(void);
 int conker_SoakState(void);
 void overlay_init(void);
@@ -907,6 +910,10 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetVignette(on);
         if (!strcmp(key, "screen_drops") && !settings_env_override(key))
             conker_SetScreenDrops(on);
+        if (!strcmp(key, "underwater_overlay") && !settings_env_override(key))
+            conker_SetUnderwaterOverlay(on);
+        if (!strcmp(key, "poo_fix") && !settings_env_override(key))
+            conker_SetPooFix(on);
         /* Audio waits for the next start: the voice banks stay open. */
         if (!strcmp(key, "uncensored_text") && !settings_env_override(key))
             decensor_set(1, on);
@@ -1495,6 +1502,21 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     checkbox("Screen drops", "screen_drops", true,
              "Water and blood drops on the screen and the streaks they "
              "leave. Off = a clean screen");
+    checkbox("Underwater Overlay", "underwater_overlay", true,
+             "The shimmering haze round Conker under water, which shows as "
+             "a band at eye level. Off = a clear view under water");
+    /* Shown while the overlay is on, as the pop-in parts (user
+     * 2026-11-03). */
+    if (s_dump || strcmp(settings_get("underwater_overlay"), "0")) {
+        ImGui::Indent();
+        s_dump_parent = "underwater_overlay";
+        checkbox("Poo Fix", "poo_fix", true,
+                 "Under the poo after the Bull fight, the haze is brown to "
+                 "match instead of a blue band. Off = the original. Normal "
+                 "water is never changed");
+        s_dump_parent = NULL;
+        ImGui::Unindent();
+    }
     choice("Cutscene blur", "cutscene_blur", dof_values, dof_names,
            (int)(sizeof(dof_values) / sizeof(dof_values[0])), true);
     choice("CRT / scanlines", "crt", crt_values, crt_names,

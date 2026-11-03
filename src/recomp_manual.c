@@ -2053,12 +2053,25 @@ void sub_0053A600_enter(void)
     }
 }
 
+static void dome_tint_factor(void);
+static void grass_fog_factor(void);
+
 /* 0x00537360: D3DDevice_SetRenderState_TextureFactor (stdcall: value).
- * From the glare add (returns to 0x001DA610): white scaled to grey. */
+ * From the glare add (returns to 0x001DA610): white scaled to grey. From
+ * the underwater dome (0x00155A93): brown in the poo (dome_tint_factor).
+ * From a waving grass patch (0x001A9942): the fog (grass_fog_factor). */
 void sub_00537360_enter(void)
 {
     float k;
     uint32_t g;
+    if (MEM32(g_esp) == 0x00155A93u) {
+        dome_tint_factor();
+        return;
+    }
+    if (MEM32(g_esp) == 0x001A9942u) {
+        grass_fog_factor();
+        return;
+    }
     if (MEM32(g_esp) != 0x001DA610u)
         return;
     k = glow_scale();
@@ -2107,6 +2120,9 @@ static const char *const k_popin_env[POPIN_PARTS] = {
     "RECOMP_POPIN_PARTICLES"
 };
 static uint32_t s_grass_patch, s_grass_pos[3];
+static uint32_t s_grass_fog;            /* TFACTOR for this patch, 0 = none */
+static int s_grass_fog_draw;            /* its TFACTOR went in: blend at the draw */
+static void grass_fog_measure(uint32_t patch, int player);
 
 static int env_on(const char *name, int def)
 {
@@ -2153,12 +2169,15 @@ void sub_001A9540_enter(void)
     uint32_t patch = MEM32(g_esp + 4), players = MEM32(0x008470DCu), cam;
     int16_t player = (int16_t)MEM16(g_esp + 8);
     grass_put_back();                   /* never left moved by a missed call */
+    s_grass_fog = 0;
+    s_grass_fog_draw = 0;
     if (!popin_on(POPIN_GRASS) || !xact_va_ok(patch) || !xact_va_ok(players)
         || player < 0 || player > 3)
         return;
     cam = MEM32(players + (uint32_t)player * 0x770u + 0x3E0u);
     if (!xact_va_ok(cam))
         return;
+    grass_fog_measure(patch, player);   /* before the centre moves */
     s_grass_patch = patch;
     s_grass_pos[0] = MEM32(patch + 0x2C);
     s_grass_pos[1] = MEM32(patch + 0x30);
@@ -2388,6 +2407,133 @@ void sub_004288F5_enter(void)
     MEM32(g_esp + 8) = s_grass_pos[1];
     MEM32(g_esp + 12) = s_grass_pos[2];
     grass_put_back();
+}
+
+/* Grass "camera push" off. The grass waving program bends each blade tip by
+ * c[101] x tip height^2 / distance^2 from c[100], both set last in
+ * grass_draw_begin (0x001A8DC0): c[100] = camera +0x84, c[101] = (camera
+ * +0x78 - +0x84) x 20000, i.e. blades are pushed away from the camera. But
+ * c[100] is a world position and the blade a patch-local one, so the push
+ * lands on whichever blades' local coordinates sit near the camera's world
+ * position: only in maps built round the origin (the Bull fight paddock),
+ * where those blades are flung across the screen (GitHub issue 8). With
+ * the Pop-in Fix every patch uses the waving program, so it shows far more
+ * often than in the original. The last call (0x00536B00, SetVertexShader
+ * Constant: ecx = register, edx = 4 floats; return 0x001A9531) gets zeros
+ * for c[101] (w too: it is added to the position's w). RECOMP_GRASS_PUSH=1
+ * = the original. */
+void sub_00536B00_enter(void)
+{
+    static int push = -1;
+    if (MEM32(g_esp) != 0x001A9531u || g_ecx != 0x65u)
+        return;
+    if (push < 0)
+        push = env_on("RECOMP_GRASS_PUSH", 0);
+    if (push || !xact_va_ok(g_edx))
+        return;
+    MEM32(g_edx) = 0;
+    MEM32(g_edx + 4) = 0;
+    MEM32(g_edx + 8) = 0;
+    MEM32(g_edx + 12) = 0;
+}
+
+/* Grass fog (part of the Pop-in Fix's grass). The level's haze is each
+ * world vertex program's own: fog = min((depth - near) / (far - near), max)
+ * into oFog (c[103] = 1/(far-near), near/(far-near), max, set by
+ * 0x003ED850), mixed in by the world's pixel shaders. Effects are drawn
+ * with D3D fog off, and neither grass program writes oFog: grass never
+ * gets the haze. The original draws it only within 800 (7 % fog at most
+ * in the field) and faded out to 2500, so that never showed; with every
+ * patch drawn, the far ones (the farm plot seen from the bridge, 35-48 %
+ * fog there) stand out bright green against the hazed ground, and pop out
+ * of and back into the pause screen's hazy picture. Fix: one fog amount
+ * per patch, from its centre's view depth (the viewport record's view
+ * matrix, [0x0084A13C] + player x 0x2B0 + 0x40, as the patch draw itself
+ * uses) and the level's fog (0x00771CD8..: B, G, R as ints, near, far;
+ * far 0 = none; max [0x00750300]; 0x0010A2B0 copies them on), given as
+ * TFACTOR (fog colour, alpha = amount) in place of the waving path's
+ * (returns to 0x001A9942; its stages never read TFACTOR) and blended over
+ * by texture stage 1 at the draw (DrawVertices 0x0053A930, returns to
+ * 0x001A9A3C): BLENDFACTORALPHA (TFACTOR, CURRENT), alpha CURRENT. Stage 1
+ * is off for grass, so it is free; the game's own state cache (0x007717xx)
+ * gets the same values so its next "set if changed" puts them back. Only
+ * while the grass part is on; RECOMP_GRASS_FOG=0 = without (A/B),
+ * RECOMP_GRASS_FOG_LOG=1 = a [GRASSFOG] line per patch. */
+#define XB_TOP_SELECTARG1        2u
+#define XB_TOP_BLENDFACTORALPHA 15u
+#define XB_TA_CURRENT            1u
+#define XB_TA_TFACTOR            3u
+
+static int grass_fog_log(void)
+{
+    static int on = -1;
+    if (on < 0)
+        on = env_on("RECOMP_GRASS_FOG_LOG", 0);
+    return on;
+}
+
+static uint32_t fog_byte(uint32_t va)
+{
+    int32_t c = (int32_t)MEM32(va);
+    return c < 0 ? 0u : c > 255 ? 255u : (uint32_t)c;
+}
+
+static void grass_fog_measure(uint32_t patch, int player)
+{
+    static int on = -1;
+    uint32_t rec = MEM32(0x0084A13Cu), v, a8;
+    float fnear, ffar, fmax, depth, a;
+
+    if (on < 0)
+        on = env_on("RECOMP_GRASS_FOG", 1);
+    if (!on || !xact_va_ok(rec))
+        return;
+    ffar = MEMF(0x00771CE4u);
+    fnear = MEMF(0x00771CE8u);
+    if (ffar == 0.0f || !(ffar > fnear))
+        return;                         /* no fog in this level */
+    fmax = MEMF(0x00750300u);
+    v = rec + (uint32_t)player * 0x2B0u + 0x40u;
+    depth = -(MEMF(patch + 0x2Cu) * MEMF(v + 0x08u)
+              + MEMF(patch + 0x30u) * MEMF(v + 0x18u)
+              + MEMF(patch + 0x34u) * MEMF(v + 0x28u) + MEMF(v + 0x38u));
+    a = (depth - fnear) / (ffar - fnear);
+    if (a > fmax)
+        a = fmax;
+    if (a > 1.0f)
+        a = 1.0f;
+    a8 = a > 0.0f ? (uint32_t)(a * 255.0f + 0.5f) : 0u;
+    if (grass_fog_log())
+        fprintf(stderr, "[GRASSFOG] patch %08X depth %.0f fog %.3f (near %g far %g "
+                "max %g) colour %02X%02X%02X\n", patch, depth, a, fnear, ffar,
+                fmax, fog_byte(0x00771CE0u), fog_byte(0x00771CDCu),
+                fog_byte(0x00771CD8u));
+    if (!a8)
+        return;
+    s_grass_fog = a8 << 24 | fog_byte(0x00771CE0u) << 16
+                  | fog_byte(0x00771CDCu) << 8 | fog_byte(0x00771CD8u);
+}
+
+static void grass_fog_factor(void)
+{
+    if (!s_grass_fog)
+        return;
+    MEM32(g_esp + 4) = s_grass_fog;
+    s_grass_fog_draw = 1;
+}
+
+/* 0x0053A930: D3DDevice_DrawVertices. */
+void sub_0053A930_enter(void)
+{
+    if (MEM32(g_esp) != 0x001A9A3Cu || !s_grass_fog_draw)
+        return;
+    s_grass_fog_draw = 0;
+    MEM32(0x005473E0u) = MEM32(0x007717E8u) = XB_TOP_BLENDFACTORALPHA;
+    MEM32(0x005473E8u) = MEM32(0x007717C8u) = XB_TA_TFACTOR;
+    MEM32(0x005473ECu) = MEM32(0x007717B8u) = XB_TA_CURRENT;
+    MEM32(0x005473F0u) = MEM32(0x007717A8u) = XB_TOP_SELECTARG1;
+    MEM32(0x005473F8u) = MEM32(0x00771788u) = XB_TA_CURRENT;
+    MEM32(0x005499F0u) |= 0x800u;       /* texture stage states changed */
 }
 
 /* ── Conker: cutscene blur (F2 Picture > Cutscene blur) ──────────────────
@@ -4206,6 +4352,162 @@ void sub_001BCBC0(void)
         return;
     }
     sub_001BCBC0_gen();
+}
+
+/* 0x001557D0 (fastcall, ecx = the object): the underwater dome, drawn last
+ * while Conker is under water: 12 bands of 16 quads round the camera,
+ * 12000 wide and 2000 tall, two scrolling grey-teal textures, colour =
+ * tex0 x vertex colour + tex1 x TFACTOR (both 0x808080), no depth test.
+ * Its middle bands pile up into a band at eye level, the blue strip under
+ * the poo after the Bull fight (GitHub issue 8; conker-notes 2026-11-03;
+ * xemu shows it too). RECOMP_UNDERWATER_OVERLAY=0 (underwater_overlay = 0)
+ * leaves it out everywhere; RECOMP_POO_FIX (poo_fix, default on) draws it
+ * brown in the poo level (0x2C), with both colours set to s_dome_brown: the
+ * TFACTOR in sub_00537360_enter, the vertex colours in the pushbuffer
+ * itself, where the dome writes each band inline (dome_patch_band).
+ * conker_SetUnderwaterOverlay and conker_SetPooFix from the F2 menu. */
+#define DOME_LEVEL_POO 0x2Cu
+/* Times the textures (about 0.4 grey-teal, greener in places), twice:
+ * the poo's own colour round the band (99, 65, 25 in run_20261103_100920),
+ * measured against the band in the picture (user: 0x804A1C still showed
+ * green). RECOMP_POO_TINT_FILE=<file> (hex RRGGBB in it, read again every
+ * 60 domes) tries others live. */
+#define DOME_BROWN 0x007C3612u
+static uint32_t s_dome_brown = DOME_BROWN;
+static int s_dome_count;
+
+static void dome_tint_reload(void)
+{
+    static const char *path;
+    static int checked;
+    FILE *f;
+    unsigned v;
+    if (!checked) {
+        path = getenv("RECOMP_POO_TINT_FILE");
+        checked = 1;
+    }
+    if (!path || s_dome_count++ % 60)
+        return;
+    f = fopen(path, "r");
+    if (!f)
+        return;
+    if (fscanf(f, "%x", &v) == 1 && (v & 0x00FFFFFFu) != s_dome_brown) {
+        s_dome_brown = v & 0x00FFFFFFu;
+        fprintf(stderr, "[DOME] tint now %06X\n", s_dome_brown);
+    }
+    fclose(f);
+}
+
+static volatile int g_uw_overlay = -1, g_poo_fix = -1;
+static int s_dome_tint;                 /* the dome now drawing is tinted */
+
+void conker_SetUnderwaterOverlay(int on)
+{
+    g_uw_overlay = on != 0;
+}
+
+void conker_SetPooFix(int on)
+{
+    g_poo_fix = on != 0;
+}
+
+static int env_switch(volatile int *v, const char *name)
+{
+    if (*v < 0) {
+        const char *e = getenv(name);
+        *v = !(e && *e == '0');
+    }
+    return *v;
+}
+
+static void dome_tint_factor(void)
+{
+    if (s_dome_tint)
+        MEM32(g_esp + 4) = (MEM32(g_esp + 4) & 0xFF000000u) | s_dome_brown;
+}
+
+/* One band as the dome writes it, ending at end: BEGIN quads, an inline
+ * array of 64 vertices (x y z, colour, u0 v0, u1 v1), END. Its vertex
+ * colours (alpha = the band's) turn brown. Called before the next D3D call
+ * that could kick the pushbuffer, so the GPU never read the band yet. */
+/* RECOMP_DOME_LOG=1: a [DOME] line per tinted dome (bands patched, calls
+ * where none was found and the words there), at most 20. */
+static int s_dome_log = -1, s_dome_lines;
+static uint32_t s_dome_hits, s_dome_bands, s_dome_miss_at, s_dome_miss_w;
+
+static void dome_patch_band(uint32_t end)
+{
+    uint32_t p = end - 517u * 4u, i, c;
+    s_dome_hits++;
+    if (MEM32(p) != 0x000417FCu || MEM32(p + 4) != 8u
+        || MEM32(p + 8) != 0x48001818u || MEM32(end - 8) != 0x000417FCu
+        || MEM32(end - 4) != 0u) {
+        s_dome_miss_at = end;
+        s_dome_miss_w = MEM32(p);
+        return;
+    }
+    s_dome_bands++;
+    for (i = 0; i < 64; i++) {
+        c = MEM32(p + 12u + i * 32u + 12u);
+        if ((c & 0x00FFFFFFu) == 0x00808080u)
+            MEM32(p + 12u + i * 32u + 12u) = (c & 0xFF000000u) | s_dome_brown;
+    }
+}
+
+static uint32_t pb_put(void)
+{
+    return MEM32(MEM32(0x005499E8u));
+}
+
+/* 0x00543200 (D3D's SetStateVB), at the top of each band but the first:
+ * the band before ends at the put pointer. */
+void sub_00543200_enter(void)
+{
+    if (s_dome_tint && MEM32(g_esp) == 0x00155C19u)
+        dome_patch_band(pb_put());
+}
+
+/* 0x0053C300 (MakeRequestedSpace) after the last band, if it runs. */
+void sub_0053C300_enter(void)
+{
+    if (s_dome_tint && MEM32(g_esp) == 0x0015603Cu)
+        dome_patch_band(pb_put());
+}
+
+/* 0x00538690 (SetPixelShader), the dome's last call: the last band ends
+ * two words (a pushed method and its value) before the put pointer. */
+void sub_00538690_enter(void)
+{
+    if (s_dome_tint && MEM32(g_esp) == 0x00156063u)
+        dome_patch_band(pb_put() - 8u);
+}
+
+extern void sub_001557D0_gen(void);
+void sub_001557D0(void)
+{
+    if (!env_switch(&g_uw_overlay, "RECOMP_UNDERWATER_OVERLAY")) {
+        g_esp += 4;                     /* ret */
+        return;
+    }
+    s_dome_tint = env_switch(&g_poo_fix, "RECOMP_POO_FIX")
+                  && MEM32(0x007FA1F8u) == DOME_LEVEL_POO;
+    if (s_dome_tint)
+        dome_tint_reload();
+    s_dome_hits = s_dome_bands = s_dome_miss_at = s_dome_miss_w = 0;
+    sub_001557D0_gen();
+    if (s_dome_tint) {
+        if (s_dome_log < 0) {
+            const char *e = getenv("RECOMP_DOME_LOG");
+            s_dome_log = e && *e == '1';
+        }
+        if (s_dome_log && s_dome_lines < 20) {
+            s_dome_lines++;
+            fprintf(stderr, "[DOME] tinted: %u calls, %u bands patched;"
+                    " last miss at %08X (word %08X)\n", s_dome_hits,
+                    s_dome_bands, s_dome_miss_at, s_dome_miss_w);
+        }
+    }
+    s_dome_tint = 0;
 }
 
 /* 0x001B0B70 (cdecl): the draw of object type 0x70 (layer 2), a sprite

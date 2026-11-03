@@ -107,7 +107,8 @@ static const Option s_options[] = {
       NULL,
       "The Pop-in Fix's parts, each 1 = fixed, 0 = as the original; they\n"
       "apply only while grass_full_detail = 1. popin_grass: grass and\n"
-      "flowers, popin_characters: characters, popin_fur: fur (all three on\n"
+      "flowers (far grass also gets the level's haze, like the ground\n"
+      "under it), popin_characters: characters, popin_fur: fur (all three on\n"
       "by default), popin_particles: ambient particles (falling leaves,\n"
       "dust) all round instead of only near the camera (experimental, off\n"
       "by default)." },
@@ -178,6 +179,14 @@ static const Option s_options[] = {
       NULL,
       "Water and blood drops on the screen (rain, splashes, hits) and\n"
       "the streaks they leave: 1 = on as the original (default), 0 = off." },
+    { "picture", "underwater_overlay", OPT_BOOL, "1", "1",
+      "RECOMP_UNDERWATER_OVERLAY", NULL,
+      "The shimmering haze round Conker under water (it shows as a band\n"
+      "at eye level): 1 = on as the original (default), 0 = off." },
+    { "picture", "poo_fix", OPT_BOOL, "1", "1", "RECOMP_POO_FIX", NULL,
+      "Under the poo after the Bull fight, that haze drawn brown to match\n"
+      "the poo instead of the original's blue band: 1 = on (default),\n"
+      "0 = the original. Normal water is never changed." },
     { "picture", "cutscene_blur", OPT_CHOICE, "updated", "updated",
       "RECOMP_DOF", "off original updated cinematic",
       "Depth of field in cutscenes (the background or foreground out of\n"
