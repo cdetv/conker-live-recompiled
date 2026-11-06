@@ -3,6 +3,7 @@
  *
  *   RECOMP_SAMPLE_PROFILE=<seconds>   report every <seconds> (default 10)
  *   RECOMP_SAMPLE_CALLERS=1           also: system/driver time by our caller
+ *   RECOMP_SAMPLE_CALLERS=2           and our own functions' callers too
  *   RECOMP_HITCH_MS=<ms>              long frames: see "Long frames" below;
  *                                     works with or without the line above
  *
@@ -62,6 +63,7 @@ static int s_nthreads;
 static ProfEntry s_table[PROF_TABLE_SIZE];
 static uint32_t s_dropped, s_ticks;
 static int s_window_on;      /* RECOMP_SAMPLE_PROFILE given: [PROF] reports */
+static uint32_t s_top = PROF_TOP_PER_THREAD;  /* RECOMP_SAMPLE_TOP: lines a thread */
 
 /* ── Long frames (RECOMP_HITCH_MS) ─────────────────────────────
  *
@@ -112,7 +114,12 @@ static NtQueryInformationThread_t s_ntqit;
  *
  * Scanning the copy for any value that looks like a return address instead
  * was tried first and lied: driver frames hold stale return addresses in
- * their uninitialised locals, so it named functions that never sleep. */
+ * their uninitialised locals, so it named functions that never sleep.
+ *
+ * RECOMP_SAMPLE_CALLERS=2 unwinds samples in our own code too, past one
+ * frame: the leaf's caller's caller and the one above it. Made to find who
+ * called the C runtime's getenv (common_getenv_nolock <- common_getenv <-
+ * getenv <- us) 3-5 % of the game thread in It's War (2026-11-04). */
 static int s_callers;
 static uint64_t s_text_lo, s_text_hi;    /* the .exe's code section */
 #define PROF_STACK_COPY 65536
@@ -122,7 +129,8 @@ static uint64_t s_stack_copy[PROF_STACK_COPY / 8];
  * s_stack_copy) to its first two frames in our code. The copy stands in for
  * the stack: rsp and a frame pointer into the stack are moved into it, so
  * every read the unwinder makes comes from the snapshot. */
-static void prof_unwind(CONTEXT *c, uint64_t lo, uint64_t hi, uint64_t caller[2])
+static void prof_unwind(CONTEXT *c, uint64_t lo, uint64_t hi, uint64_t caller[2],
+                        int skip)
 {
     uint64_t clo = (uint64_t)s_stack_copy, chi = clo + (hi - lo);
     int64_t delta = (int64_t)(clo - lo);
@@ -149,7 +157,7 @@ static void prof_unwind(CONTEXT *c, uint64_t lo, uint64_t hi, uint64_t caller[2]
             break;
         if (c->Rbp >= lo && c->Rbp < hi)
             c->Rbp += delta;
-        if (prof_in_text(c->Rip))
+        if (prof_in_text(c->Rip) && skip-- <= 0)
             caller[found++] = c->Rip;
     }
 }
@@ -277,8 +285,8 @@ static void prof_sample_all(void)
             ResumeThread(t->h);
             continue;
         }
-        if (s_callers && !prof_in_text(c.Rip) && t->stack_base > c.Rsp
-                && !(c.Rsp & 7)) {
+        if (s_callers && (s_callers == 2 || !prof_in_text(c.Rip))
+                && t->stack_base > c.Rsp && !(c.Rsp & 7)) {
             copied = (size_t)(t->stack_base - c.Rsp);
             if (copied > PROF_STACK_COPY)
                 copied = PROF_STACK_COPY;
@@ -288,7 +296,8 @@ static void prof_sample_all(void)
         if (copied) {
             uint64_t caller[2] = {0, 0};
             CONTEXT u = c;
-            prof_unwind(&u, c.Rsp, c.Rsp + copied, caller);
+            prof_unwind(&u, c.Rsp, c.Rsp + copied, caller,
+                        prof_in_text(c.Rip));
             prof_record((uint32_t)k, c.Rip, caller);
         } else {
             prof_record((uint32_t)k, c.Rip, NULL);
@@ -421,7 +430,7 @@ static void prof_print_window(double secs)
                 (unsigned long)t->tid,
                 t->start ? prof_name(t->start, name, sizeof name) : "?",
                 t->samples);
-        for (i = 0; i < n && shown < PROF_TOP_PER_THREAD; i++) {
+        for (i = 0; i < n && shown < s_top; i++) {
             if (f[i].slot != (uint32_t)k)
                 continue;
             if (f[i].count * 200u < t->samples)   /* under 0.5% */
@@ -433,7 +442,7 @@ static void prof_print_window(double secs)
         }
         /* System time by who called it: "<- a <- b" = the innermost two of
          * our functions found on the stack. */
-        for (i = 0, shown = 0; g && i < ng && shown < PROF_TOP_PER_THREAD; i++) {
+        for (i = 0, shown = 0; g && i < ng && shown < s_top; i++) {
             if (g[i].slot != (uint32_t)k)
                 continue;
             if (g[i].count * 200u < t->samples)
@@ -745,9 +754,12 @@ void sample_profiler_start(void)
         if (s_hitch_ms < 1)
             s_hitch_ms = 45;
     }
+    if (getenv("RECOMP_SAMPLE_TOP") && atoi(getenv("RECOMP_SAMPLE_TOP")) > 0)
+        s_top = (uint32_t)atoi(getenv("RECOMP_SAMPLE_TOP"));
     if (getenv("RECOMP_SAMPLE_CALLERS")) {
         prof_find_text();
-        s_callers = s_text_hi > s_text_lo;
+        s_callers = s_text_hi > s_text_lo
+                  ? 1 + (atoi(getenv("RECOMP_SAMPLE_CALLERS")) == 2) : 0;
     }
     ntdll = GetModuleHandleA("ntdll.dll");
     if (ntdll)

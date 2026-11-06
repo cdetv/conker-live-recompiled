@@ -58,7 +58,7 @@
  * (P) is not a present; the count starts again after one. Drawn by ImGui
  * after the filter chain, so never filtered.
  *
- * Every change is written to settings.ini at once. Full screen, the
+ * Every change is written to settings.ini at once. The display mode, the
  * render resolution and render scale (xbox_SetRenderRes,
  * xbox_SetRenderScale; the back end switches at its next present; the
  * menu shows the size drawn at, xbox_RenderScaleSize), the upscaler
@@ -72,8 +72,9 @@
  * frame rate, the dip fix, grass detail, screen haze, vignette and screen
  * drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
  * conker_SetScreenHaze, conker_SetVignette, conker_SetScreenDrops,
- * conker_SetUnderwaterOverlay and conker_SetPooFix in
- * recomp_manual.c, from the
+ * conker_SetUnderwaterOverlay, conker_SetPooFix and
+ * conker_SetMainMenuSpeed, conker_SetCutsceneSkip and conker_SetSkipHold
+ * in recomp_manual.c, from the
  * game's next frame; uncensored text, decensor_set, from the next
  * level that loads) also
  * apply at once; the rest
@@ -95,6 +96,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "imgui.h"
 #include "backends/imgui_impl_dx11.h"
@@ -113,7 +115,7 @@ void xbox_SetGpuOverlay(xbox_GpuOverlayFn fn);
 typedef int (*xbox_WindowMessageHook)(void *hwnd, unsigned msg, uintptr_t w,
                                       intptr_t l, intptr_t *result);
 void xbox_SetWindowMessageHook(xbox_WindowMessageHook hook);
-void xbox_FramebufferWindowSetFullscreen(int on);
+void xbox_FramebufferWindowSetDisplayMode(int mode);
 int xbox_FramebufferWindowGpuViewRect(int *x, int *y, int *w, int *h);
 void xbox_InputSetBlocked(int on);
 int xbox_InputFirstHostPad(void);
@@ -127,11 +129,18 @@ int xbox_SetAntiAlias(int mode);
 int xbox_SetRenderScale(int percent);
 int xbox_RenderScaleSize(unsigned *w, unsigned *h);
 int xbox_SetUpscaler(int mode);
+int xbox_SetVsync(int mode);
 int xbox_SetCrt(int mode, float strength);
 void conker_SetGlow(float pct);
 void conker_SetCutsceneBlur(int mode);
 void conker_SetFrameRate(int fps);
 void conker_SetDipFix(int on);
+void conker_SetMainMenuSpeed(int on);
+void conker_SetPhys30(int on);
+void conker_SetCutsceneSkip(int on);
+void conker_SetSkipHold(int on);
+float conker_SkipRing(void);
+float conker_SkipCover(void);
 void conker_SetGrassFull(int on);
 void conker_SetPopinPart(int part, int on);
 void conker_SetParticleDensity(float percent);
@@ -894,10 +903,16 @@ static void checkbox(const char *label, const char *key, bool applies_now,
     }
     if (changed) {
         save(key, on ? "1" : "0");
-        if (!strcmp(key, "fullscreen"))
-            xbox_FramebufferWindowSetFullscreen(on);
         if (!strcmp(key, "slowdown_fix") && !settings_env_override(key))
             conker_SetDipFix(on);
+        if (!strcmp(key, "main_menu_speed") && !settings_env_override(key))
+            conker_SetMainMenuSpeed(on);
+        if (!strcmp(key, "physics_30hz") && !settings_env_override(key))
+            conker_SetPhys30(on);
+        if (!strcmp(key, "skippable_cutscenes") && !settings_env_override(key))
+            conker_SetCutsceneSkip(on);
+        if (!strcmp(key, "hold_to_skip") && !settings_env_override(key))
+            conker_SetSkipHold(on);
         if (!strcmp(key, "grass_full_detail") && !settings_env_override(key))
             conker_SetGrassFull(on);
         if (!strncmp(key, "popin_", 6) && !settings_env_override(key))
@@ -987,6 +1002,35 @@ static void apply_upscaler(void)
         xbox_SetUpscaler(_stricmp(settings_get("upscaler"), "fsr") ? 0 : 1);
 }
 
+/* vsync, just saved: to the present at once, unless the environment
+ * decides it. Values in xbox_SetVsync's order. */
+static void apply_vsync(void)
+{
+    static const char *const names[] = { "off", "on", "vrr" };
+    const char *v = settings_get("vsync");
+
+    if (settings_env_override("vsync"))
+        return;
+    for (int i = 0; i < 3; i++)
+        if (!_stricmp(v, names[i]))
+            xbox_SetVsync(i);
+}
+
+/* display_mode, just saved: to the window at once, unless the environment
+ * decides it. Values in xbox_FramebufferWindowSetDisplayMode's order. */
+static void apply_display_mode(void)
+{
+    static const char *const names[] = { "windowed", "borderless",
+                                         "fullscreen" };
+    const char *v = settings_get("display_mode");
+
+    if (settings_env_override("display_mode"))
+        return;
+    for (int i = 0; i < 3; i++)
+        if (!_stricmp(v, names[i]))
+            xbox_FramebufferWindowSetDisplayMode(i);
+}
+
 /* antialiasing, just saved: to the filter chain at once, unless the
  * environment decides it. Values in xbox_SetAntiAlias's order. */
 static void apply_aa(void)
@@ -1057,6 +1101,10 @@ static void choice(const char *label, const char *key,
                     apply_render_scale();
                 if (!s_error[0] && !strcmp(key, "upscaler"))
                     apply_upscaler();
+                if (!s_error[0] && !strcmp(key, "vsync"))
+                    apply_vsync();
+                if (!s_error[0] && !strcmp(key, "display_mode"))
+                    apply_display_mode();
                 if (!s_error[0] && !strcmp(key, "texture_filter"))
                     apply_tex_filter();
                 if (!s_error[0] && !strcmp(key, "antialiasing"))
@@ -1369,9 +1417,22 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         "50 % (fastest, softest)", "67 %", "75 %", "100 % (default)",
         "125 %", "150 %", "200 % (sharpest, slowest)",
     };
-    static const char *const fps_values[] = { "30", "60" };
+    static const char *const mode_values[] = {
+        "windowed", "borderless", "fullscreen",
+    };
+    static const char *const mode_names[] = {
+        "Windowed", "Borderless (instant Alt+Tab)",
+        "Full screen (exclusive)",
+    };
+    static const char *const vsync_values[] = { "on", "off", "vrr" };
+    static const char *const vsync_names[] = {
+        "On (no tearing)", "Off (lowest delay, may tear)",
+        "G-Sync / FreeSync (VRR)",
+    };
+    /* 144 and up wait for fixes (settings.c frame_rate). */
+    static const char *const fps_values[] = { "30", "60", "90", "120" };
     static const char *const fps_names[] = {
-        "30 fps (original)", "60 fps",
+        "30 fps (original)", "60 fps", "90 fps", "120 fps",
     };
     static const char *const up_values[] = { "bilinear", "fsr" };
     static const char *const up_names[] = {
@@ -1420,7 +1481,8 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         note("Controller: the game. Click this menu (or F2 twice) to use it.");
 
     section("Display");
-    checkbox("Full screen", "fullscreen", true);
+    choice("Display mode", "display_mode", mode_values, mode_names,
+           (int)(sizeof(mode_values) / sizeof(mode_values[0])), true);
     choice("Render resolution", "render_resolution", res_values, res_names,
            (int)(sizeof(res_values) / sizeof(res_values[0])), true);
     choice("Render scale", "render_scale", scale_values, scale_names,
@@ -1474,10 +1536,41 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     choice("Frame rate", "frame_rate", fps_values, fps_names,
            (int)(sizeof(fps_values) / sizeof(fps_values[0])), true);
     /* The dip fix at 30 is on by default and a debug choice (user
-     * 2026-10-22); 60 always has it. */
-    if (settings_debug() && strcmp(settings_get("frame_rate"), "60")) {
+     * 2026-10-22); 60 and above always have it. */
+    if (settings_debug() && !strcmp(settings_get("frame_rate"), "30")) {
         checkbox("Keep speed in slowdowns (debug)", "slowdown_fix", true);
         note("    Off = original (runs fast when the frame rate dips)");
+    }
+    checkbox("Main Menu Speed", "main_menu_speed", true,
+             "Above 60 fps the main menu turns between its boards at the "
+             "original speed (off: faster, twice as fast at 120)");
+    /* On by default, a debug choice (user 2026-11-04). */
+    if (settings_debug())
+        checkbox("Physics at 30 Hz (debug)", "physics_30hz", true,
+                 "Above 30 fps tails, ragdolls and cloth move at the original "
+                 "speed (off: faster, 4x as fast at 120)");
+    choice("VSync", "vsync", vsync_values, vsync_names,
+           (int)(sizeof(vsync_values) / sizeof(vsync_values[0])), true);
+
+    /* To-do 16 (user 2026-11-04): Hold to Skip shown while the first is
+     * on; the dump always lists it, under its parent. */
+    section("Cutscenes");
+    checkbox("Skippable Cutscenes", "skippable_cutscenes", true,
+             "Every story cutscene can be skipped, also the ones the game "
+             "does not let you skip; a scene in parts skips one part at a "
+             "time");
+    if (s_dump || strcmp(settings_get("skippable_cutscenes"), "0")) {
+        ImGui::Indent();
+        s_dump_parent = "skippable_cutscenes";
+        checkbox("Hold to Skip", "hold_to_skip", true,
+                 "Scenes the game does not let you skip need the skip button "
+                 "held for 3 seconds (off: a press skips them)");
+        /* User 2026-11-04: a debug choice. */
+        if (settings_debug())
+            checkbox("Tail-shaped ring (debug)", "skip_ring_tail", true,
+                     "The hold-to-skip ring drawn as Conker's curled-up tail");
+        s_dump_parent = NULL;
+        ImGui::Unindent();
     }
 
     section("Picture");
@@ -2948,6 +3041,125 @@ static void fps_label(unsigned h)
     ImGui::End();
 }
 
+/* Conker's tail along the ring (to-do 16, the user's photo): the first
+ * 10 % white like its tip, then 40 % yellow, the last 50 % orange, with a
+ * short blend at each change. f = 0..1 round the circle; alpha 0..255. */
+static ImU32 tail_colour(float f, int alpha = 255)
+{
+    static const float tip[3] = { 255, 246, 208 }, yel[3] = { 247, 210, 62 },
+                       org[3] = { 238, 122, 18 };
+    const float bl = 0.04f;
+    const float *a = tip, *b = yel;
+    float k;
+
+    if (f < 0.1f - bl)
+        k = 0.0f;
+    else if (f < 0.1f + bl)
+        k = (f - (0.1f - bl)) / (2.0f * bl);
+    else if (f < 0.5f - bl)
+        k = 1.0f;
+    else {
+        a = yel;
+        b = org;
+        k = f < 0.5f + bl ? (f - (0.5f - bl)) / (2.0f * bl) : 1.0f;
+    }
+    return IM_COL32((int)(a[0] + (b[0] - a[0]) * k),
+                    (int)(a[1] + (b[1] - a[1]) * k),
+                    (int)(a[2] + (b[2] - a[2]) * k), alpha);
+}
+
+/* Tail look (F2 Cutscenes "Tail-shaped ring", --debug only): fur strands along the ring, leaning back towards the tip as
+ * on Conker's tail, longer outside than inside; each strand's length is
+ * fixed by its number, so nothing shimmers. tw(f) = the stroke's width. */
+static void skip_ring_fur(ImDrawList *dl, ImVec2 c, float r, float th, float p)
+{
+    const float pi = 3.14159265f;
+    const int strands = 84;             /* a full circle, per side */
+    const float half = pi / strands * 0.75f;
+
+    for (int i = 0; i < strands; i++) {
+        float f = (i + 0.5f) / strands;
+        if (f > p)
+            break;
+        float rnd = (float)(((unsigned)i * 2654435761u >> 16) & 255) / 255.0f;
+        float a = -pi * 0.5f + f * 2.0f * pi;
+        float tw = th * (0.55f + 0.9f * f);
+        ImU32 col = tail_colour(f);
+        for (int side = 0; side < 2; side++) {
+            float s = side ? -1.0f : 1.0f;
+            float len = tw * (side ? 0.4f : 0.85f) * (0.6f + 0.7f * rnd);
+            float r0 = r + s * tw * 0.4f, rt = r0 + s * len;
+            float at = a - 0.8f * len / r;      /* lean back, towards the tip */
+            dl->AddTriangleFilled(ImVec2(c.x + cosf(a - half) * r0, c.y + sinf(a - half) * r0),
+                                  ImVec2(c.x + cosf(a + half) * r0, c.y + sinf(a + half) * r0),
+                                  ImVec2(c.x + cosf(at) * rt, c.y + sinf(at) * rt), col);
+        }
+    }
+}
+
+/* The hold-to-skip ring (conker_SkipRing, recomp_manual.c): a hollow
+ * circle in the bottom right corner that draws itself clockwise from
+ * 12 o'clock as the skip button is held, with a soft glow of its own
+ * colours fading out from it (user 2026-11-04: no dark edge). Sized by the
+ * picture's height. */
+/* One band of the ring, 12 o'clock to p round, as a single triangle strip
+ * with a colour per corner (no joins to show): from d0 to d1 off the
+ * ring's edge (outward, or inward with sign -1; the body from its middle),
+ * alpha a0 to a1 across it. tail: the width grows from the tip. */
+static void ring_band(ImDrawList *dl, ImVec2 c, float r, float th, float p,
+                      bool tail, float sign, float d0, float d1, int a0, int a1)
+{
+    const float pi = 3.14159265f;
+    const int segs = 120;               /* a full circle */
+    int n = (int)(p * segs + 0.999f), i;
+    ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+
+    if (n < 1)
+        return;
+    dl->PrimReserve(n * 6, (n + 1) * 2);
+    unsigned base = dl->_VtxCurrentIdx;
+    for (i = 0; i <= n; i++) {
+        float f = i < n ? (float)i / segs : p;
+        float a = -pi * 0.5f + f * 2.0f * pi;
+        float half = (tail ? th * (0.55f + 0.9f * f) : th) * 0.5f;
+        float ra = r + sign * (half + d0), rb = r + sign * (half + d1);
+        if (d0 < 0.0f)                  /* the body: across its middle */
+            ra = r - half, rb = r + half;
+        dl->PrimWriteVtx(ImVec2(c.x + cosf(a) * ra, c.y + sinf(a) * ra), uv,
+                         tail_colour(f, a0));
+        dl->PrimWriteVtx(ImVec2(c.x + cosf(a) * rb, c.y + sinf(a) * rb), uv,
+                         tail_colour(f, a1));
+    }
+    for (i = 0; i < n; i++) {
+        unsigned v = base + (unsigned)i * 2;
+        dl->PrimWriteIdx((ImDrawIdx)v);
+        dl->PrimWriteIdx((ImDrawIdx)(v + 1));
+        dl->PrimWriteIdx((ImDrawIdx)(v + 3));
+        dl->PrimWriteIdx((ImDrawIdx)v);
+        dl->PrimWriteIdx((ImDrawIdx)(v + 3));
+        dl->PrimWriteIdx((ImDrawIdx)(v + 2));
+    }
+}
+
+static void skip_ring(unsigned w, unsigned h, float p)
+{
+    ImDrawList *dl = ImGui::GetForegroundDrawList();
+    float r = h * 0.03f, th = h * 0.009f, m = h * 0.05f, glow;
+    ImVec2 c((float)w - m - r, (float)h - m - r);
+    bool tail = settings_debug() && strcmp(settings_get("skip_ring_tail"), "0");
+
+    if (th < 2.0f)
+        th = 2.0f;
+    glow = th * 0.8f;                   /* 1.6 was too wide (user 2026-11-04) */
+    /* The soft edge: the ring's own colours fading out both ways (110 at
+     * the ring was too strong, user 2026-11-04). */
+    ring_band(dl, c, r, th, p, tail, 1.0f, 0.0f, glow, 50, 0);
+    ring_band(dl, c, r, th, p, tail, -1.0f, 0.0f, glow * 0.8f, 50, 0);
+    if (tail)
+        skip_ring_fur(dl, c, r, th, p);
+    ring_band(dl, c, r, th, p, tail, 1.0f, -1.0f, 0.0f, 255, 255);
+}
+
 /* The menu, the pause label and the FPS counter, whichever are on. Nonzero
  * holds the flip: the game stays paused at this frame (F4). */
 static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
@@ -2960,6 +3172,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     ID3D11DepthStencilView *old_dsv = NULL;
     LARGE_INTEGER now, freq;
     bool close = false;
+    float ring, cover;
 
     InterlockedExchange(&s_bb_w, (LONG)w);
     InterlockedExchange(&s_bb_h, (LONG)h);
@@ -2986,7 +3199,10 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         close_menu();
     if (!s_want_open)
         pad_opens_menu();
-    if (!s_want_open && !s_paused && !s_fps && !photo_frozen())
+    ring = conker_SkipRing();
+    cover = conker_SkipCover();
+    if (!s_want_open && !s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
+        && cover <= 0.0f)
         return 0;
     if (!s_ready) {
         if (!init_imgui(dev, ctx, h)) {
@@ -3030,7 +3246,8 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         feed_pad(&close);
         if (close) {
             close_menu();
-            if (!s_paused && !s_fps && !photo_frozen())
+            if (!s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
+                && cover <= 0.0f)
                 return 0;
             close = false;
         }
@@ -3042,6 +3259,14 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     s_fps_bottom = 0.0f;
     if (s_fps)
         fps_label(h);
+    /* After a skip of ours: black until what follows draws (recomp_manual.c
+     * conker_SkipCover); under any menu. */
+    if (cover > 0.0f)
+        ImGui::GetBackgroundDrawList()->AddRectFilled(
+            ImVec2(0.0f, 0.0f), ImVec2((float)w, (float)h),
+            IM_COL32(0, 0, 0, (int)(cover * 255.0f)));
+    if (ring > 0.0f)
+        skip_ring(w, h, ring);
     if (s_open && s_menu == MENU_PHOTO)
         build_photo(w, h, &close);
     else if (s_open)

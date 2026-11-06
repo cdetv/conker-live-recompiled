@@ -362,12 +362,15 @@ static const int s_pause_keys[] = {
 
 /* Cutscenes (user 2026-10-25): Space skips one seen before (the left
  * trigger, as on the controller), Esc pauses. Nothing else, so the
- * head-cam key cannot start a skip and stay held after it. */
+ * head-cam key cannot start a skip and stay held after it. E and Mouse 1
+ * skip too (user 2026-11-04, to-do 16). */
 static const Action s_cutscene[] = {
+    { { "", "Skip", "Left trigger" }, { XBOX_KBM_LT } },
+    { { "", "Skip", "Left trigger" }, { XBOX_KBM_LT } },
     { { "", "Skip", "Left trigger" }, { XBOX_KBM_LT } },
     { { "", "Pause", "Start" }, { XBOX_KBM_START } },
 };
-static const int s_cutscene_keys[] = { VK_SPACE, VK_ESCAPE };
+static const int s_cutscene_keys[] = { VK_SPACE, 'E', VK_LBUTTON, VK_ESCAPE };
 
 /* Photo mode (user 2026-10-29, SPEC 10.1): no output, the keys are read
  * by photo_mode.c; rows in controls.h's PHOTO_ order. The button is the
@@ -595,6 +598,18 @@ int controls_modern(int *context, int *aim, int *attack)
  * presses B (Space is Launch, not jump); in the air only the bat's keys
  * press A, B and the triggers (the head-cam key's held left trigger would
  * stop the bat), and Aim is left to recomp_manual.c. */
+static volatile LONG s_cut_latched;   /* controls_set_mode */
+
+/* A skip key (s_cutscene's left trigger rows) left out while latched. */
+static int key_latched(int input)
+{
+    int r, n = (int)(sizeof(s_cutscene) / sizeof(s_cutscene[0]));
+    for (r = 0; r < n; r++)
+        if ((s_cut_latched & (1 << r)) && s_cutscene_keys[r] == input)
+            return 1;
+    return 0;
+}
+
 static void apply_set(int set)
 {
     static const char *const prefix[] = { "story", "mp" };
@@ -619,6 +634,8 @@ static void apply_set(int set)
         int input = controls_key(set, r);
         unsigned short out = a->out[0] & ~XBOX_KBM_TOGGLE;
         if (input <= 0)
+            continue;
+        if (set == s_mode && key_latched(input))
             continue;
         if (a->where != 0 && a->where != where)
             continue;
@@ -839,10 +856,57 @@ void controls_apply(void)
         controls_set_mode(CONTROLS_STORY);
 }
 
+/* A skip key held as a cutscene starts (Mouse 1 shooting, E for the
+ * context action that started it, Space jumping) is the game's left
+ * trigger at once, a skip press; held as it ends (holding to skip), it is
+ * the same key's action in play at once (user 2026-11-04). So keys held
+ * as the cutscene set comes or goes are left out of the new set until let
+ * go (bit r = row r of s_cutscene in s_cut_latched). A set built with keys
+ * left out is built again when next used (s_latch_built). */
+static LONG s_latch_built;            /* bit = a set built with a latch */
+
+static void rebuild_latched(int set)
+{
+    if (set < 0 || set >= CONTROLS_PHOTO)
+        return;
+    apply_set(set);
+    if (s_cut_latched)
+        s_latch_built |= 1 << set;
+    else
+        s_latch_built &= ~(1 << set);
+    xbox_KbmSelectProfile(set);
+}
+
 void controls_set_mode(int set)
 {
-    if (InterlockedExchange(&s_mode, set) != set)
-        xbox_KbmSelectProfile(set);
+    int r, n = (int)(sizeof(s_cutscene) / sizeof(s_cutscene[0])), held = 0;
+    int old = (int)InterlockedExchange(&s_mode, set);
+
+    if (old != set) {
+        int any = set == CONTROLS_CUTSCENE || old == CONTROLS_CUTSCENE;
+        for (r = 0; r < n; r++)
+            if (s_cutscene[r].out[0] == XBOX_KBM_LT
+                && (any || (s_cut_latched & (1 << r)))
+                && xbox_KbmHeld((unsigned)s_cutscene_keys[r]))
+                held |= 1 << r;
+        InterlockedExchange(&s_cut_latched, held);
+        if (held || (set >= 0 && set < CONTROLS_PHOTO
+                     && (s_latch_built & (1 << set))))
+            rebuild_latched(set);
+        else
+            xbox_KbmSelectProfile(set);
+        return;
+    }
+    if (!s_cut_latched)
+        return;
+    for (r = 0; r < n; r++)
+        if ((s_cut_latched & (1 << r))
+            && xbox_KbmHeld((unsigned)s_cutscene_keys[r]))
+            held |= 1 << r;
+    if (held != s_cut_latched) {
+        InterlockedExchange(&s_cut_latched, held);
+        rebuild_latched(set);
+    }
 }
 
 int controls_mode(void)

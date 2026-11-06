@@ -46,6 +46,16 @@ public sealed class Updater(GameFolder folder)
             ? GitHubReleases.GetLatestFromAsync(url, Extensions, cancel)
             : GitHubReleases.GetLatestAsync(Repo, Extensions, cancel);
 
+    /// <summary>
+    /// Every release, newest first, for the Version History window.
+    /// <c>CONKER_LAUNCHER_HISTORY_URL</c> (development only) replaces GitHub with any URL
+    /// answering in its "list releases" format.
+    /// </summary>
+    public static Task<List<ReleaseInfo>> GetHistoryAsync(CancellationToken cancel) =>
+        Environment.GetEnvironmentVariable("CONKER_LAUNCHER_HISTORY_URL") is { Length: > 0 } url
+            ? GitHubReleases.GetAllFromAsync(url, Extensions, cancel)
+            : GitHubReleases.GetAllAsync(Repo, Extensions, cancel);
+
     /// <summary>The version a release tag names ("v0.2.0" or "0.2.0"), or null.</summary>
     public static Version? TagVersion(string tag) =>
         Version.TryParse(tag.TrimStart('v', 'V'), out Version? v) ? new Version(v.Major, v.Minor, Math.Max(v.Build, 0)) : null;

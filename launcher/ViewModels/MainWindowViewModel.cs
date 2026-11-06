@@ -37,15 +37,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
             PlayCommand.NotifyCanExecuteChanged();
             LaunchDebugCommand.NotifyCanExecuteChanged();
             UpdateCommand.NotifyCanExecuteChanged();
+            OpenUpdatePromptCommand.NotifyCanExecuteChanged();
         };
         Files.StateChanged += (_, _) =>
         {
             PlayCommand.NotifyCanExecuteChanged();
             LaunchDebugCommand.NotifyCanExecuteChanged();
             UpdateCommand.NotifyCanExecuteChanged();
+            OpenUpdatePromptCommand.NotifyCanExecuteChanged();
         };
         // First launch (and every start until the files are in): offer the import.
         ShowImportPrompt = !Files.GameFilesImported;
+        LoadPrefs();
 
         // While the game runs, its F2/F3 menus rewrite settings.ini: Settings and Controls are locked.
         gameWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
@@ -64,9 +67,34 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>The latest release when it is newer than this launcher.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(UpdateCommand))]
-    [NotifyPropertyChangedFor(nameof(UpdateButtonText))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateCommand), nameof(OpenUpdatePromptCommand))]
+    [NotifyPropertyChangedFor(nameof(UpdateButtonText), nameof(UpdateTitle))]
     public partial ReleaseInfo? NewRelease { get; set; }
+
+    /// <summary>The update window (SPEC 9.3): at start for a new release, and from the Update button.</summary>
+    [ObservableProperty]
+    public partial bool ShowUpdatePrompt { get; set; }
+
+    /// <summary>"Don't remind me": no update window at start until a newer release than this one.</summary>
+    [ObservableProperty]
+    public partial bool SkipThisRelease { get; set; }
+
+    /// <summary>Bottom bar: install a new release at start without asking.</summary>
+    [ObservableProperty]
+    public partial bool AutoUpdate { get; set; }
+
+    [ObservableProperty]
+    public partial bool ShowHistory { get; set; }
+
+    /// <summary>Every release for the Version History window, newest first (loaded once).</summary>
+    [ObservableProperty]
+    public partial IReadOnlyList<HistoryEntry>? History { get; set; }
+
+    /// <summary>"Loading ..." or why the history couldn't be loaded.</summary>
+    [ObservableProperty]
+    public partial string? HistoryNote { get; set; }
+
+    public string UpdateTitle => NewRelease is { } r ? $"v{Updater.TagVersion(r.Tag)} is out (you have {VersionText})" : "";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(VersionLine))]
@@ -145,6 +173,74 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [RelayCommand]
     private void DismissImportPrompt() => ShowImportPrompt = false;
+
+    // While the window reads launcher.ini, the checkboxes don't write it back.
+    private bool loadingPrefs;
+
+    /// <summary>Reads launcher.ini (again once the user files are in place).</summary>
+    private void LoadPrefs()
+    {
+        loadingPrefs = true;
+        AutoUpdate = LauncherPrefs.AutoUpdate;
+        SkipThisRelease = NewRelease is { } r && LauncherPrefs.SkippedUpdate == Updater.TagVersion(r.Tag);
+        loadingPrefs = false;
+    }
+
+    partial void OnAutoUpdateChanged(bool value)
+    {
+        if (!loadingPrefs)
+        {
+            LauncherPrefs.AutoUpdate = value;
+        }
+    }
+
+    partial void OnSkipThisReleaseChanged(bool value)
+    {
+        if (!loadingPrefs && NewRelease is { } r)
+        {
+            LauncherPrefs.SkippedUpdate = value ? Updater.TagVersion(r.Tag) : null;
+        }
+    }
+
+    /// <summary>The Update button: the update window, whatever "Don't remind me" says.</summary>
+    [RelayCommand(CanExecute = nameof(CanUpdate))]
+    private void OpenUpdatePrompt()
+    {
+        ShowHistory = false;
+        ShowUpdatePrompt = true;
+    }
+
+    [RelayCommand]
+    private void UpdateLater() => ShowUpdatePrompt = false;
+
+    /// <summary>Version History: every release's page text, from GitHub (once a launcher start).</summary>
+    [RelayCommand]
+    private async Task OpenHistoryAsync()
+    {
+        ShowUpdatePrompt = false;
+        ShowHistory = true;
+        if (History is not null)
+        {
+            return;
+        }
+
+        HistoryNote = "Loading the version history ...";
+        try
+        {
+            using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+            List<ReleaseInfo> releases = await Updater.GetHistoryAsync(timeout.Token);
+            History = [.. releases.Select(r => new HistoryEntry(r))];
+            HistoryNote = releases.Count == 0 ? "No releases found." : null;
+        }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException
+                                       or KeyNotFoundException or InvalidOperationException)
+        {
+            HistoryNote = $"Couldn't load the version history: {e.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void CloseHistory() => ShowHistory = false;
 
     [RelayCommand]
     private async Task ImportFromPromptAsync()
@@ -264,6 +360,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // Also while the release repo doesn't exist yet (GitHub answers 404).
             UpdateNote = quiet ?? "Couldn't check for updates";
         }
+
+        LoadPrefs();
+        if (NewRelease is null)
+        {
+            return;
+        }
+
+        if (AutoUpdate && CanUpdate())
+        {
+            await UpdateCommand.ExecuteAsync(null);
+        }
+        else if (!SkipThisRelease)
+        {
+            ShowUpdatePrompt = true;
+        }
     }
 
     /// <summary>Downloads the new release, replaces the program files and restarts the launcher.</summary>
@@ -282,6 +393,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         Flush();
+        ShowUpdatePrompt = false;
         Message = null;
         IsUpdating = true;
         Files.Updating = true;
@@ -310,4 +422,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     private bool CanUpdate() => NewRelease is not null && !IsUpdating && !Files.IsBusy && !UserFiles.IsBusy;
+}
+
+/// <summary>A release in the Version History window.</summary>
+public sealed class HistoryEntry(ReleaseInfo release)
+{
+    public string Title { get; } = $"v{Updater.TagVersion(release.Tag)?.ToString() ?? release.Tag}";
+
+    /// <summary>"3 November 2026", and whether this launcher is that version.</summary>
+    public string DateLine { get; } = string.Join(" · ", new[]
+    {
+        release.Published?.ToLocalTime().ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
+        Updater.TagVersion(release.Tag) == Updater.Current ? "installed" : null,
+    }.Where(s => s is not null));
+
+    public string Body { get; } = release.Body;
+
+    public Uri? Page { get; } = Uri.TryCreate(release.PageUrl, UriKind.Absolute, out Uri? u) ? u : null;
 }

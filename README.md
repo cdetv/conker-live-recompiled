@@ -6,7 +6,7 @@
 
 <p align="center">
   A native Windows PC version of <i>Conker: Live & Reloaded</i> (Xbox, 2005),<br>
-  made by recompiling the original game's code. Higher resolutions, 60 fps,<br>
+  made by recompiling the original game's code. Higher resolutions, up to 120 fps,<br>
   keyboard and mouse, PlayStation controllers, photo mode and more.
 </p>
 
@@ -74,7 +74,9 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 |---|---|---|
 | Resolution | 640×480 | Any resolution and shape (16:9, 21:9, 4:3, ...); by default your monitor's size, up to 1440p (or native, e.g. 4K) |
 | Render scale | — | 50–200 %: supersampling above 100 %, FSR 1 upscaling below |
-| Frame rate | 30 fps | **60 fps** with the game running at its correct speed (30 fps available as the original) |
+| Frame rate | 30 fps | **30, 60, 90 or 120 fps** with the game running at its correct speed (30 fps as the original) |
+| VSync | — | On, off, or G-Sync / FreeSync (VRR) |
+| Display mode | — | Windowed, borderless or exclusive full screen at your monitor's refresh rate |
 | Texture filtering | Original | Original, or anisotropic up to 16x |
 | Anti-aliasing | — | FXAA or SMAA |
 | Sharpening | — | AMD FidelityFX CAS, adjustable |
@@ -147,6 +149,13 @@ frame, adjust the depth of field, and take pictures (saved as PNG files).
   <i>The photo mode panel. Photos taken with it are in <a href="#screenshots">Screenshots</a> below.</i>
 </p>
 
+### Cutscenes
+
+Every story cutscene can be skipped, also ones you haven't seen yet and the
+ones the game never lets you skip: hold the skip button (LT; Space, E or the
+left mouse button) for 3 seconds. A cutscene in several parts skips one part
+at a time. Or turn off Hold to Skip to skip on a press.
+
 ### Sound
 
 - The Xbox's sound chip emulated as in xemu, for the original mix.
@@ -179,6 +188,9 @@ A few glitches the Xbox version has too are fixed:
 - Sounds no longer end early when the game is paused.
 - A character no longer lies half inside the floor in a late cutscene.
 - The game keeps its normal speed when it slows down, instead of speeding up.
+- The pause screen's Quit? Yes / No works with the D-pad and arrow keys.
+- The hole in the fire imp's back at the main menu is closed, and the soldier
+  who loses his arm in It's War is no longer see-through.
 
 ### The launcher
 
@@ -226,9 +238,10 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 | F2 | Back + LB | Settings menu |
 | F3 | | Controls menu |
 | F4 | Back + RB | Photo mode |
-| F11 | | Full screen on/off |
+| F11 or Alt+Enter | | Full screen on/off |
 | F1 | | Frame rate counter |
 | P | | Pause or resume |
+| Space, E or left mouse (hold) | LT (hold) | Skip a cutscene |
 
 Saves, settings, photos and logs are in the `userdata` folder next to `conker.exe` (from 0.1.3; the launcher's Files tab can keep them in `%LOCALAPPDATA%\conker-lr-recomp\` instead, where older versions kept them).
 
@@ -237,9 +250,7 @@ Saves, settings, photos and logs are in the `userdata` folder next to `conker.ex
 Ideas for future updates, in no particular order. Plans can change.
 
 - Linux / Steam Deck support
-- Cutscene skip
-- Other FPS options
-- VSync
+- Frame rates above 120 fps
 - Accurate audio DSP emulation + expanded sound profiles
 - Mouse controls for menus
 - Gyro aiming
@@ -257,7 +268,6 @@ Ideas for future updates, in no particular order. Plans can change.
   card prepares it; it is remembered for next time.
 - Sound can crackle for a moment when the game slows down.
 - The original loading screen doesn't show.
-- Parts of It's War (the beach) can drop below 60 fps.
 - Opening photo mode during a cutscene can break the cutscene's sound. For
   example, during the Great Mighty Poo song it removes the voice lines.
 
@@ -313,6 +323,9 @@ minutes.
 - **[xemu](https://github.com/xemu-project/xemu)**: the sound chip emulation,
   and the reference the port was checked against.
 - **nastys, Vaani and Theconker64**: [the decensor patch](https://github.com/nastys/conker-live-and-reloaded-decensor).
+- **[giacomozama/live-and-recompiled](https://github.com/giacomozama/live-and-recompiled)**:
+  another Conker recompilation whose change log pointed us at frame-rate bugs
+  (barn roof, swimming height, Harbour cannons).
 - **[codepdbh/xboxrecomp-conker](https://github.com/codepdbh/xboxrecomp-conker)**,
   the *[Conker Xbox 60fps + Widescreen patch](https://www.moddb.com/mods/conker-live-reloaded-wip-60fps-patch)
   by picardsfish*, **[XboxDev/ghidra-xbe](https://github.com/XboxDev/ghidra-xbe)**

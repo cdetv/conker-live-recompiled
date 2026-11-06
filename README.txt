@@ -3,8 +3,8 @@ Conker: Live & Recompiled
 
 A native Windows PC version of the original Xbox game Conker: Live &
 Reloaded. The game's own code was translated ("recompiled") to run directly
-on Windows, with sharper pictures, 60 fps, keyboard and mouse, PlayStation
-controllers, photo mode and more.
+on Windows, with sharper pictures, up to 120 fps, keyboard and mouse,
+PlayStation controllers, photo mode and more.
 
 No game files are included: you need your own copy of the game.
 
@@ -57,9 +57,11 @@ IN THE GAME
                 On a controller: Back + LB
   F3            Controls menu (keys, mouse, controllers per player)
   F4            Photo mode (on a controller: Back + RB; Esc leaves)
-  F11           Full screen on/off
+  F11           Full screen on/off (also Alt+Enter)
   F1            Frame rate counter
   P             Pause or resume the game
+  Hold LT       Skip a cutscene (keyboard: hold Space, E or the left
+                mouse button)
 
 Every setting is also in the launcher's Settings and Controls tabs, so you
 can set things up before playing.

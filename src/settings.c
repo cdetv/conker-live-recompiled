@@ -63,10 +63,17 @@ static const Option s_options[] = {
     /* The release defaults the user chose (2026-10-30): full screen,
      * auto resolution, scale 100, fsr, original texture filtering, 60 fps,
      * smaa, sharpen 100. */
-    { "display", "fullscreen", OPT_BOOL, "1", "0", "RECOMP_FULLSCREEN", NULL,
-      "Start in borderless full screen: 0 = window, 1 = full screen\n"
-      "(default).\n"
-      "F11 or Alt+Enter switches between them in the game either way." },
+    /* Was fullscreen (0/1) until 2026-11-03; an old file's fullscreen = 0
+     * is read as windowed (settings_load). User 2026-11-03: full screen
+     * at the monitor's own resolution and refresh rate. */
+    { "display", "display_mode", OPT_CHOICE, "borderless", "windowed",
+      "RECOMP_DISPLAY_MODE", "windowed borderless fullscreen",
+      "How the game is shown: windowed (a window), borderless (default; a\n"
+      "window without a frame covering the monitor: instant Alt+Tab) or\n"
+      "fullscreen (exclusive full screen: the game takes the monitor at its\n"
+      "own resolution and refresh rate; Alt+Tab takes a moment). F11 or\n"
+      "Alt+Enter switches between it and a window in the game. Applies at\n"
+      "once." },
     { "display", "render_resolution", OPT_RES, "auto", "640x480",
       "RECOMP_RENDER_RES", NULL,
       "Size the game is drawn at; the picture takes its shape, so a wide\n"
@@ -127,17 +134,62 @@ static const Option s_options[] = {
       "Frame rate in the top left corner: 0 = off (default), 1 = frames\n"
       "per second, 2 = also how long a frame takes (average and longest).\n"
       "F1 steps through them in the game." },
+    /* 144 and up (and uncapped) work through RECOMP_FRAME_RATE but are
+     * left out until the game's whole-tick code is fixed for them (user
+     * 2026-11-03; conker-notes "drunk walk loses its turning"). */
     { "display", "frame_rate", OPT_CHOICE, "60", "30", "RECOMP_FRAME_RATE",
-      "30 60",
-      "Frames per second the game runs at: 30 (the original) or 60\n"
-      "(default; smoother; the game keeps its speed, but slow spots such as\n"
-      "It's War's beach may not reach 60). Applies at once." },
+      "30 60 90 120",
+      "Frames per second the game runs at: 30 (the original), 60 (default;\n"
+      "smoother), 90 or 120 (for fast monitors; best when the PC holds the\n"
+      "rate steadily: some animations step unevenly when it dips). With\n"
+      "VSync on no rate goes above the monitor's refresh, with vrr 3 under\n"
+      "it. The game keeps its speed at every rate. Applies at once." },
     /* Was dip_fix (default 0) for a day; renamed so files that F2 had
      * already written with dip_fix = 0 get the new default. */
     { "display", "slowdown_fix", OPT_BOOL, "1", "1", "RECOMP_DIP_FIX", NULL,
       "At 30 fps, keep the game at its normal speed when the frame rate\n"
       "dips: 1 = on (default), 0 = off (the original, which runs fast in\n"
       "a dip). 60 fps always does this." },
+    /* User 2026-11-04 (to-do 76): named by the user, on by default. */
+    { "display", "main_menu_speed", OPT_BOOL, "1", "1", "RECOMP_MENU_SPEED",
+      NULL,
+      "Above 60 fps, the main menu turns from board to board (left / right)\n"
+      "at its original speed: 1 = on (default), 0 = off (it turns faster the\n"
+      "higher the frame rate, twice as fast at 120). The chapter list and\n"
+      "the other pages are not changed. Applies at once." },
+    /* To-do 78 (2026-11-04): on by default; F2 only with --debug (user). */
+    { "display", "physics_30hz", OPT_BOOL, "1", "1", "RECOMP_PHYS30", NULL,
+      "Above 30 fps, tails, ragdolls and cloth move at their original\n"
+      "speed: 1 = on (default), 0 = off (they move faster the higher the\n"
+      "frame rate, 4x as fast at 120). Applies at once." },
+    /* User 2026-11-03: three modes, on by default (SPEC 10.1 item 3).
+     * Always set: unset is the toolkit's old present (no wait, no tearing). */
+    { "display", "vsync", OPT_CHOICE, "on", "", "RECOMP_VSYNC", "on off vrr",
+      "VSync: on (default; no tearing, every frame waits for the monitor's\n"
+      "refresh, and on a 60, 120, 180 or 240 Hz monitor the game's clock\n"
+      "follows it, so no frame is shown twice or skipped), off (each frame\n"
+      "shows the moment it is ready: the lowest delay, but the picture can\n"
+      "tear) or vrr (G-Sync / FreeSync: for a monitor with it turned on, in\n"
+      "full screen; the monitor waits for the game's frames). Applies at\n"
+      "once." },
+    /* To-do 16 (user 2026-11-04): both on by default. */
+    { "cutscenes", "skippable_cutscenes", OPT_BOOL, "1", "1",
+      "RECOMP_CUTSCENE_SKIP", NULL,
+      "Every story cutscene can be skipped, also the ones the game does not\n"
+      "let you skip (not seen yet on this save, or never): 1 = on (default),\n"
+      "0 = off (the original). Scenes the game lets you skip still skip on a\n"
+      "press of the skip button (left trigger; Space, E or Mouse 1). A\n"
+      "scene made of parts skips one part at a time. Applies at once." },
+    { "cutscenes", "hold_to_skip", OPT_BOOL, "1", "1", "RECOMP_SKIP_HOLD",
+      NULL,
+      "With skippable_cutscenes on: the scenes the game does not let you\n"
+      "skip need the skip button held for 3 seconds (a ring fills in the\n"
+      "corner): 1 = on (default), 0 = off (a press skips them too). Applies\n"
+      "at once." },
+    /* User 2026-11-04: the plain ring; the tail look a --debug choice. */
+    { "cutscenes", "skip_ring_tail", OPT_BOOL, "0", "0", NULL, NULL,
+      "Debug (--debug only): the hold-to-skip ring drawn as Conker's tail,\n"
+      "curled up with fur: 1 = on, 0 = off (default; the plain ring)." },
     { "picture", "gamma", OPT_NUM, "1", "1", "RECOMP_GAMMA", NULL,
       "Picture brightness curve, 0.5 to 1.5: 1 = original (default); higher\n"
       "lifts the dark and middle tones, lower darkens them.", 0.5f, 1.5f },
@@ -778,7 +830,7 @@ void settings_load(const char *save_dir)
 {
     char buf[1024], section[64] = "";
     FILE *f;
-    int line = 0;
+    int line = 0, old_windowed = 0, mode_seen = 0;
     size_t i;
 
     /* What the environment holds before the file sets anything. */
@@ -828,6 +880,15 @@ void settings_load(const char *save_dir)
                 if (!_stricmp(s_options[i].section, section)
                         && !_stricmp(s_options[i].key, key))
                     o = (int)i;
+            /* The old full screen switch: 0 was a window. */
+            if (o < 0 && !_stricmp(section, "display")
+                    && !_stricmp(key, "fullscreen")) {
+                const char *b = parse_bool(trim(eq + 1));
+                old_windowed = b && !strcmp(b, "0");
+                continue;
+            }
+            if (o >= 0 && !strcmp(s_options[o].key, "display_mode"))
+                mode_seen = 1;
             if (o < 0 && !_stricmp(key, "widescreen")) {
                 fprintf(stderr, "[SETTINGS] %s line %d: widescreen is no "
                         "longer an option (render_resolution sets the "
@@ -843,6 +904,12 @@ void settings_load(const char *save_dir)
             normalize(&s_options[o], trim(eq + 1), s_value[o], where);
         }
         fclose(f);
+        if (old_windowed && !mode_seen) {
+            int o = find("display_mode");
+            strcpy_s(s_value[o], MAX_PATH, "windowed");
+            fprintf(stderr, "[SETTINGS] %s: fullscreen = 0 (the old switch) "
+                    "read as display_mode = windowed\n", s_path);
+        }
     }
 
     for (i = 0; i < NUM_OPTIONS; i++) {

@@ -70,6 +70,9 @@ CREDITS = """Credits for knowledge used (no code from these is included)
     xboxrecomp, a useful map of the road.
   - The "Conker Xbox 60fps + Widescreen" patch by picardsfish (ModDB): where
     the game keeps its frame-rate and screen settings.
+  - giacomozama/live-and-recompiled: another Conker recompilation, whose
+    change log pointed us at frame-rate bugs (barn roof, swimming height,
+    Harbour cannons).
   - XboxDev/ghidra-xbe and Ghidra (NSA): loading and studying the game's code.
   - nastys, Vaani and Theconker64: the Conker: Live & Reloaded decensor patch.
     It is not included; the launcher downloads it from their GitHub releases

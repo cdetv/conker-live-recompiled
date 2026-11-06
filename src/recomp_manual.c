@@ -24,6 +24,7 @@
 #include <string.h>
 #include <time.h>
 #include <intrin.h>
+#include <math.h>
 
 /* The generated header: the register globals (thread-local, RECOMP_TLS),
  * MEM32/XBOX_PTR, recomp_func_t and the ICALL trace ring, all declared there.
@@ -1210,12 +1211,73 @@ void sub_00030BC0_enter(void)
         MEM32(g_ecx + 0x48) += MEM32(0x007FA208);
 }
 
-void sub_00017CF0_enter(void)
+/* ── Conker: pause screen animations at real time above 30 fps (to-do 83) ──
+ *
+ * The UI page draw 0x0024D170 (eax = page; from 0x0024EBB0) moves its
+ * clock [0x00849C40] and every element's animation (0x002478A0) by dt
+ * [0x007FA21C], or by a fixed 1/30 s when dt is 0. dt is 0 while paused
+ * [0x007FA275], so the pause screen's animations (the Quit? box's Yes / No
+ * flash) ran one 30 fps frame per frame: 3.9x real time at 120 (UI clock
+ * +11.7 s in 3 s). While paused, dt is this frame's step [0x007FA24C] / 30
+ * for the call (1/30 at 30 fps, as before), then 0 again. Nothing else in
+ * the UI code reads dt. RECOMP_PAUSE_UI_FIX=0 = as before. */
+extern void sub_0024D170_gen(void);
+void sub_0024D170(void)
 {
-    /* RECOMP_HITCH_MS: one call per game frame (src/sample_profiler.c). */
-    extern void sample_profiler_frame(void);
-    sample_profiler_frame();
-    level_music_wait_for_banks();
+    static int on = -1;
+    float step = MEMF(0x007FA24Cu);
+    if (on < 0) {
+        const char *e = getenv("RECOMP_PAUSE_UI_FIX");
+        on = !(e && *e == '0');
+    }
+    if (!on || !MEM8(0x007FA275u) || MEMF(0x007FA21Cu) != 0.0f || !(step > 0.0f)) {
+        sub_0024D170_gen();
+        return;
+    }
+    MEMF(0x007FA21Cu) = step / 30.0f;
+    sub_0024D170_gen();
+    MEMF(0x007FA21Cu) = 0.0f;
+}
+
+/* ── Conker: D-pad left / right in sideways menu lists (to-do 90) ─────────
+ *
+ * A UI list's input 0x00249ED0 (eax = list; from 0x00249D00) turns the
+ * pad's state into four answers: up and down move the cursor [list+0x24],
+ * left and right set the item's toggle. A sideways list (byte [list+0x29],
+ * the pause screen's Quit? Yes / No) swaps the stick's axes, so stick left
+ * goes to Yes and right to No, but not the D-pad's bits (the input record
+ * [[0x008470FC + pad*4] + 8], 1 up, 2 down, 4 left, 8 right; pad
+ * [0x00776558], record 0x0075A0B4 for 2 and up): the D-pad, and the arrow
+ * keys with it, moved it only with down (Yes) and up (No) (user
+ * 2026-11-05; the original's own). In such a list the D-pad's bits are
+ * swapped for the call as the stick's axes are: left counts as down, right
+ * as up, up as right and down as left (the stick's up / down there: the
+ * toggle and its sound, no move; user 2026-11-05). RECOMP_MENU_DPAD_FIX=0
+ * = as before. */
+extern void sub_00249ED0_gen(void);
+void sub_00249ED0(void)
+{
+    static int on = -1;
+    uint32_t rec, pad = MEM8(0x00776558u);
+    uint8_t was;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_MENU_DPAD_FIX");
+        on = !(e && *e == '0');
+    }
+    rec = pad < 2u ? MEM32(MEM32(0x008470FCu + pad * 4u) + 8u) : 0x0075A0B4u;
+    if (!on || !MEM8(g_eax + 0x29u) || MEM8(0x00862D08u) || !rec) {
+        sub_00249ED0_gen();
+        return;
+    }
+    was = MEM8(rec + 8u);
+    MEM8(rec + 8u) = (uint8_t)((was & ~0x0Fu) | (was & 1u ? 8u : 0u) | (was & 2u ? 4u : 0u)
+                               | (was & 4u ? 2u : 0u) | (was & 8u ? 1u : 0u));
+    sub_00249ED0_gen();
+    MEM8(rec + 8u) = was;
+}
+
+static void audio_update_logs(void)
+{
     if (!audio_log_on())
         return;
     MEM8(0x00846FF1) = 1;
@@ -1231,6 +1293,108 @@ void sub_00017CF0_enter(void)
     emitter_watch_tick();
     xact_watch_tick();
     level_music_gate_watch();
+}
+
+/* audio_update (0x00017CF0, fastcall, ecx = the audio manager): its body
+ * runs only when GetTickCount has moved more than 15 ms since its last run
+ * ([ecx+0x18]), and the sound lifetimes in it (looped / timed emitters,
+ * 0x00030730 / 0x00030BC0) count down by this frame's 60 Hz ticks
+ * [0x007FA208]. At 30 fps it runs every frame; at 120 about every third
+ * and the ticks of the frames in between were lost: the money pickup's
+ * slot-machine sound (eyeroll, 149 ticks = 2.5 s) played 7.4 s (to-do 85).
+ * Here a run sees every tick since the last run (both copies, 0x007FA208
+ * and 0x007FA20C), then the frame's own come back. Repeat calls in one
+ * frame (the load wait 0x00018870) after a run get this frame's ticks, as
+ * before. RECOMP_AUDIO_TICK_FIX=0 = original; [AUDIOTICK] with
+ * RECOMP_AUDIO_LOG=1 (per 10 s: runs, frames, ticks given).
+ * The cue and emitter timers in it also count seconds by the frame time
+ * [0x007FA218] (a cue's start delay, cue +0xE8 in CAudioCue_Update
+ * 0x0001A510; music fades, emitter lifetimes) and 30 fps frames by
+ * [0x007FA250], one frame's worth a run. At 120 a run saw a third of the
+ * time, and the four cannons of Harbour's battery (one cue each, start
+ * delays ~20 ms apart) began 41-109 ms apart, a metallic smear; at 30 the
+ * delays move in 30 fps frames and they start in the same run or one frame
+ * apart. Here a run gets the whole 30 fps frames since the last run (from
+ * the step [0x007FA24C]) in [0x007FA250] and, once at least one has passed,
+ * all the frame time since the last such run in [0x007FA218] (else 0):
+ * at 30 fps each run gets its own frame's values, as before; exact 1/30 s
+ * steps instead put the battery's 4th cannon a frame late every volley,
+ * 3 in 9 originally (to-do 5). RECOMP_AUDIO_TIME_FIX=0 = without this
+ * part. */
+extern void sub_00017CF0_gen(void);
+void sub_00017CF0(void)
+{
+    static int on = -1, time_on = -1;
+    static uint32_t last_fc, acc, given, runs, frames, given30;
+    static float step_acc, time_acc;
+    static int ran_this_frame;
+    static long log_ms;
+    extern void sample_profiler_frame(void);
+    long now = (long)(clock() * 1000 / CLOCKS_PER_SEC);
+    uint32_t mgr = g_ecx, fc = MEM32(0x007F9F60u), stamp, keep8, keepc;
+    uint32_t n30 = 0, keep50 = 0;
+    float keep18 = 0.0f;
+
+    /* RECOMP_HITCH_MS: one call per game frame (src/sample_profiler.c). */
+    sample_profiler_frame();
+    level_music_wait_for_banks();
+    audio_update_logs();
+    if (on < 0) {
+        const char *e = getenv("RECOMP_AUDIO_TICK_FIX");
+        on = !(e && *e == '0');
+        e = getenv("RECOMP_AUDIO_TIME_FIX");
+        time_on = !(e && *e == '0');
+    }
+    if (fc != last_fc) {
+        last_fc = fc;
+        acc += MEM32(0x007FA208u);
+        step_acc += MEMF(0x007FA24Cu);
+        time_acc += MEMF(0x007FA218u);
+        ran_this_frame = 0;
+        frames++;
+    }
+    if (!on || ran_this_frame || !xact_va_ok(mgr)) {
+        sub_00017CF0_gen();
+        return;
+    }
+    stamp = MEM32(mgr + 0x18u);
+    keep8 = MEM32(0x007FA208u);
+    keepc = MEM32(0x007FA20Cu);
+    MEM32(0x007FA208u) = acc;
+    MEM32(0x007FA20Cu) = acc;
+    if (time_on) {
+        /* At most 1 s, as frame_timer_update clamps the frame time. */
+        n30 = step_acc >= 30.0f ? 30u : (uint32_t)step_acc;
+        keep18 = MEMF(0x007FA218u);
+        keep50 = MEM8(0x007FA250u);
+        MEMF(0x007FA218u) = n30 ? (time_acc > 1.0f ? 1.0f : time_acc) : 0.0f;
+        MEM8(0x007FA250u) = (uint8_t)n30;
+    }
+    sub_00017CF0_gen();
+    MEM32(0x007FA208u) = keep8;
+    MEM32(0x007FA20Cu) = keepc;
+    if (time_on) {
+        MEMF(0x007FA218u) = keep18;
+        MEM8(0x007FA250u) = (uint8_t)keep50;
+    }
+    if (MEM32(mgr + 0x18u) != stamp) { /* the body ran */
+        given += acc;
+        runs++;
+        acc = 0;
+        ran_this_frame = 1;
+        if (time_on) {
+            step_acc = step_acc >= 30.0f ? 0.0f : step_acc - (float)n30;
+            if (n30)
+                time_acc = 0.0f;
+            given30 += n30;
+        }
+    }
+    if (audio_log_on() && now - log_ms >= 10000) {
+        fprintf(stderr, "[AUDIOTICK] t=%ld runs %u frames %u ticks given %u"
+                " 30fps frames given %u\n", now, runs, frames, given, given30);
+        runs = frames = given = given30 = 0;
+        log_ms = now;
+    }
 }
 
 /* A guest string for %s: only from main RAM, at most 200 characters. */
@@ -1510,13 +1674,15 @@ void sub_00076EC0_enter(void)
  * the model kind. [ANIMREQ]: a request for another animation than the one
  * playing (the same one is asked for every frame). [CHAR]: per frame, a character's
  * line when it appears, its animation changes, its height (y) moves by more
- * than 1, or it moves more than 20 in one frame. */
+ * than 1, or it moves more than 20 in one frame. =2 adds [CTRAJ]: every
+ * frame for 3 s after a character's animation changes, its position (a
+ * death's flight at any frame rate). */
 static int char_log_on(void)
 {
     static int on = -1;
     if (on < 0) {
         const char *e = getenv("RECOMP_CHAR_LOG");
-        on = e && *e && *e != '0';
+        on = e && *e && *e != '0' ? (atoi(e) > 1 ? atoi(e) : 1) : 0;
     }
     return on;
 }
@@ -1598,11 +1764,1123 @@ void sub_002F1790_enter(void)
         return;                         /* most calls re-ask every frame */
     char_guest_str(MEM32(g_esp + 4), name, sizeof name);
     fprintf(stderr, "[ANIMREQ] t=%ld ms f%u char %08X id %02X kind %X \"%s\" index %u -> %u "
-            "a3 %08X a5 %08X a6 %.2f a8 %u pos %.1f %.1f %.1f (ret %08X)\n", attach_ms(),
+            "a3 %08X a5 %08X a6 %.2f a8 %u pos %.1f %.1f %.1f (ret %08X from %08X)\n", attach_ms(),
             s_char_frame, c, MEM8(c + 0x10B), MEM32(c + 0x68), name, MEM32(c + 0xA4),
             MEM32(g_esp + 8), MEM32(g_esp + 0xC), MEM32(g_esp + 0x14), char_f(g_esp + 0x18),
             MEM32(g_esp + 0x20), char_f(c + 0x78), char_f(c + 0x7C), char_f(c + 0x80),
-            MEM32(g_esp));
+            MEM32(g_esp), MEM32(g_esp) == 0x002F16F7u ? MEM32(g_esp + 0x30) : 0);
+}
+
+/* Gait above 30 fps (to-do 75). 0x00312F80 (from the character update
+ * 0x002D6570) sets the player's movement speed [char+0x568]+0x390 =
+ * min(2 x the distance moved this frame (pos +0x78 vs last frame's +0x84),
+ * top speed char+0x648), and the move direction +0x394/+0x398 from it. Its
+ * readers test it against fixed values made for 30 fps frames: 0x003116E0
+ * picks the run over the walk above 20 (Conker with the bat: one-handed run
+ * vs two-handed walk) and sets the animation rate from it, 0x002FCC30 tests
+ * it against 14. Above 30 fps a frame covers less ground, so the run was never
+ * picked at full stick. The hook on its normalise call (0x00428323, return
+ * 0x0031307C, the first point after the speed is written and before anything
+ * uses it) scales the speed to a 30 fps frame: / step (0.5 at 60, 0.25 at 120),
+ * capped at the top speed as the game does. Only below step 1, so 30 fps (and
+ * its dips, step 2) stay the original. RECOMP_GAIT_FIX=0 = original. */
+static int gait_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_GAIT_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+void sub_00428323_enter(void)
+{
+    uint32_t c = g_esi, ctl;
+    float step, v, top;
+    if (MEM32(g_esp) != 0x0031307Cu || !gait_fix_on() || !xact_va_ok(c)
+        || !xact_va_ok(ctl = MEM32(c + 0x568)))
+        return;
+    step = MEMF(0x007FA24Cu);
+    if (!(step > 0.0f && step < 1.0f))
+        return;
+    v = MEMF(ctl + 0x390) / step;
+    top = MEMF(c + 0x648);
+    if (v > top)
+        v = top;
+    if (char_log_on() && MEM8(c + 0x10B) == 1 && !(s_char_frame & 15))
+        fprintf(stderr, "[GAIT] t=%ld ms f%u speed %.2f -> %.2f (top %.2f, step %.3f)\n",
+                attach_ms(), s_char_frame, MEMF(ctl + 0x390), v, top, step);
+    MEMF(ctl + 0x390) = v;
+}
+
+/* Ground hazard at 30 Hz (to-do 5, the barn roof). The character update
+ * 0x002D6570 calls 0x002D9FD0 (edi = character) once a frame: it moves the
+ * hazard value [char+0x1D4] (int16) toward the target [char+0x1D6] from the
+ * ground's material by a twelfth of the gap and one more; 0x002E34D0 right
+ * after kills the character at -94 or lower. On BarnOutside's thatched roof
+ * the target drops far below that and climbs back: eased 30 times a second
+ * the value never gets there, eased every frame at 120 it does at once
+ * (the user's log: health gone 41 ms after the first straw step). The
+ * wrapper lets a character's ease through only on frames where the steps
+ * add up to one 30 fps frame, as the console does; at step 1 and above
+ * (30 fps, its dips) every call passes, and so does a second call for a
+ * character in the same frame (frame count 0x007F9F60 unchanged), as the
+ * original would ease twice. A skipped call pops the return address itself
+ * (g_esp += 4): without that the guest stack crept 4 bytes a skipped frame
+ * and the game froze within a second of leaving the title screen.
+ * RECOMP_HAZARD_FIX=0 = original; RECOMP_HAZARD_LOG=1: [HAZARD] when the
+ * player's target changes (at most every 10 frames), the lowest value
+ * reached since the line before, and the same-frame calls so far. Lead from
+ * giacomozama's commit message (addresses only; GPL, no code taken). */
+static struct {
+    uint32_t fc;
+    float acc;
+} s_hzc[256];
+static struct {
+    int on, log, seen;
+    uint32_t log_fc, repeats;
+    int16_t last_target, low;
+} s_hz = { -1, -1, 0, 0, 0, 0, 0 };
+
+extern void sub_002D9FD0_gen(void);
+void sub_002D9FD0(void)
+{
+    uint32_t c = g_edi, fc = MEM32(0x007F9F60u);
+    float step = MEMF(0x007FA24Cu);
+    int id = MEM8(c + 0x10B), ease = 1;
+
+    if (s_hz.on < 0) {
+        const char *e = getenv("RECOMP_HAZARD_FIX");
+        s_hz.on = !(e && *e == '0');
+        e = getenv("RECOMP_HAZARD_LOG");
+        s_hz.log = e && *e == '1';
+    }
+    if (!s_hz.on || !(step > 0.0f && step < 0.999f)) {
+        s_hzc[id].acc = 0.0f;
+    } else if (fc == s_hzc[id].fc) {
+        s_hz.repeats++;
+    } else {
+        s_hzc[id].acc += step;
+        ease = s_hzc[id].acc >= 0.999f;
+        if (ease) {
+            s_hzc[id].acc -= 1.0f;
+            if (s_hzc[id].acc < 0.0f)
+                s_hzc[id].acc = 0.0f;
+        }
+    }
+    s_hzc[id].fc = fc;
+    if (ease)
+        sub_002D9FD0_gen();
+    else
+        g_esp += 4;                     /* ret */
+    if (id == 1 && !s_hz.seen) {
+        s_hz.seen = 1;
+        fprintf(stderr, "[HAZARD] ground hazard eased on 30 Hz ticks: %s (player target %d, value %d)\n",
+                s_hz.on ? "on" : "off (RECOMP_HAZARD_FIX=0)", (int16_t)MEM16(c + 0x1D6),
+                (int16_t)MEM16(c + 0x1D4));
+    }
+    if (s_hz.log && id == 1) {
+        int16_t t = (int16_t)MEM16(c + 0x1D6), v = (int16_t)MEM16(c + 0x1D4);
+        if (t != s_hz.last_target && (fc - s_hz.log_fc >= 10 || t == 0)) {
+            s_hz.log_fc = fc;
+            fprintf(stderr, "[HAZARD] t=%ld ms f%u target %d -> %d, value %d (lowest since last %d, "
+                    "step %.3f, same-frame calls %u)\n", attach_ms(), fc, s_hz.last_target, t, v,
+                    s_hz.low, step, s_hz.repeats);
+            s_hz.last_target = t;
+            s_hz.low = v;
+        }
+        if (v < s_hz.low)
+            s_hz.low = v;
+    }
+}
+
+/* Jumps and falls above 60 fps (2026-11-05). The air update 0x002EBAD0
+ * (esi = character; from the character update and 7 other callers) moves a
+ * character that is off the ground in 0.1 sub-steps: n = (int)(step
+ * [0x007FDB8C] x 10), each one speed [char+0xD0] -= gravity [char+0xD4] x
+ * 0.1 and y [char+0x7C] += speed x 0.05. 10 at 30 fps and 5 at 60, but 2.5
+ * rounds down to 2 at 120 (3.33 to 3 at 90), so a fifth of every frame's
+ * fall was lost: jumps hung ~20 % longer at 120 and a running jump went
+ * ~20 % farther (Mrs Bee spot, tap A 876 against 738 ms in the air, a
+ * running jump 443 against 364 units; per frame 1.24 off the speed for
+ * 6.2 / 4 = 1.55). The wrapper carries the lost fraction per character
+ * (id +0x10B): for the call the step reads (n + 0.5) / 10, n the sub-steps
+ * due with the carry, then the real step goes back. Only on the air path
+ * (the on-ground test the function starts with is false and the kind is not
+ * 0xC / 0x22: that path uses the step as a float) and below step 1.
+ * RECOMP_AIR_FIX=0 = original. */
+static struct {
+    int on, seen;
+    float carry[256];
+    uint32_t fc[256];
+} s_air = { -1, 0 };
+
+extern void sub_002EBAD0_gen(void);
+void sub_002EBAD0(void)
+{
+    uint32_t c = g_esi, kind;
+    float s = MEMF(0x007FDB8Cu), x;
+    int id, n;
+
+    if (s_air.on < 0) {
+        const char *e = getenv("RECOMP_AIR_FIX");
+        s_air.on = !(e && *e == '0');
+    }
+    if (!s_air.on || !xact_va_ok(c) || !(MEMF(0x007FA24Cu) < 0.999f) || !(s > 0.0f)) {
+        sub_002EBAD0_gen();
+        return;
+    }
+    id = MEM8(c + 0x10Bu);
+    kind = MEM32(c + 0x68u);
+    if ((MEMF(c + 0xDCu) <= 0.1f && MEMF(c + 0xD0u) <= 0.0f) || kind == 0xCu || kind == 0x22u) {
+        s_air.carry[id] = 0.0f;          /* ground path: the step as is */
+        sub_002EBAD0_gen();
+        return;
+    }
+    if (MEM32(0x007F9F60u) - s_air.fc[id] > 1u)
+        s_air.carry[id] = 0.0f;          /* a new jump or fall */
+    s_air.fc[id] = MEM32(0x007F9F60u);
+    x = s * 10.0f + s_air.carry[id];
+    n = (int)(x + 1e-4f);
+    s_air.carry[id] = x - (float)n;
+    if (s_air.carry[id] < 0.0f)
+        s_air.carry[id] = 0.0f;
+    MEMF(0x007FDB8Cu) = ((float)n + 0.5f) / 10.0f;
+    sub_002EBAD0_gen();
+    MEMF(0x007FDB8Cu) = s;
+    if (!s_air.seen && id == 1) {
+        s_air.seen = 1;
+        fprintf(stderr, "[AIR] fall sub-steps carried between frames: on (step %.3f, %d this frame)\n",
+                MEMF(0x007FA24Cu), n);
+    }
+}
+
+/* Swimming height above 30 fps (2026-11-05). The swim update 0x002D45D0
+ * (cdecl, [esp+4] = character, ebp inside) ends, on every path that has
+ * water, with the pull to the swimming height (0x002D50D9-0x002D5127): y
+ * [char+0x7C] += the vertical speed [ctl+0x28] x the frame's step
+ * [0x007FDB8C]; above the target T = water line [char+0x228] - 60 + 14, the
+ * height over it is cut to 0.35 (x 0.65 at 0x002D5116, no step) and the
+ * speed set to 0; nothing after it moves y. So the cut ran 4 times per 30
+ * fps frame at 120: Conker floated 3 units lower (-1736.2 against -1732.9
+ * in Mrs Catfish's pond, the step's share of each frame's rise) and a
+ * bank's lift was cut away 4x as fast (to -1730.1 against -1721.6 at the
+ * same bank), so a shore he climbs out onto at 30 can be a wall at 120
+ * (giacomozama found it at 60). The wrapper leaves q = 0.35 / (0.65 x step
+ * + 0.35) of the height instead of 0.35 when the cut ran (y over T and the
+ * speed 0 after the call): a rise or lift that grows with time then settles
+ * where it does at 30 fps, at every rate. Not when there is no water (the
+ * line at [0x00648E60], -10000: early return), nor at step 1 and above.
+ * RECOMP_SWIM_FIX=0 = original; RECOMP_SWIM_LOG=1: [SWIM] per second for
+ * the player (cuts, height over T before / after). */
+static struct {
+    int on, log, seen;
+    unsigned cuts;
+    float over_in, over_out;
+    long last_ms;
+} s_swim = { -1, -1, 0 };
+
+extern void sub_002D45D0_gen(void);
+void sub_002D45D0(void)
+{
+    uint32_t c = MEM32(g_esp + 4u), ctl;
+    float step = MEMF(0x007FA24Cu), water, t, over;
+
+    if (s_swim.on < 0) {
+        const char *e = getenv("RECOMP_SWIM_FIX");
+        s_swim.on = !(e && *e == '0');
+        e = getenv("RECOMP_SWIM_LOG");
+        s_swim.log = e && *e == '1';
+    }
+    sub_002D45D0_gen();
+    if (!s_swim.on || !(step > 0.0f && step < 0.999f) || !xact_va_ok(c))
+        return;
+    ctl = MEM32(c + 0x568u);
+    water = MEMF(c + 0x228u);
+    if (!xact_va_ok(ctl) || water == MEMF(0x00648E60u) || MEMF(ctl + 0x28u) != 0.0f)
+        return;
+    t = water - MEMF(0x00648E38u) + MEMF(0x00649240u);
+    over = MEMF(c + 0x7Cu) - t;
+    if (!(over > 0.0f))
+        return;
+    MEMF(c + 0x7Cu) = t + over / (0.65f * step + 0.35f);
+    if (MEM8(c + 0x10Bu) != 1)
+        return;
+    if (!s_swim.seen) {
+        s_swim.seen = 1;
+        fprintf(stderr, "[SWIM] swimming height cut per 30 fps frame: on (step %.3f)\n", step);
+    }
+    if (s_swim.log) {
+        long now = attach_ms();
+        s_swim.cuts++;
+        s_swim.over_in += over;
+        s_swim.over_out += over / (0.65f * step + 0.35f);
+        if (now - s_swim.last_ms >= 1000) {
+            fprintf(stderr, "[SWIM] t=%ld ms %u cuts, height over the target %.2f -> %.2f (mean), "
+                    "y %.2f water %.2f step %.3f\n", now, s_swim.cuts, s_swim.over_in / s_swim.cuts,
+                    s_swim.over_out / s_swim.cuts, MEMF(c + 0x7Cu), water, step);
+            s_swim.last_ms = now;
+            s_swim.cuts = 0;
+            s_swim.over_in = s_swim.over_out = 0.0f;
+        }
+    }
+}
+
+/* Hit counter at 30 Hz (to-do 5, the Vault's alien at 120). A character's
+ * byte [char+0x214] is set to 60 when its attack lands (0x002EDDD0,
+ * 0x002EF1D0) and counts down by one a call in 0x002D5540 (from the
+ * character update, edi = character) and 0x002E9550 (eax = character): the
+ * timers beside it there ([char+0x180], [char+0x21D]) already count down by
+ * the frame's 30 Hz frames [0x007FA250], this one by 1 a frame. The
+ * alien's script (0x00739E82, op 0x21 at 0x002C6A10) asks it after its tail
+ * sweep: still set = "hit him", wait 35 frames (1.17 s) while Conker gets
+ * up; 0 = "missed", attack again at once. 60 frames are 2 s at 30 fps but
+ * 0.5 s at 120, so at 120 it always looked like a miss and the alien swept
+ * Conker again and again before he was up (runs run_20261105_113850 at 30,
+ * _114154 at 120; samples of his record every frame: conker-notes
+ * 2026-11-05). Here a call's decrement goes through only on frames where
+ * the steps add up to one 30 fps frame, per character (as the hazard ease
+ * above; [0x007FA250] itself came to 36 a second at 120, so the counter
+ * lasted 1.63 s, not 2); every call of a counted frame passes, as the
+ * original's; at step 1 and above (30 fps, its dips) as before.
+ * RECOMP_HIT30_FIX=0 = original; RECOMP_HIT30_LOG=1: [HIT30] when a counter
+ * is set and when it reaches 0. */
+static struct {
+    int on, log, seen;
+    long set_ms[256];
+    uint32_t fc[256];
+    float acc[256];
+    uint8_t tick[256];
+} s_hit30 = { -1, -1, 0 };
+
+static void hit30_after(uint32_t c, uint8_t before)
+{
+    uint8_t after = MEM8(c + 0x214), id = MEM8(c + 0x10B);
+    uint32_t fc = MEM32(0x007F9F60u);
+    float step = MEMF(0x007FA24Cu);
+
+    if (!s_hit30.on || !(step > 0.0f && step < 0.999f)) {
+        s_hit30.acc[id] = 0.0f;
+        s_hit30.tick[id] = 1;
+    } else if (fc != s_hit30.fc[id]) {
+        s_hit30.acc[id] += step;
+        s_hit30.tick[id] = s_hit30.acc[id] >= 0.999f;
+        if (s_hit30.tick[id]) {
+            s_hit30.acc[id] -= 1.0f;
+            if (s_hit30.acc[id] < 0.0f)
+                s_hit30.acc[id] = 0.0f;
+        }
+    }
+    s_hit30.fc[id] = fc;
+    if (!s_hit30.tick[id] && before && after == (uint8_t)(before - 1)) {
+        MEM8(c + 0x214) = before;       /* not a 30 fps frame for this one */
+        after = before;
+    }
+    if (!s_hit30.seen) {
+        s_hit30.seen = 1;
+        fprintf(stderr, "[HIT30] hit counters count 30 Hz frames: %s\n",
+                s_hit30.on ? "on" : "off (RECOMP_HIT30_FIX=0)");
+    }
+    if (s_hit30.log && after != before && (after > before || after == 0)) {
+        if (after > before)
+            s_hit30.set_ms[id] = attach_ms();
+        fprintf(stderr, "[HIT30] t=%ld ms f%u char %08X id %02X kind %X %u -> %u%s (%.2f s since set, "
+                "step %.3f)\n", attach_ms(), MEM32(0x007F9F60u), c, id, MEM32(c + 0x68), before,
+                after, after > before ? " set" : " out", (attach_ms() - s_hit30.set_ms[id]) / 1000.0,
+                step);
+    }
+}
+
+static void hit30_init(void)
+{
+    if (s_hit30.on < 0) {
+        const char *e = getenv("RECOMP_HIT30_FIX");
+        s_hit30.on = !(e && *e == '0');
+        e = getenv("RECOMP_HIT30_LOG");
+        s_hit30.log = e && *e == '1';
+    }
+}
+
+/* The same function counts three more of its timers by one a call instead
+ * of the 30 Hz frames (2026-11-05): [char+0x1B6] (12 at a launch from
+ * 0x002F3B70 at 0x002F3DDA: steering at 0.2 in 0x002EB830 while set),
+ * [ctl+0x6D] (4 when the character leaves the ground, 0x002EC0F0 at
+ * 0x002EC3D1: 0x002F3B70 still lets the jump 0x002F30A0 start while set, a
+ * late press at a ledge's edge) and [ctl+0x6A] (halved a call; read by
+ * 0x002DF610). At 120 those windows lasted a quarter as long. They keep
+ * the hit counter's 30 fps frames: a call's change is put back on the
+ * others. Under RECOMP_HIT30_FIX. */
+extern void sub_002D5540_gen(void);
+void sub_002D5540(void)
+{
+    uint32_t c = g_edi, ctl;
+    uint8_t before, b1b6, b6d, b6a;
+
+    hit30_init();
+    if (!xact_va_ok(c) || !xact_va_ok(ctl = MEM32(c + 0x568u))) {
+        sub_002D5540_gen();
+        return;
+    }
+    before = MEM8(c + 0x214);
+    b1b6 = MEM8(c + 0x1B6u);
+    b6d = MEM8(ctl + 0x6Du);
+    b6a = MEM8(ctl + 0x6Au);
+    sub_002D5540_gen();
+    hit30_after(c, before);
+    if (s_hit30.tick[MEM8(c + 0x10B)])
+        return;
+    if (b1b6 && MEM8(c + 0x1B6u) == (uint8_t)(b1b6 - 1))
+        MEM8(c + 0x1B6u) = b1b6;
+    if (b6d && MEM8(ctl + 0x6Du) == (uint8_t)(b6d - 1))
+        MEM8(ctl + 0x6Du) = b6d;
+    if (MEM8(ctl + 0x6Au) == (uint8_t)(b6a >> 1))
+        MEM8(ctl + 0x6Au) = b6a;
+}
+
+extern void sub_002E9550_gen(void);
+void sub_002E9550(void)
+{
+    uint32_t c = g_eax;
+    uint8_t before;
+
+    hit30_init();
+    if (!xact_va_ok(c)) {
+        sub_002E9550_gen();
+        return;
+    }
+    before = MEM8(c + 0x214);
+    sub_002E9550_gen();
+    hit30_after(c, before);
+}
+
+/* Gun fire rate above 30 fps (2026-11-05, to-do 94, user: fix before
+ * 0.2.0). The ammo check 0x00331A80 (fastcall; ~35 callers: Conker's guns,
+ * the multiplayer guns, vehicles) holds the fire-rate timers when its last
+ * argument is set: [weapon+0xB8] (and +0xC0) gain the frame's dt
+ * [0x007FA21C] up to the shot interval [weapon+0xBC] (+0xC4), clamped,
+ * and a shot is allowed only once it is reached; after a shot the timer
+ * starts again at 0, so what a frame went past the interval is lost. At
+ * 30 fps that loss is up to a frame: the SMG (Chemical Warfare) fired 14.5
+ * shots a second at 30, 16 at 60, 18 at 120; the multiplayer Sturm21 on
+ * auto 15 at 30, 17-18 at 120 (a 50-round clip empty in a 3 s hold at 120,
+ * 5 left at 30; user's session). For the call dt is 1/30 on frames where
+ * the steps add up to a 30 fps frame and 0 on the others (0 while paused),
+ * so the timers move on the console's 30 fps grid and shots come as often
+ * as there; the callee 0x003319F0 reads no dt. Counted here, as the hit
+ * counter above: the game's own 30 Hz frames [0x007FA250] came to 36 a
+ * second at 120 (run _183709: 17.8 shots / s with it). At step 1 and
+ * above as before. RECOMP_FIRE30_FIX=0 = original. */
+static int s_fire30_on = -1;
+static uint32_t s_fire30_fc;
+static float s_fire30_acc;
+static int s_fire30_tick;
+
+/* The dt the fire timers get this frame, or -1 = leave the frame's dt. */
+static float fire30_dt(void)
+{
+    float step = MEMF(0x007FA24Cu);
+    uint32_t fc = MEM32(0x007F9F60u);
+
+    if (s_fire30_on < 0) {
+        const char *e = getenv("RECOMP_FIRE30_FIX");
+        s_fire30_on = !(e && *e == '0');
+        fprintf(stderr, "[FIRE30] gun fire timers on 30 fps frames: %s\n",
+                s_fire30_on ? "on" : "off (RECOMP_FIRE30_FIX=0)");
+    }
+    if (!s_fire30_on || !(step > 0.0f && step < 0.999f)) {
+        s_fire30_acc = 0.0f;
+        return -1.0f;
+    }
+    if (MEMF(0x007FA21Cu) == 0.0f)
+        return 0.0f;
+    if (fc != s_fire30_fc) {
+        s_fire30_fc = fc;
+        s_fire30_acc += step;
+        s_fire30_tick = s_fire30_acc >= 0.999f;
+        if (s_fire30_tick) {
+            s_fire30_acc -= 1.0f;
+            if (s_fire30_acc < 0.0f)
+                s_fire30_acc = 0.0f;
+        }
+    }
+    return s_fire30_tick ? 1.0f / 30.0f : 0.0f;
+}
+
+extern void sub_00331A80_gen(void);
+void sub_00331A80(void)
+{
+    float d30 = fire30_dt(), dt;
+
+    if (d30 < 0.0f) {
+        sub_00331A80_gen();
+        return;
+    }
+    dt = MEMF(0x007FA21Cu);
+    MEMF(0x007FA21Cu) = d30;
+    sub_00331A80_gen();
+    MEMF(0x007FA21Cu) = dt;
+}
+
+/* The same for the inventory's per-frame weapon timers 0x00331D90 (cdecl,
+ * per weapon slot of 0xD8 from +0x7C): the fire cooldown [slot+0x84] (set
+ * to the interval [slot+0x88] by every shot, 0x00331BF0, and waited on by
+ * the ammo check above) and the reload, burst and other timers
+ * (+0x8C, +0x98, +0xA8, +0xB8) lose dt and are clamped at 0, which is what
+ * slowed the SMG at 30 (the timers above alone changed nothing: 100 shots
+ * at 120 against 71 at 30 in two 3 s holds); 0x00332940 gets the same dt
+ * as its argument. Under RECOMP_FIRE30_FIX. */
+extern void sub_00331D90_gen(void);
+void sub_00331D90(void)
+{
+    float d30 = fire30_dt(), dt;
+
+    if (d30 < 0.0f) {
+        sub_00331D90_gen();
+        return;
+    }
+    dt = MEMF(0x007FA21Cu);
+    MEMF(0x007FA21Cu) = d30;
+    sub_00331D90_gen();
+    MEMF(0x007FA21Cu) = dt;
+}
+
+/* Tail spin above 30 fps (2026-11-05, user: the first part of the spin far
+ * faster at 120, the change to the wind-down sharper). The player movement
+ * 0x002F3B70 (ecx = character, from the character update) times the spin
+ * by the hover counter [ctl+0x45] (+ the 30 Hz frames, 0x002F4731) but
+ * moves the animation speed [char+0x120] once a call: below 17 + 0.25
+ * (0x002F4769), then 10 % of the way to its target (0x002F477B); both
+ * paths then set [ctl+0x54] = 6, written nowhere else in it. Measured
+ * (Mrs Bee spot, jump + A held): at 30 1.0 -> 3.75 in 0.4 s, then x0.92 a
+ * frame to ~0.65; at 120 the same 0.4 s reached 12.25 and the wind-down
+ * ran 4x as fast. The wrapper scales that call's change to the step: the
+ * ramp by step, the ease by (1 - 0.9^step) / 0.1, when the call went
+ * through that block (speed changed, animation the same, [ctl+0x54] = 6,
+ * the counter moved by the 30 Hz frames). RECOMP_SPIN_FIX=0 = original. */
+static int s_spin_on = -1;
+
+extern void sub_002F3B70_gen(void);
+void sub_002F3B70(void)
+{
+    uint32_t c = g_ecx, ctl;
+    float step = MEMF(0x007FA24Cu), r0, r1;
+    uint32_t a0;
+    uint8_t p0;
+
+    if (s_spin_on < 0) {
+        const char *e = getenv("RECOMP_SPIN_FIX");
+        s_spin_on = !(e && *e == '0');
+    }
+    if (!s_spin_on || !(step > 0.0f && step < 0.999f) || !xact_va_ok(c)
+        || !xact_va_ok(ctl = MEM32(c + 0x568u))) {
+        sub_002F3B70_gen();
+        return;
+    }
+    r0 = MEMF(c + 0x120u);
+    a0 = MEM32(c + 0xA4u);
+    p0 = MEM8(ctl + 0x45u);
+    sub_002F3B70_gen();
+    r1 = MEMF(c + 0x120u);
+    if (r1 == r0 || MEM32(c + 0xA4u) != a0 || MEM8(ctl + 0x54u) != 6
+        || MEM8(ctl + 0x45u) != (uint8_t)(p0 + MEM8(0x007FA250u)))
+        return;
+    if (MEM8(ctl + 0x45u) < 0x11u) {
+        if (fabsf(r1 - r0 - MEMF(0x00648E14u)) < 1e-4f)
+            MEMF(c + 0x120u) = r0 + (r1 - r0) * step;
+    } else {
+        MEMF(c + 0x120u) = r0 + (r1 - r0) * (1.0f - powf(0.9f, step)) / 0.1f;
+    }
+}
+
+/* Tails, ragdolls and cloth at 30 Hz (to-do 78). One particle system
+ * (dc_squirreltail.cpp: particles 0x28 bytes {+0 last pos, +0xC push,
+ * +0x18 mass, +0x1C pos}, solver 0x00098380: pins to bones, distance
+ * limits, collision; Verlet step 0x000931E0: velocity = pos - last pos,
+ * x 0.98 a call) moves three things, all from the character update's
+ * 0x00087BC0, once a frame: 0x0008F2B0 (from 0x00087AA0, cdecl [esp+4] =
+ * character index) = the tail chain (vtable 0x005F0DCC; pushes 0x00091D20,
+ * three solver rounds 0x00091C20) or, while the controller's +0x3F4 object
+ * is type 2, a RAGDOLL_ one (vtable 0x005F0DF0: gravity -500 x dt^2 +
+ * Verlet 0x00093C60), both writing the character's skin matrices; and
+ * 0x00090FB0 (eax = index, state 0x34) = a cloth grid (0x00092C30,
+ * matrices 0x00092CF0). Only the gravity uses dt: the velocity, its 0.98,
+ * the pushes and the solver rounds are per call, so above 30 fps all of it
+ * ran 2x / 4x as fast a second. A second system moves whole bodies (the
+ * Tediz shot dead, phys_Ragdoll.cpp; the user: they fly up at 30, only
+ * tip over at 120): 0x000964D0 from 0x002C5500, ragdoll [char+0x3D8] made
+ * by 0x00094440 at rest (gravity -2000), stepped by 0x00413FA0 (Verlet
+ * 0x00414440 with dt, four solver rounds a call, a per-round callback
+ * 0x000974A0); it sets the character's position (+0x78, +0x30) from its
+ * root body, blended here too (kind 2). The wrappers run them at 30 Hz like the
+ * original: a call goes through on frames where the steps add up to one 30
+ * fps frame, with that tick's summed dt, step and 60 Hz ticks in place
+ * (their wag timers and countdowns read them); the push's "after a skipped
+ * frame" test (solver +0xC0 + 1 != frame count 0x007F9F60, full weight) is
+ * kept consecutive (sub_00091D20_enter). The joints a call changed are
+ * kept relative to their nearest ancestor it did not change (world space
+ * when none), and every frame they are put back between the ticks
+ * (p30_curve), on the ancestor's matrix of this frame, so a
+ * tail moves with its body and a ragdoll moves smoothly. Before a tick,
+ * joints nobody rewrote since are given back the sim's own last output, so
+ * it sees what it saw at 30. At step 1 and above (30 fps, its dips) the
+ * calls pass straight through. RECOMP_PHYS30=0 = original;
+ * RECOMP_PHYS30_LOG=1: [PHYS30] per sim start/change and the player's
+ * changed joints' motion per 2 s (works with the fix off too). */
+#define P30_CHARS   0x81
+#define P30_KINDS   3                  /* 0 tail / ragdoll, 1 cloth, 2 body ragdoll */
+#define P30_MAXJ    256
+typedef struct {
+    uint32_t model, bones, gen;
+    int n, have, nw, scans;
+    uint32_t last_call;                /* frame count of the last call */
+    uint8_t w[P30_MAXJ];               /* changed by the last tick */
+    int16_t ref[P30_MAXJ];             /* its ancestor, -1 = world */
+    float prev[P30_MAXJ][16], last[P30_MAXJ][16];  /* relative to ref */
+    float old[P30_MAXJ][16], older[P30_MAXJ][16];  /* the two ticks before (smooth) */
+    float lastw[P30_MAXJ][16];         /* the sim's own last output */
+    float mine[P30_MAXJ][16];          /* what we wrote last */
+    double motion;                     /* log: summed joint movement */
+    float seen[P30_MAXJ][3];
+    float pprev[2][3], plast[2][3];    /* kind 2: character +0x78, +0x30 */
+    float pold[2][3], polder[2][3];
+} p30_slot;
+static p30_slot *s_p30_slots[P30_KINDS][P30_CHARS];
+static struct {
+    uint32_t fc, gen, tick_fc, prev_tick_fc;
+    int active, tick, in_call;
+    float acc, r, dt_sum, step_sum;
+    uint32_t ticks_sum;
+    float t_dt, t_step;                /* this tick's sums */
+    uint32_t t_ticks;
+    long log_ms;
+    unsigned calls, skipped;
+} s_p30;
+
+static volatile int g_phys30 = -1;     /* F2 physics_30hz; < 0 = not read */
+
+void conker_SetPhys30(int on)
+{
+    g_phys30 = on != 0;
+}
+
+static int phys30_on(void)
+{
+    if (g_phys30 < 0) {
+        const char *e = getenv("RECOMP_PHYS30");
+        g_phys30 = !(e && *e == '0');
+    }
+    return g_phys30;
+}
+
+/* Between ticks (to-do 84): 1 = a Catmull-Rom curve through the last four
+ * ticks, shown two ticks late (no corner every tick: a running tail swings
+ * ~4 times a second and looked jittery with straight lines); 0 = the
+ * straight line between the last two, one tick late. RECOMP_PHYS30_SMOOTH. */
+static int phys30_smooth(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_PHYS30_SMOOTH");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+/* One value between ticks: o = older .. l = last, r in [0, 1). */
+static float p30_curve(float o, float d, float p, float l, float r)
+{
+    if (!phys30_smooth())
+        return p + (l - p) * r;
+    return d + 0.5f * r * ((p - o) + r * ((2.0f * o - 5.0f * d + 4.0f * p - l)
+                                          + r * (3.0f * d - o - 3.0f * p + l)));
+}
+
+static int phys30_log_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_PHYS30_LOG");
+        on = e ? atoi(e) : 0;
+    }
+    return on;
+}
+
+/* Once a frame (the first sim call of a frame): advance the 30 Hz clock. */
+static void p30_frame(void)
+{
+    uint32_t fc = MEM32(0x007F9F60u);
+    float step;
+
+    if (fc == s_p30.fc)
+        return;
+    s_p30.fc = fc;
+    step = MEMF(0x007FA24Cu);
+    if (!phys30_on() || !(step > 0.0f && step < 0.999f)) {
+        if (s_p30.active)
+            s_p30.gen++;               /* snapshots stale from here */
+        s_p30.active = 0;
+        s_p30.tick = 1;
+        return;
+    }
+    if (!s_p30.active) {
+        s_p30.active = 1;
+        s_p30.gen++;
+        s_p30.acc = 1.0f - step;       /* tick at once (this frame's time) */
+        s_p30.dt_sum = s_p30.step_sum = 0.0f;
+        s_p30.ticks_sum = 0;
+    }
+    s_p30.acc += step;
+    s_p30.step_sum += step;
+    s_p30.dt_sum += MEMF(0x007FA21Cu);
+    s_p30.ticks_sum += MEM32(0x007FA20Cu);
+    s_p30.tick = s_p30.acc >= 0.999f;
+    if (s_p30.tick) {
+        s_p30.t_dt = s_p30.dt_sum;
+        s_p30.t_step = s_p30.step_sum;
+        s_p30.t_ticks = s_p30.ticks_sum;
+        s_p30.dt_sum = s_p30.step_sum = 0.0f;
+        s_p30.ticks_sum = 0;
+        s_p30.acc -= 1.0f;
+        if (s_p30.acc >= 0.999f || s_p30.acc < 0.0f)
+            s_p30.acc = 0.0f;
+        s_p30.prev_tick_fc = s_p30.tick_fc;
+        s_p30.tick_fc = fc;
+    }
+    s_p30.r = s_p30.acc;
+}
+
+static void m4_mul(float *o, const float *a, const float *b)
+{
+    float t[16];
+    int i, j;
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            t[i * 4 + j] = a[i * 4] * b[j] + a[i * 4 + 1] * b[4 + j]
+                         + a[i * 4 + 2] * b[8 + j] + a[i * 4 + 3] * b[12 + j];
+    memcpy(o, t, sizeof t);
+}
+
+/* General 4x4 inverse (cofactors); 0 when singular. */
+static int m4_inv(float *o, const float *m)
+{
+    double inv[16], det;
+    int i;
+    inv[0] = m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+    inv[4] = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+    inv[8] = m[4]*m[9]*m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+    inv[12] = -m[4]*m[9]*m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+    inv[1] = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10];
+    inv[5] = m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10];
+    inv[9] = -m[0]*m[9]*m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9];
+    inv[13] = m[0]*m[9]*m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9];
+    inv[2] = m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6];
+    inv[6] = -m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6];
+    inv[10] = m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5];
+    inv[14] = -m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5];
+    inv[3] = -m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6];
+    inv[7] = m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6];
+    inv[11] = -m[0]*m[5]*m[11] + m[0]*m[7]*m[9] + m[4]*m[1]*m[11] - m[4]*m[3]*m[9] - m[8]*m[1]*m[7] + m[8]*m[3]*m[5];
+    inv[15] = m[0]*m[5]*m[10] - m[0]*m[6]*m[9] - m[4]*m[1]*m[10] + m[4]*m[2]*m[9] + m[8]*m[1]*m[6] - m[8]*m[2]*m[5];
+    det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+    if (!(fabs(det) > 1e-20))
+        return 0;
+    for (i = 0; i < 16; i++)
+        o[i] = (float)(inv[i] / det);
+    return 1;
+}
+
+/* The character's skin matrices and joint count (u16 [char+0x3C4]+0x10;
+ * joint records [[char+0x4EC + lod*4]+0x34], 0x24 each, u16 parent at
+ * +0x18). 0 when it has none. */
+static int p30_char(uint32_t c, uint32_t *bones, uint32_t *model, uint32_t *joints)
+{
+    uint32_t def = MEM32(c + 0x3C4u), lodm;
+    int n;
+    *bones = MEM32(c + 0x3C8u);
+    if (!xact_va_ok(*bones) || !xact_va_ok(def))
+        return 0;
+    n = MEM16(def + 0x10u);
+    lodm = MEM32(c + 0x4ECu + 4u * MEM8(c + 0x3A8u));
+    *joints = xact_va_ok(lodm) ? MEM32(lodm + 0x34u) : 0;
+    *model = def;
+    return n > 0 && n <= P30_MAXJ ? n : 0;
+}
+
+static float *p30_bone(uint32_t bones, int j)
+{
+    return (float *)XBOX_PTR(bones + (uint32_t)j * 64u);
+}
+
+/* The joint shown this frame: between the ticks by r (p30_curve), on the
+ * ancestor's matrix now. */
+static void p30_show(p30_slot *s, uint32_t bones, int j)
+{
+    float m[16];
+    int k;
+    for (k = 0; k < 16; k++)
+        m[k] = p30_curve(s->older[j][k], s->old[j][k], s->prev[j][k], s->last[j][k],
+                         s_p30.r);
+    if (s->ref[j] >= 0)
+        m4_mul(m, m, p30_bone(bones, s->ref[j]));
+    memcpy(p30_bone(bones, j), m, 64);
+    memcpy(s->mine[j], m, 64);
+}
+
+/* After the sim ran: which joints it changed (against `before`), their
+ * ancestors, and the new tick kept relative to them. */
+static void p30_take(p30_slot *s, uint32_t c, uint32_t bones, uint32_t joints,
+                     const float (*before)[16], int fresh)
+{
+    float inv[16];
+    int j, a, guard, nw = 0;
+    for (j = 0; j < s->n; j++) {        /* bit 0 now, bit 1 the last tick */
+        s->w[j] = (uint8_t)(((s->w[j] & 1) && !fresh) << 1)
+                | (memcmp(p30_bone(bones, j), before[j], 64) != 0);
+        nw += s->w[j] & 1;
+    }
+    for (j = 0; j < s->n; j++) {
+        if (!(s->w[j] & 1))
+            continue;
+        a = joints ? (int)MEM16(joints + (uint32_t)j * 0x24u + 0x18u) : 0xFFFF;
+        for (guard = 0; a < s->n && (s->w[a] & 1) && guard < P30_MAXJ; guard++)
+            a = (int)MEM16(joints + (uint32_t)a * 0x24u + 0x18u);
+        s->ref[j] = (int16_t)(a < s->n && a != j ? a : -1);
+        memcpy(s->lastw[j], p30_bone(bones, j), 64);
+        if (s->w[j] & 2) {
+            memcpy(s->older[j], s->old[j], 64);
+            memcpy(s->old[j], s->prev[j], 64);
+            memcpy(s->prev[j], s->last[j], 64);
+        }
+        if (s->ref[j] >= 0 && m4_inv(inv, p30_bone(bones, s->ref[j])))
+            m4_mul(s->last[j], p30_bone(bones, j), inv);
+        else {
+            s->ref[j] = -1;
+            memcpy(s->last[j], p30_bone(bones, j), 64);
+        }
+        if (!(s->w[j] & 2)) {          /* new to the sim: no tick before */
+            memcpy(s->prev[j], s->last[j], 64);
+            memcpy(s->old[j], s->last[j], 64);
+            memcpy(s->older[j], s->last[j], 64);
+        }
+    }
+    for (j = 0; j < s->n; j++)
+        s->w[j] &= 1;
+    if (phys30_log_on() && nw != s->nw)
+        fprintf(stderr, "[PHYS30] t=%ld char %08X id %02X kind %X: sim joints %d -> %d"
+                " (of %d)\n", attach_ms(), c, MEM8(c + 0x10Bu), MEM32(c + 0x68u), s->nw,
+                nw, s->n);
+    s->nw = nw;
+}
+
+/* Log: the player's sim joints' movement (on their ancestors) per 2 s. */
+static void p30_log_motion(p30_slot *s, uint32_t c, uint32_t bones)
+{
+    float inv[16], rel[16];
+    int j, k, tip = -1;
+    long now;
+    if (MEM8(c + 0x10Bu) != 1)
+        return;
+    for (j = 0; j < s->n; j++) {
+        if (!s->w[j])
+            continue;
+        memcpy(rel, p30_bone(bones, j), 64);
+        if (s->ref[j] >= 0 && m4_inv(inv, p30_bone(bones, s->ref[j])))
+            m4_mul(rel, rel, inv);
+        for (k = 0; k < 3; k++) {
+            s->motion += fabs(rel[12 + k] - s->seen[j][k]);
+            s->seen[j][k] = rel[12 + k];
+        }
+        tip = j;
+    }
+    if (phys30_log_on() >= 2 && tip >= 0)  /* the last sim joint, every call */
+        fprintf(stderr, "[P30TIP] t=%ld f%u tip %d: %.2f %.2f %.2f pos %.1f %.1f %.1f\n",
+                attach_ms(), s_p30.fc, tip, s->seen[tip][0], s->seen[tip][1],
+                s->seen[tip][2], MEMF(c + 0x78u), MEMF(c + 0x7Cu), MEMF(c + 0x80u));
+    now = attach_ms();
+    if (now - s_p30.log_ms >= 2000) {
+        fprintf(stderr, "[PHYS30] t=%ld player sim joints %d: movement %.1f units/s,"
+                " calls %u (%u shown from the last tick), fix %s\n", now, s->nw,
+                s->motion * 1000.0 / (double)(now - s_p30.log_ms + 1), s_p30.calls,
+                s_p30.skipped, s_p30.active ? "on" : "off");
+        s->motion = 0.0;
+        s_p30.calls = s_p30.skipped = 0;
+        s_p30.log_ms = now;
+    }
+}
+
+/* Log: a hash of every live character's skin matrices, to find whose bones
+ * a sim that changed none of its own wrote. */
+static void p30_hash_all(uint32_t *h)
+{
+    uint32_t base = MEM32(0x0084A5F8u), bones, model, joints;
+    int i, n;
+    for (i = 0; i < P30_CHARS; i++) {
+        const uint8_t *p;
+        size_t k, len;
+        uint32_t x = 2166136261u;
+        h[i] = 0;
+        if (!MEM32(base + (uint32_t)i * 0x6D0u + 0x64u))
+            continue;
+        n = p30_char(base + (uint32_t)i * 0x6D0u, &bones, &model, &joints);
+        if (!n)
+            continue;
+        p = (const uint8_t *)XBOX_PTR(bones);
+        len = (size_t)n * 64u;
+        for (k = 0; k < len; k++)
+            x = (x ^ p[k]) * 16777619u;
+        h[i] = x | 1u;
+    }
+}
+
+/* Kind 2 (the body ragdoll) also sets the character's position from its
+ * root body: +0x78 and the copy at +0x30, kept and blended like the joints
+ * (world space). take = after a tick. */
+static void p30_pos(p30_slot *s, uint32_t c, int take, int fresh)
+{
+    static const uint32_t at[2] = { 0x78u, 0x30u };
+    int i, k;
+    for (i = 0; i < 2; i++)
+        for (k = 0; k < 3; k++) {
+            uint32_t va = c + at[i] + 4u * (uint32_t)k;
+            if (take) {
+                s->polder[i][k] = fresh ? MEMF(va) : s->pold[i][k];
+                s->pold[i][k] = fresh ? MEMF(va) : s->pprev[i][k];
+                s->pprev[i][k] = fresh ? MEMF(va) : s->plast[i][k];
+                s->plast[i][k] = MEMF(va);
+            }
+            MEMF(va) = p30_curve(s->polder[i][k], s->pold[i][k], s->pprev[i][k],
+                                 s->plast[i][k], s_p30.r);
+        }
+}
+
+/* One sim call for character `idx`; `gen` the original, `skip` its return
+ * (stack bytes to drop). */
+static void p30_call(int kind, uint32_t idx, void (*gen)(void), uint32_t skip)
+{
+    static float before[P30_MAXJ][16];
+    static uint32_t h0[P30_CHARS], h1[P30_CHARS];
+    uint32_t c, bones, model, joints, keep_ticks, keep_ticks2;
+    float keep_dt, keep_step;
+    p30_slot *s;
+    int n, j, fresh, scan;
+
+    p30_frame();
+    if (idx >= P30_CHARS || (!s_p30.active && !phys30_log_on())) {
+        gen();
+        return;
+    }
+    c = MEM32(0x0084A5F8u) + idx * 0x6D0u;
+    n = p30_char(c, &bones, &model, &joints);
+    if (!n) {
+        gen();
+        return;
+    }
+    s = s_p30_slots[kind][idx];
+    if (!s) {
+        s = s_p30_slots[kind][idx] = (p30_slot *)calloc(1, sizeof *s);
+        if (!s) {
+            gen();
+            return;
+        }
+        if (phys30_log_on())
+            fprintf(stderr, "[PHYS30] t=%ld new sim (kind %d) for char %u id %02X kind %X,"
+                    " %d joints\n", attach_ms(), kind, idx, MEM8(c + 0x10Bu), MEM32(c + 0x68u), n);
+    }
+    fresh = !s->have || s->gen != s_p30.gen || s->model != model || s->bones != bones
+            || s->n != n || s->last_call + 8u < s_p30.fc;
+    s->last_call = s_p30.fc;
+    s_p30.calls++;
+    if (fresh) {
+        memset(s->w, 0, sizeof s->w);
+        s->model = model;
+        s->bones = bones;
+        s->n = n;
+        s->gen = s_p30.gen;
+        s->nw = 0;
+    }
+    if (!s_p30.active) {               /* log only */
+        memcpy(before, p30_bone(bones, 0), (size_t)n * 64u);
+        gen();
+        p30_take(s, c, bones, joints, (const float (*)[16])before, 1);
+        s->have = 1;
+        p30_log_motion(s, c, bones);
+        return;
+    }
+    /* A camera cut ([0x00762E40], or the character's +0x546) resets a tail
+     * for that one frame: step now, as a new start. A sim that changed none
+     * of this character's joints (output elsewhere) is left as it was. */
+    if (!s_p30.tick && (MEM8(0x00762E40u) || MEM8(c + 0x546u) || (!s->nw && kind != 2)))
+        fresh = 1;
+    if (kind == 2 && !s_p30.tick && !s->have) {
+        g_esp += skip;                 /* a new body ragdoll waits for a tick: */
+        return;                        /* its launch is one 30 Hz step's */
+    }
+    if (!s_p30.tick && !fresh) {       /* between ticks: show, no step */
+        for (j = 0; j < n; j++)
+            if (s->w[j])
+                p30_show(s, bones, j);
+        if (kind == 2)
+            p30_pos(s, c, 0, 0);
+        s_p30.skipped++;
+        g_esp += skip;
+        if (phys30_log_on())
+            p30_log_motion(s, c, bones);
+        return;
+    }
+    if (!fresh)                        /* nobody rewrote it: its own last output */
+        for (j = 0; j < n; j++)
+            if (s->w[j] && !memcmp(p30_bone(bones, j), s->mine[j], 64))
+                memcpy(p30_bone(bones, j), s->lastw[j], 64);
+    memcpy(before, p30_bone(bones, 0), (size_t)n * 64u);
+    scan = phys30_log_on() && s->have && !s->nw && s->scans < 3;
+    if (scan)
+        p30_hash_all(h0);
+    keep_dt = MEMF(0x007FA21Cu);
+    keep_step = MEMF(0x007FA24Cu);
+    keep_ticks = MEM32(0x007FA20Cu);
+    keep_ticks2 = MEM32(0x007FA208u);
+    if (s_p30.tick) {
+        MEMF(0x007FA21Cu) = s_p30.t_dt;
+        MEMF(0x007FA24Cu) = s_p30.t_step;
+        MEM32(0x007FA20Cu) = s_p30.t_ticks;
+        MEM32(0x007FA208u) = s_p30.t_ticks;
+    }
+    s_p30.in_call = s_p30.tick;
+    gen();
+    s_p30.in_call = 0;
+    MEMF(0x007FA21Cu) = keep_dt;
+    MEMF(0x007FA24Cu) = keep_step;
+    MEM32(0x007FA20Cu) = keep_ticks;
+    MEM32(0x007FA208u) = keep_ticks2;
+    if (scan) {
+        char who[256];
+        int len = 0;
+        p30_hash_all(h1);
+        who[0] = 0;
+        for (j = 0; j < P30_CHARS && len < 200; j++)
+            if (h0[j] != h1[j])
+                len += sprintf(who + len, " %d (id %02X kind %X)", j,
+                               MEM8(MEM32(0x0084A5F8u) + (uint32_t)j * 0x6D0u + 0x10Bu),
+                               MEM32(MEM32(0x0084A5F8u) + (uint32_t)j * 0x6D0u + 0x68u));
+        s->scans++;
+        fprintf(stderr, "[PHYS30] t=%ld char %u id %02X kind %X (sim kind %d) changed none of"
+                " its %d joints; bones changed:%s\n", attach_ms(), idx, MEM8(c + 0x10Bu),
+                MEM32(c + 0x68u), kind, n, who[0] ? who : " none");
+    }
+    p30_take(s, c, bones, joints, (const float (*)[16])before, fresh);
+    s->have = 1;
+    for (j = 0; j < n; j++)
+        if (s->w[j])
+            p30_show(s, bones, j);
+    if (kind == 2)
+        p30_pos(s, c, 1, fresh);
+    if (phys30_log_on())
+        p30_log_motion(s, c, bones);
+}
+
+/* The tail chain's push (thiscall, ecx = the tail sim, [ecx+4] = solver):
+ * at 30 its solver's frame stamp +0xC0 is last frame's on the first round;
+ * here the last tick's, so it is made last frame's. */
+void sub_00091D20_enter(void)
+{
+    uint32_t solver;
+    if (!s_p30.in_call || !xact_va_ok(g_ecx) || !xact_va_ok(solver = MEM32(g_ecx + 4u)))
+        return;
+    if (MEM32(solver + 0xC0u) == s_p30.prev_tick_fc && s_p30.prev_tick_fc)
+        MEM32(solver + 0xC0u) = s_p30.fc - 1u;
+}
+
+extern void sub_0008F2B0_gen(void);
+void sub_0008F2B0(void)
+{
+    p30_call(0, MEM32(g_esp + 4u), sub_0008F2B0_gen, 4u);   /* cdecl ret */
+}
+
+extern void sub_00090FB0_gen(void);
+void sub_00090FB0(void)
+{
+    p30_call(1, g_eax, sub_00090FB0_gen, 4u);
+}
+
+/* The body ragdoll's start (0x00094440, 5 stack arguments, ret 0x14, from
+ * 0x002C5500): its bodies start at rest, then 0x00096A10 launches them,
+ * pos = last pos + velocity x dt [0x007FA21C], a displacement per step. At
+ * 30 Hz steps that has to be one 30 fps frame's (1/30 s), not this frame's:
+ * with 1/120 the Tediz left with a quarter of their speed. */
+extern void sub_00094440_gen(void);
+void sub_00094440(void)
+{
+    float keep = MEMF(0x007FA21Cu);
+    int over;
+    p30_frame();
+    over = s_p30.active && keep > 0.0f;
+    if (over)
+        MEMF(0x007FA21Cu) = 1.0f / 30.0f;
+    sub_00094440_gen();
+    if (over)
+        MEMF(0x007FA21Cu) = keep;
+}
+
+/* The body ragdoll's step (phys_Ragdoll.cpp; eax = the ragdoll [char+0x3D8],
+ * [esp+4] = the character, [esp+8] = its position +0x78; ret 8), from the
+ * character update's 0x002C5500. */
+extern void sub_000964D0_gen(void);
+void sub_000964D0(void)
+{
+    uint32_t c = MEM32(g_esp + 4u), base = MEM32(0x0084A5F8u);
+    uint32_t idx = c >= base && (c - base) % 0x6D0u == 0 ? (c - base) / 0x6D0u : P30_CHARS;
+    p30_call(2, idx, sub_000964D0_gen, 12u);
+}
+
+/* Main Menu Speed (to-do 76). The main menu's camera 0x001FD0F0 (level
+ * 0x1D) turns from one of its 6 boards to the next with a progress
+ * [0x00776218] (0..1) moved each frame by ticks x speed [0x0077621C]
+ * (+-0.05; -0.025 for its own automatic turns) x 0.5, where ticks =
+ * [0x00776214], the front end's copy of the 60 Hz ticks clamped to 1..4
+ * (0x001FC390). Above 60 a frame has under one tick (1 0 1 0 at 120) but
+ * counts as one, so the turn ran 2x as fast at 120 (40 frames, 375 ms
+ * against 20 frames, 667 ms at 30). Held left/right repeats once a turn
+ * ends, so the scrolling ran fast too. The wrapper scales the speed by
+ * this frame's real share of a tick (step x 2) over the clamped count for
+ * the call, only when that is below 1, and puts it back unless the call
+ * ended the turn (0). The chapter list and other pages stay as they are
+ * (user 2026-11-04). main_menu_speed = 0 / RECOMP_MENU_SPEED=0 = as before;
+ * RECOMP_MENU_LOG=1 adds a [MENUSPEED] line per turn. */
+static volatile int g_menu_speed = -1;
+
+void conker_SetMainMenuSpeed(int on)
+{
+    g_menu_speed = on != 0;
+}
+
+extern void sub_001FD0F0_gen(void);
+void sub_001FD0F0(void)
+{
+    static int log = -1;
+    float v = MEMF(0x0077621Cu), k = 1.0f;
+    int ticks = (int)MEM32(0x00776214u);
+    if (g_menu_speed < 0) {
+        const char *e = getenv("RECOMP_MENU_SPEED");
+        g_menu_speed = !(e && *e == '0');
+    }
+    if (g_menu_speed && v != 0.0f && MEM32(0x007FA1F8u) == 0x1D && ticks > 0)
+        k = MEMF(0x007FA24Cu) * 2.0f / (float)ticks;
+    if (!(k > 0.0f && k < 1.0f)) {
+        sub_001FD0F0_gen();
+        return;
+    }
+    if (log < 0) {
+        const char *e = getenv("RECOMP_MENU_LOG");
+        log = e && *e && *e != '0';
+    }
+    if (log && (MEMF(0x00776218u) == 1.0f || MEMF(0x00776218u) == 0.0f))
+        fprintf(stderr, "[MENUSPEED] turn speed %.3f x %.3f (ticks %d, step %.3f)\n", v, k,
+                ticks, MEMF(0x007FA24Cu));
+    MEMF(0x0077621Cu) = v * k;
+    sub_001FD0F0_gen();
+    if (MEMF(0x0077621Cu) != 0.0f)
+        MEMF(0x0077621Cu) = v;
 }
 
 /* RECOMP_CHAR_DUMP=<id hex>: every 60 frames, [CDUMP] lines with that
@@ -1647,9 +2925,10 @@ static void char_dump(void)
 
 static void char_log_frame(void)
 {
-    static struct { uint32_t live, anim; float x, y, z; } last[0x81];
+    static struct { uint32_t live, anim; float x, y, z; long changed; } last[0x81];
     uint32_t base = MEM32(0x0084A5F8u), c;
     int i;
+    long now = attach_ms();
     s_char_frame++;
     if (!xact_va_ok(base))
         return;
@@ -1662,6 +2941,31 @@ static void char_log_frame(void)
             last[i].live = 0;
             continue;
         }
+        if (last[i].live && anim != last[i].anim && MEM8(c + 0x10B) != 1) {
+            /* RECOMP_WATCH_DEATH=<anim>: the first time a character (not the
+             * player) starts that animation, RECOMP_WATCH on its height
+             * (+0x7C), to find what moves it (a death's flight). */
+            static int watch_anim = -2;
+            if (watch_anim == -2) {
+                const char *e = getenv("RECOMP_WATCH_DEATH");
+                watch_anim = e && *e ? atoi(e) : -1;
+            }
+            if (watch_anim >= 0 && anim == (uint32_t)watch_anim) {
+                char env[96];
+                extern void xbox_WatchInit(void);
+                snprintf(env, sizeof env, "RECOMP_WATCH=0x%08X", c + 0x7Cu);
+                _putenv(env);
+                fprintf(stderr, "[CHAR] t=%ld char #%02X anim %u: arming %s\n", now, i, anim,
+                        env);
+                xbox_WatchInit();
+                watch_anim = -1;
+            }
+            last[i].changed = now;
+        }
+        if (char_log_on() >= 2 && last[i].changed && now - last[i].changed < 3000)
+            fprintf(stderr, "[CTRAJ] t=%ld f%u #%02X id %02X kind %X anim %u state %X pos"
+                    " %.2f %.2f %.2f step %.3f\n", now, s_char_frame, i, MEM8(c + 0x10B),
+                    MEM32(c + 0x68), anim, MEM32(c + 0x64), x, y, z, MEMF(0x007FA24Cu));
         if (!last[i].live)
             why = "new";
         else if (anim != last[i].anim)
@@ -1931,11 +3235,143 @@ void sub_002AF670_enter(void)
     model_log_callers();
 }
 
+/* ── Fire imp's back (to-do 87; RECOMP_IMP_FIX, on) ──
+ * The FireImp model (main menu fireplace) has no triangles over a kite of
+ * four vertices in the middle of its back, so the fire behind shows through;
+ * the original's data (the Xbox One version shows it too). The model is one
+ * recorded pushbuffer (size 0x60F8); its first body piece is a strip of 1084
+ * indices from vertex 332, and the kite's corners 121, 44, 251 (top) and 38
+ * (bottom) are all in it (conker-notes 2026-11-05). Fix: the BEGIN_END(0)
+ * closing that strip becomes a JUMP to a block of ours that closes it, draws
+ * the two triangles (same vertex arrays, same bone constants, wound like
+ * their neighbours) and jumps back past the two words. Found by the strip's
+ * indices, so a buffer is patched again whenever the model is loaded anew. */
+#define IMP_PB_SIZE    0x60F8u
+#define IMP_STRIP_N    1084u
+#define IMP_STRIP_HASH 0xE7E194F6u          /* FNV-1a of the strip's indices */
+#define IMP_SLOTS      16u
+#define IMP_SLOT_BYTES 64u
+
+extern uint32_t xbox_ContiguousAlloc(uint32_t size, uint32_t alignment);
+
+static uint32_t s_imp_block;               /* IMP_SLOTS patch blocks (contiguous) */
+static uint32_t s_imp_slot_end[IMP_SLOTS]; /* the strip end each slot returns to */
+static uint32_t s_imp_next_slot;
+
+static int imp_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_IMP_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+static int imp_block_va(uint32_t va)
+{
+    return s_imp_block && va >= s_imp_block
+        && va < s_imp_block + IMP_SLOTS * IMP_SLOT_BYTES;
+}
+
+/* The BEGIN_END(0) word closing the body strip, or 0 when this is not the
+ * FireImp's buffer (or it is patched already). */
+static uint32_t imp_find_strip_end(uint32_t data, uint32_t size)
+{
+    uint32_t end = data + size - 4, va = data, w, n = 0, h = 0, first = 0;
+    int in_strip = 0;
+
+    while (va < end) {
+        uint32_t m, cnt, i;
+        w = MEM32(va);
+        if ((w & 3u) == 1u) {                   /* a jump inside the buffer */
+            uint32_t t = (w & 0x0FFFFFFCu) | (data & 0xF0000000u);
+            if (t <= va || t > end)
+                return 0;
+            va = t;
+            continue;
+        }
+        if ((w & 0x00030003u) != 0u)
+            return 0;
+        m = w & 0x1FFFu;
+        cnt = (w >> 18) & 0x7FFu;
+        if (m == 0x17FCu && cnt == 1u) {        /* BEGIN_END */
+            uint32_t prim = MEM32(va + 4);
+            if (prim == 6u) {
+                in_strip = 1;
+                n = 0;
+                h = 2166136261u;
+            } else if (prim == 0u && in_strip) {
+                if (n == IMP_STRIP_N && first == 332u && h == IMP_STRIP_HASH)
+                    return va;
+                in_strip = 0;
+            }
+        } else if (in_strip && (m == 0x1800u || m == 0x1808u)) {
+            for (i = 0; i < cnt; i++) {
+                uint32_t d = MEM32(va + 4 + i * 4u);
+                uint32_t v[2] = { d & 0xFFFFu, d >> 16 };
+                uint32_t k, per = m == 0x1800u ? 2u : 1u;
+                if (m == 0x1808u)
+                    v[0] = d;
+                for (k = 0; k < per; k++) {
+                    if (n == 0)
+                        first = v[k];
+                    h = (h ^ v[k]) * 16777619u;
+                    n++;
+                }
+            }
+        }
+        va += 4 + cnt * 4u;
+    }
+    return 0;
+}
+
+static void imp_fix(uint32_t pb)
+{
+    uint32_t data, e, slot, b, i;
+    static const uint16_t tri[6] = { 121, 44, 38, 44, 251, 38 };
+
+    if (!imp_fix_on() || !xact_va_ok(pb) || MEM32(pb + 12) != IMP_PB_SIZE)
+        return;
+    data = MEM32(pb + 4);
+    if (data < 0x80000000u || !xact_va_ok(data))
+        return;
+    e = imp_find_strip_end(data, IMP_PB_SIZE);
+    if (!e)
+        return;                                 /* not the imp, or done */
+    if (!s_imp_block) {
+        s_imp_block = xbox_ContiguousAlloc(IMP_SLOTS * IMP_SLOT_BYTES, 4096);
+        if (!s_imp_block)
+            return;
+    }
+    for (slot = 0; slot < IMP_SLOTS && s_imp_slot_end[slot] != e; slot++)
+        ;
+    if (slot == IMP_SLOTS)
+        slot = s_imp_next_slot++ % IMP_SLOTS;
+    b = s_imp_block + slot * IMP_SLOT_BYTES;
+    MEM32(b + 0) = 0x000417FCu;                 /* end the strip */
+    MEM32(b + 4) = 0;
+    MEM32(b + 8) = 0x000417FCu;                 /* triangles */
+    MEM32(b + 12) = 5;
+    MEM32(b + 16) = 0x400C1800u;                /* ARRAY_ELEMENT16 x3, 6 indices */
+    for (i = 0; i < 3; i++)
+        MEM32(b + 20 + i * 4u) = tri[2 * i] | (uint32_t)tri[2 * i + 1] << 16;
+    MEM32(b + 32) = 0x000417FCu;
+    MEM32(b + 36) = 0;
+    MEM32(b + 40) = ((e + 8u) & 0x0FFFFFFFu) | 1u;   /* back past the two words */
+    s_imp_slot_end[slot] = e;
+    _WriteBarrier();                            /* x86 keeps stores in order */
+    MEM32(e) = (b & 0x0FFFFFFFu) | 1u;          /* the executor may be reading */
+    fprintf(stderr, "[IMPFIX] fire imp's back filled: pb %08X data %08X strip end %08X"
+            " -> %08X\n", pb, data, e, b);
+}
+
 /* D3DDevice_RunPushBuffer(pb, fixups): pb +4 data, +12 size */
 void sub_0053AE30_enter(void)
 {
     static unsigned n;
     uint32_t pb = MEM32(g_esp + 4), data, size, va, end, bad = 0, w;
+    imp_fix(pb);
     if (!model_log_on() || !xact_va_ok(pb))
         return;
     data = MEM32(pb + 4);
@@ -1947,6 +3383,7 @@ void sub_0053AE30_enter(void)
         w = MEM32(va);
         if ((w & 3u) == 1u) {                   /* a jump inside the buffer */
             uint32_t t = (w & 0x0FFFFFFCu) | (data & 0xF0000000u);
+            if (imp_block_va(t)) { va += 8; continue; }   /* imp_fix's splice */
             if (t < data || t > end) { bad = va; break; }
             va = t;
             continue;
@@ -2536,6 +3973,90 @@ void sub_0053A930_enter(void)
     MEM32(0x005499F0u) |= 0x800u;       /* texture stage states changed */
 }
 
+/* ── Conker: D3DX matrix multiply natively (speed; RECOMP_D3DX_NATIVE) ────
+ *
+ * 0x0042841D is D3DXMatrixMultiply's SSE version (stdcall out, a, b; out =
+ * a * b, returned in EAX): ~60 SSE instructions, which the translation does
+ * as four volatile 32-bit loads per MOVAPS and lane loops on thread-local
+ * registers. In It's War's opening cutscene it was 5-13 % of the game thread
+ * (most calls from 0x003EF650; conker-notes 2026-11-04). This is the same
+ * arithmetic with SSE intrinsics in the same order -- per row ((x*b0 + y*b1)
+ * + z*b2) + w*b3, all of a and b read before out is written (out may be a or
+ * b) -- so out is bit for bit the generated one's, and xmm0-xmm5, EAX and
+ * ECX end as they did. RECOMP_D3DX_NATIVE=0 runs the generated body; =2 runs
+ * it and checks the native result against it on every call ([D3DX] lines). */
+extern void sub_0042841D_gen(void);
+static int s_d3dx_native = -1;
+static unsigned long long s_d3dx_calls, s_d3dx_diff;
+
+/* out = a * b as 0x0042841D computes it; z, w = its last row's xmm0, xmm1. */
+static void d3dx_mat_mul(float *out, const float *a, const float *b,
+                         __m128 *z, __m128 *w)
+{
+    __m128 b0 = _mm_loadu_ps(b), b1 = _mm_loadu_ps(b + 4);
+    __m128 b2 = _mm_loadu_ps(b + 8), b3 = _mm_loadu_ps(b + 12);
+    __m128 r[4];
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        __m128 row = _mm_loadu_ps(a + 4 * i);
+        __m128 x = _mm_mul_ps(_mm_shuffle_ps(row, row, 0x00), b0);
+        __m128 y = _mm_mul_ps(_mm_shuffle_ps(row, row, 0x55), b1);
+        *z = _mm_mul_ps(_mm_shuffle_ps(row, row, 0xAA), b2);
+        x = _mm_add_ps(x, y);
+        *w = _mm_mul_ps(_mm_shuffle_ps(row, row, 0xFF), b3);
+        x = _mm_add_ps(x, *z);
+        r[i] = _mm_add_ps(x, *w);
+    }
+    for (i = 0; i < 4; i++)
+        _mm_storeu_ps(out + 4 * i, r[i]);
+}
+
+void sub_0042841D(void)
+{
+    uint32_t out = MEM32(g_esp + 4), a = MEM32(g_esp + 8), b = MEM32(g_esp + 12);
+    float *o = (float *)XBOX_PTR(out);
+    __m128 z, w;
+
+    if (s_d3dx_native < 0) {
+        const char *e = getenv("RECOMP_D3DX_NATIVE");
+        s_d3dx_native = e && *e ? atoi(e) : 1;
+    }
+    if (s_d3dx_native == 0) {
+        sub_0042841D_gen();
+        return;
+    }
+    if (s_d3dx_native == 2) {
+        float ca[16], cb[16], res[16];
+        memcpy(ca, (const void *)XBOX_PTR(a), sizeof ca);
+        memcpy(cb, (const void *)XBOX_PTR(b), sizeof cb);
+        sub_0042841D_gen();
+        d3dx_mat_mul(res, ca, cb, &z, &w);
+        s_d3dx_calls++;
+        if (memcmp(res, o, sizeof res) || memcmp(&z, &g_xmm0, 16)
+            || memcmp(&w, &g_xmm1, 16) || memcmp(o, &g_xmm2, 16)
+            || memcmp(o + 12, &g_xmm5, 16)) {
+            if (s_d3dx_diff++ < 8)
+                fprintf(stderr, "[D3DX] matrix multiply call %llu differs: out"
+                        " %08X a %08X b %08X\n", s_d3dx_calls, out, a, b);
+        }
+        if (s_d3dx_calls % 1000000u == 0)
+            fprintf(stderr, "[D3DX] matrix multiply check: %llu calls, %llu"
+                    " differ\n", s_d3dx_calls, s_d3dx_diff);
+        return;
+    }
+    d3dx_mat_mul(o, (const float *)XBOX_PTR(a), (const float *)XBOX_PTR(b),
+                 &z, &w);
+    _mm_storeu_ps(g_xmm0.f, z);
+    _mm_storeu_ps(g_xmm1.f, w);
+    memcpy(&g_xmm2, o, 16);
+    memcpy(&g_xmm3, o + 4, 16);
+    memcpy(&g_xmm4, o + 8, 16);
+    memcpy(&g_xmm5, o + 12, 16);
+    g_ecx = g_eax = out;
+    g_esp += 16;                        /* ret 12 */
+}
+
 /* ── Conker: cutscene blur (F2 Picture > Cutscene blur) ──────────────────
  *
  * The cutscene depth of field is one function per frame, 0x001C71A0
@@ -2809,6 +4330,350 @@ void sub_001C71A0(void)
     sub_001C71A0_gen();
 }
 
+/* ── Conker: cutscene skip (F2 Cutscenes; to-do 16, SPEC 10.2) ───────────
+ *
+ * The game's skip: 0x00050020 (every frame while a scene plays) asks
+ * 0x0004FF00 (cutscene_can_skip; slot in edi, answer in eax) and, on a yes
+ * with more than 1.5 s left before the scene's skip point [0x0076F0E8 +
+ * slot*4] (time now [0x0076F0F8 + slot*4], ticks of [0x007F9F5C] a second),
+ * fades out for 0.5 s and ends the scene (0x0004FDC0 -> 0x000507A0). The end
+ * starts the next part: in another level that part loads first, so one skip
+ * goes to the next load. can_skip says no when:
+ *   - ThroneRoom (level 0x18) scene 1, always;
+ *   - the skip button was not pressed this frame ([0x00763260 + pad x 0x1B0
+ *     + 0xA0], the pad record's LT edge: pad 0 when [0x006BCFEB] > 0, else
+ *     pad 20; copied from the input record [[0x008470FC + pad x 4] + 8]
+ *     (0x0075A0B4 for pad 20), whose +4 is held, +8 pressed this frame);
+ *   - the scene script marks it unskippable ([0x007655F7], event 0x0E);
+ *   - not seen on this save: bit scene [0x0076F0DC + slot] of level
+ *     [0x007FA1F8]'s 64 at 0x00765608 + level x 8, unless [0x007655E9] or
+ *     [0x00801A33] (the chapter list);
+ *   - less than 0.5 s before the skip point (unless [0x007655F9]).
+ * The front end (0x1D) and FrontendTable (0x21) have rules of their own.
+ *
+ * skippable_cutscenes (RECOMP_CUTSCENE_SKIP, default on) lifts the first,
+ * third and fourth in story levels. With hold_to_skip (RECOMP_SKIP_HOLD,
+ * default on) such a scene skips after the button is held SKIP_HOLD_MS
+ * (real time, so every frame rate is the same) while the overlay draws a
+ * ring (conker_SkipRing); off, a press skips it as a seen one. A scene the
+ * game lets you skip still skips on a press, and so does any scene too short
+ * for the hold and the 1.5 s (skip_short_now). The hold starts over when a new
+ * scene or part starts or the game stops asking (pause, the fade): held into
+ * one, the button must be let go first, so holding through a load skips
+ * one part only. RECOMP_SKIP_LOG=1 prints [SKIP] lines. */
+#define SKIP_HOLD_MS 3000.0
+/* LT held through a skip went on into play: Classic's head-cam (user
+ * 2026-11-04, field save), Modern's aim. Set at a skip with LT held,
+ * pad_filter then hides LT from the game until it is let go. */
+static volatile LONG s_skip_lt_block;
+
+static volatile int g_skip_on = -1, g_skip_hold = -1;   /* < 0 = not read yet */
+static volatile double g_skip_t0;     /* hold start (skip_ms), 0 = none */
+static volatile double g_skip_asked;  /* when can_skip last ran */
+
+void conker_SetCutsceneSkip(int on)
+{
+    g_skip_on = on != 0;
+}
+
+void conker_SetSkipHold(int on)
+{
+    g_skip_hold = on != 0;
+}
+
+static int skip_switch(volatile int *v, const char *env)
+{
+    if (*v < 0) {
+        const char *e = getenv(env);
+        *v = !(e && *e == '0');
+    }
+    return *v;
+}
+
+static double skip_ms(void)
+{
+    static LARGE_INTEGER f;
+    LARGE_INTEGER t;
+    if (!f.QuadPart)
+        QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart * 1000.0 / (double)f.QuadPart;
+}
+
+/* Black over the picture from one of our skips until what follows draws
+ * (user 2026-11-04): the skip jumps the scene to its end and starts the next
+ * part, which in another level loads first ([0x0076F0B6] = its scene + 1
+ * until it starts), and the last frame stays up while it loads: the
+ * scene's end (Conker on the throne) and things drawn over the game's fade
+ * (New Game's title cards, which run on their own clock) showed. The cover
+ * goes black faster than the game's fade (conker_SkipCover), stays until
+ * what follows has drawn a while (skip_cover_poll) and fades out in 0.3 s;
+ * never longer than 30 s. RECOMP_SKIP_LOG=1 prints [SKIP] cover lines. */
+#define SKIP_COVER_MIN_MS 600.0
+#define SKIP_COVER_SETTLE 8             /* frames of what follows first */
+static volatile double g_cover_t0, g_cover_t1;  /* start / release, 0 = none */
+static uint32_t s_cover_key;                    /* level << 8 | scene skipped */
+static int s_cover_load;                        /* a load was seen */
+static int s_cover_ready;                       /* frames the release held */
+static int s_skip_log = -1;
+
+static void skip_cover_start(uint32_t key)
+{
+    g_cover_t1 = 0.0;
+    g_cover_t0 = skip_ms();
+    s_cover_key = key;
+    /* The next part (cutscene_end 0x000507A0 starts scene [0x0076F0B8] - 1
+     * of level [0x0076F0B7]): in another level, a load follows. */
+    s_cover_load = MEM8(0x0076F0B8u) && MEM8(0x0076F0B7u) != (key >> 8);
+    s_cover_ready = 0;
+}
+
+/* Every frame (controls_poll). The skipped scene ends ([0x0076F0E0] 0
+ * none, 1 playing, 2 the next part starting). With a load ([0x0076F0B6] or
+ * state 2 seen), let go once another level plays a scene, or has had none
+ * for 2.5 s (a load into play; the level number may change as a load
+ * starts); without, once the scene has ended or another plays. Either way
+ * only after that has held SKIP_COVER_SETTLE frames in a row: no frame runs
+ * while the skip and a load happen (a load is rarely seen here), so a
+ * frame of state 0 between them can't let go mid-load (user's 120 fps
+ * glimpse of the throne and the cards, 2026-11-04). */
+static void skip_cover_poll(void)
+{
+    double now, t0 = g_cover_t0;
+    uint8_t run = MEM8(0x0076F0E0u), pend = MEM8(0x0076F0B6u);
+    uint32_t lv = MEM32(0x007FA1F8u), key = lv << 8 | MEM8(0x0076F0DCu);
+    int done;
+    if (t0 <= 0.0 || g_cover_t1 > 0.0)
+        return;
+    now = skip_ms();
+    if (pend || run == 2)
+        s_cover_load = 1;
+    if (s_cover_load) {
+        static double lv_seen;          /* when another level was first seen */
+        if (lv == s_cover_key >> 8)
+            lv_seen = 0.0;
+        else if (lv_seen <= 0.0)
+            lv_seen = now;
+        done = !pend && run != 2 && lv_seen > 0.0
+               && (run == 1 || now - lv_seen >= 2500.0);
+    } else
+        done = run == 0 || (run == 1 && key != s_cover_key);
+    if (!done || now - t0 < SKIP_COVER_MIN_MS) {
+        s_cover_ready = 0;
+        if (now - t0 < 30000.0)
+            return;
+    } else if (++s_cover_ready < SKIP_COVER_SETTLE)
+        return;
+    g_cover_t1 = now;
+    if (s_skip_log > 0)
+        fprintf(stderr, "[SKIP] cover off after %.0f ms (load %d, level 0x%02X, scene %u, "
+                "state %u)\n", now - t0, s_cover_load, lv, key & 0xFFu, run);
+}
+
+/* For the overlay: how black the cover is, 0..1. Black from the skip's own
+ * frame: the skip restarts the game's fade-out from clear (0x00050020),
+ * and where that fade had held the picture black (the throne behind New
+ * Game's title cards) the scene showed for a split second (user, 120 fps);
+ * any fade-in of ours let it through, and the scene's end (the title
+ * cards as brighter boxes over it) after. */
+float conker_SkipCover(void)
+{
+    double t0 = g_cover_t0, t1 = g_cover_t1, now = skip_ms(), a = 1.0;
+    if (t0 <= 0.0)
+        return 0.0f;
+    if (t1 > 0.0) {
+        double out = 1.0 - (now - t1) / 300.0;
+        if (out <= 0.0) {
+            g_cover_t0 = g_cover_t1 = 0.0;
+            return 0.0f;
+        }
+        if (out < a)
+            a = out;
+    }
+    return (float)a;
+}
+
+/* For the overlay's ring: the hold's share of SKIP_HOLD_MS, 0 when none. */
+float conker_SkipRing(void)
+{
+    double t0 = g_skip_t0, now = skip_ms();
+    if (t0 <= 0.0 || now - g_skip_asked > 150.0)
+        return 0.0f;
+    return now - t0 >= SKIP_HOLD_MS ? 1.0f : (float)((now - t0) / SKIP_HOLD_MS);
+}
+
+/* Why the game said no, when it is a reason the option lifts; NULL else. */
+static const char *skip_lifted(uint32_t lv, uint32_t scene)
+{
+    uint32_t bits;
+    if (lv == 0x18u && scene == 1u)
+        return "throne room scene 1";
+    /* The front end lets only its scene 5 through to the rules below; the
+     * story plays more there (New Game: Berri's room, scene 3). */
+    if (lv == 0x1Du && scene != 5u)
+        return "front end scene";
+    if (MEM8(0x007655F7u))
+        return "marked unskippable";
+    if (MEM8(0x00801A33u) || MEM8(0x007655E9u) || scene >= 64u)
+        return NULL;
+    bits = MEM32(0x00765608u + lv * 8u + (scene >= 32u ? 4u : 0u));
+    return bits & (1u << (scene & 31u)) ? NULL : "not seen yet";
+}
+
+/* A short scene's skip, at once (to-do 89): what 0x00050020 does on a yes
+ * (fade out, stop the cutscene music 0x0001F6D0 and speech 0x0001B140 /
+ * 0x0001B180) and then, without its 0.5 s fade wait, its skip_now call.
+ * Run from inside can_skip, so the caller must then be told no. */
+extern void sub_0001F6D0(void);
+extern void sub_0001B140(void);
+extern void sub_0001B180(void);
+extern void sub_0004FDC0(void);
+static void skip_short_now(int fade)
+{
+    MEM8(0x008497F9u) = 0;
+    if (MEM32(0x00771C50u) != 1u || (int32_t)MEM32(0x00771C60u) <= (int32_t)MEM32(0x00771C5Cu)
+        || MEM8(0x00771C64u)) {
+        MEM32(0x00771C50u) = 1u;
+        MEM32(0x00771C54u) = 0u;
+        MEM8(0x00771C58u) = MEM8(0x00771C59u) = MEM8(0x00771C5Au) = 0;
+        MEM32(0x00771C5Cu) = (uint32_t)fade;
+        MEM32(0x00771C60u) = 0u;
+    }
+    g_esp -= 4; MEM32(g_esp) = MEM32(MEM32(0x00847024u) + 0x3Cu);
+    g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
+    sub_0001F6D0();
+    sub_0001B140();
+    if (g_eax == 1u || g_eax == 2u)
+        sub_0001B180();
+    MEM8(0x0076F0B4u) = 0;
+    MEM8(0x00765600u) = 0;
+    MEM8(0x00765601u) = 2;
+    sub_0004FDC0();
+    MEM8(0x00765601u) = 0;
+}
+
+extern void sub_0004FF00_gen(void);
+void sub_0004FF00(void)
+{
+    static int log = -1, wait_up;
+    static uint32_t last_scene = 0xFFFFFFFFu;
+    uint32_t slot = g_edi, lv = MEM32(0x007FA1F8u), scene, pad, rec, key;
+    int held, edge, left, fps, fade, gate;
+    const char *why;
+    double now;
+
+    sub_0004FF00_gen();
+    if (log < 0) {
+        const char *e = getenv("RECOMP_SKIP_LOG");
+        log = s_skip_log = e ? atoi(e) : 0;
+    }
+    if (slot > 3u)
+        return;
+    now = skip_ms();
+    scene = MEM8(0x0076F0DCu + slot);
+    pad = (int8_t)MEM8(0x006BCFEBu) > 0 ? 0u : 20u;
+    edge = MEM32(0x00763300u + pad * 0x1B0u) != 0;
+    rec = pad < 2u ? MEM32(MEM32(0x008470FCu + pad * 4u) + 8u) : 0x0075A0B4u;
+    held = !MEM8(0x008471A0u) && (rec ? (MEM32(rec + 4u) & 0x4000u) != 0 : edge);
+    if (log > 1) {
+        static uint32_t was[6];
+        uint32_t is[6] = { pad, rec, rec ? MEM32(rec) : 0u, rec ? MEM32(rec + 4u) : 0u,
+                           rec ? MEM32(rec + 8u) : 0u, (uint32_t)edge };
+        if (memcmp(is, was, sizeof(is))) {
+            memcpy(was, is, sizeof(is));
+            fprintf(stderr, "[SKIP] asked: slot %u level 0x%02X scene %u pad %u rec %08X "
+                    "+0 %08X +4 %08X +8 %08X edge %u eax %u\n", slot, lv, scene, pad,
+                    rec, is[2], is[3], is[4], is[5], g_eax);
+        }
+    }
+    key = lv << 8 | scene;
+    if (key != last_scene || now - g_skip_asked > 250.0) {
+        last_scene = key;
+        g_skip_t0 = 0.0;
+        wait_up = held;
+    }
+    g_skip_asked = now;
+    /* 0x00050020 starts the skip only with more than gate ticks left, then
+     * fades for fade ticks. A scene shorter than the hold plus that (It's
+     * War's 2 s Tediz reloading, level 0x04 scene 6, user 2026-11-05) could
+     * never be skipped: there a press skips at once, up to its last tick. */
+    fps = (int)MEMF(0x007F9F5Cu);
+    fade = ((fps * 0x1E00) / 0x3C) >> 8;
+    gate = fps + fade;
+    left = (int)MEM32(0x0076F0E8u + slot * 4u) - (int)MEM32(0x0076F0F8u + slot * 4u);
+    if (edge && held && left > 0
+        && (int)MEM32(0x0076F0E8u + slot * 4u) < (int)(SKIP_HOLD_MS / 1000.0 * fps) + gate
+        && skip_switch(&g_skip_on, "RECOMP_CUTSCENE_SKIP")
+        && lv != 0x21u && lv != 0x46u && lv != 0x47u && lv <= 0x4Au
+        && MEM32(0x0069CF90u + lv * 4u) != 0) {
+        why = skip_lifted(lv, scene);
+        if (log)
+            fprintf(stderr, "[SKIP] level 0x%02X scene %u (%s, short: %d ticks): skipped on a "
+                    "press, %d left\n", lv, scene, why ? why : "skippable",
+                    (int)MEM32(0x0076F0E8u + slot * 4u), left);
+        g_skip_t0 = 0.0;
+        skip_cover_start(key);
+        InterlockedExchange(&s_skip_lt_block, 1);
+        skip_short_now(fade);
+        g_eax = 0;
+        return;
+    }
+    if (g_eax) {
+        if (log)
+            fprintf(stderr, "[SKIP] level 0x%02X scene %u: the game's own skip\n", lv, scene);
+        g_skip_t0 = 0.0;
+        if (held)
+            InterlockedExchange(&s_skip_lt_block, 1);
+        return;
+    }
+    if (!held) {
+        if (g_skip_t0 > 0.0 && log)
+            fprintf(stderr, "[SKIP] let go after %.0f ms\n", now - g_skip_t0);
+        g_skip_t0 = 0.0;
+        wait_up = 0;
+        return;
+    }
+    if (!skip_switch(&g_skip_on, "RECOMP_CUTSCENE_SKIP") || wait_up
+        || lv == 0x21u || lv == 0x46u || lv == 0x47u || lv > 0x4Au
+        || MEM32(0x0069CF90u + lv * 4u) == 0
+        || (why = skip_lifted(lv, scene)) == NULL)
+        return;
+    if (left <= gate) {
+        if (edge && log)
+            fprintf(stderr, "[SKIP] level 0x%02X scene %u (%s): no skip point ahead (%d ticks)\n",
+                    lv, scene, why, left);
+        return;
+    }
+    if (!skip_switch(&g_skip_hold, "RECOMP_SKIP_HOLD")) {
+        if (edge) {
+            if (log)
+                fprintf(stderr, "[SKIP] level 0x%02X scene %u (%s): skipped on a press\n",
+                        lv, scene, why);
+            skip_cover_start(key);
+            InterlockedExchange(&s_skip_lt_block, 1);
+            g_eax = 1;
+        }
+        return;
+    }
+    if (g_skip_t0 <= 0.0) {
+        g_skip_t0 = now;
+        if (log)
+            fprintf(stderr, "[SKIP] level 0x%02X scene %u (%s): hold started\n",
+                    lv, scene, why);
+        return;
+    }
+    if (now - g_skip_t0 >= SKIP_HOLD_MS) {
+        if (log)
+            fprintf(stderr, "[SKIP] level 0x%02X scene %u (%s): skipped after %.0f ms\n",
+                    lv, scene, why, now - g_skip_t0);
+        g_skip_t0 = 0.0;
+        wait_up = 1;
+        skip_cover_start(key);
+        InterlockedExchange(&s_skip_lt_block, 1);
+        g_eax = 1;
+    }
+}
+
 /* ── Conker: frame rate (F2 Display > Frame rate) and game speed ─────────
  *
  * 0x002A7B60 (frame_timer_update) runs once a frame and sets the game's
@@ -2845,9 +4710,43 @@ void sub_001C71A0(void)
  * vblanks per frame, the average step and dt, D3D's vblank count
  * (device +0x1DE8) per second, and game time against wall time (the step
  * counted as 1/30 s, and dt). */
-static volatile int g_fps60 = -1;      /* frame rate 60; < 0 = not read yet */
+static volatile int g_fps = -1;        /* frame rate; < 0 = not read yet */
 static volatile int g_dip_fix = -1;    /* dip fix at 30; < 0 = not read yet */
 static uint32_t g_asked_interval;      /* the game's own, from the reset */
+
+/* Above 60 (to-do 20): where the game asks for interval 2 it gets 1, as at
+ * 60, and the toolkit's vblank clock runs at the frame rate instead of 60
+ * (xbox_SetVblankRate; VSync then locks it to a monitor at that rate). The
+ * game counts those faster vblanks as 60 Hz ones, so frame_timer_update's
+ * results are set right before its last call (sub_00378620_enter):
+ * step = vblanks x 30 / rate (0.25 at 120), and the whole 60 Hz ticks
+ * [0x007FA20C] that ~200 readers add up (timers, countdowns, texture
+ * animation) come out of an accumulator, 1 0 1 0 ... at 120, so they
+ * still add up to 60 a second. The game's own frame divider [0x007FA204]
+ * (a debug slow motion) does the same: step below one tick, 0-tick frames.
+ * Everything frame_timer_update derives from the two is redone from the
+ * values it started with (kept in sub_002A7B60_enter). */
+#define FT_TICKS    0x007FA20Cu   /* 60 Hz ticks this frame (int) */
+#define FT_TICKS2   0x007FA208u   /* copy of it */
+#define FT_STEP     0x007FA24Cu   /* float, 1.0 = a 30 fps frame */
+#define FT_HALF     0x007F9F34u   /* u16 tick counter (30 Hz in bit 1+) */
+#define FT_HALF_OUT 0x007FA250u   /* u8: 30 Hz frames this frame */
+#define FT_TOTAL    0x007FA244u   /* ticks since start; % 30 in 0x007FA240 */
+#define FT_HIST     0x007F9EF8u   /* 10 floats: the last steps */
+#define FT_HIST_I   0x007F9F21u   /* u8 next history slot */
+#define FT_HIST_N   0x007F9F20u   /* u8 history filled, up to 10 */
+static int g_vblank_rate = 60;         /* what the toolkit clock runs at */
+static struct {
+    int armed;                         /* this frame's results to redo */
+    uint16_t half;
+    uint32_t total;
+    uint8_t hist_i, hist_n;
+    unsigned acc;                      /* ticks x rate, carried */
+} s_ft;
+
+#define FRAME_UNCAPPED 1000           /* "uncapped": the clock's top rate */
+extern void xbox_SetVblankRate(int hz);
+extern int xbox_VsyncCapHz(void);
 
 static int framestep_log_on(void)
 {
@@ -2859,13 +4758,34 @@ static int framestep_log_on(void)
     return on;
 }
 
+/* 30 (original), 60, or above (90-1000; "uncapped" = 1000). */
+static int frame_rate(void)
+{
+    if (g_fps < 0) {
+        const char *e = getenv("RECOMP_FRAME_RATE");
+        int r = !e ? 30 : !_stricmp(e, "uncapped") ? FRAME_UNCAPPED : atoi(e);
+        g_fps = r < 60 ? 30 : r > FRAME_UNCAPPED ? FRAME_UNCAPPED : r;
+    }
+    return g_fps;
+}
+
+/* The vblank clock for the game's interval: 60, or the frame rate above
+ * 60, capped at the monitor's refresh with VSync on and under it with vrr
+ * (xbox_VsyncCapHz). */
+static int clock_rate(void)
+{
+    int r = frame_rate(), cap = xbox_VsyncCapHz();
+
+    if (g_asked_interval != 2u || r <= 60)
+        return 60;
+    if (cap && r > cap)
+        r = cap < 60 ? 60 : cap;
+    return r;
+}
+
 static int fps60_on(void)
 {
-    if (g_fps60 < 0) {
-        const char *e = getenv("RECOMP_FRAME_RATE");
-        g_fps60 = e && atoi(e) == 60;
-    }
-    return g_fps60;
+    return frame_rate() >= 60;
 }
 
 static int dip_fix_on(void)
@@ -2877,10 +4797,13 @@ static int dip_fix_on(void)
     return fps60_on() || g_dip_fix;
 }
 
-/* From the F2 menu (overlay.cpp): 30 or 60; applies from the next frame. */
+/* From the F2 menu (overlay.cpp): 30, 60 or above (0 = uncapped);
+ * applies from the next frame. */
 void conker_SetFrameRate(int fps)
 {
-    g_fps60 = fps == 60;
+    if (fps == 0)
+        fps = FRAME_UNCAPPED;
+    g_fps = fps < 60 ? 30 : fps > FRAME_UNCAPPED ? FRAME_UNCAPPED : fps;
 }
 
 void conker_SetDipFix(int on)
@@ -2888,7 +4811,8 @@ void conker_SetDipFix(int on)
     g_dip_fix = on != 0;
 }
 
-/* The interval the game should run at: its own, or 1 for its 2 at 60. */
+/* The interval the game should run at: its own, or 1 for its 2 at 60 and
+ * above. */
 static uint32_t frame_interval(uint32_t asked)
 {
     return asked == 2u && fps60_on() ? 1u : asked;
@@ -3139,6 +5063,12 @@ static void cam_dump(void)
     fwrite(st ? (const void *)XBOX_PTR(st) : zero, 0x100, 1, f);
     st = aim ? MEM32(aim + 0x4D4u) : 0;
     fwrite(st ? (const void *)XBOX_PTR(st) : zero, 0x100, 1, f);
+    /* The last frame's clocks: ticks, 30 Hz frames, step, dt. */
+    hdr[0] = MEM32(0x007FA20Cu);
+    hdr[1] = MEM8(0x007FA250u);
+    hdr[2] = MEM32(0x007FA24Cu);
+    hdr[3] = MEM32(0x007FA21Cu);
+    fwrite(hdr, 16, 1, f);
     fflush(f);
 }
 
@@ -3756,6 +5686,13 @@ static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
 
     if (port != 0)
         return 0;
+    /* LT held through a cutscene skip: hidden until let go. */
+    if (s_skip_lt_block) {
+        if (a[XBOX_BUTTON_LTRIGGER] > XBOX_ANALOG_BUTTON_THRESHOLD)
+            a[XBOX_BUTTON_LTRIGGER] = 0;
+        else
+            InterlockedExchange(&s_skip_lt_block, 0);
+    }
     lt = a[XBOX_BUTTON_LTRIGGER] > XBOX_ANALOG_BUTTON_THRESHOLD;
     rt = a[XBOX_BUTTON_RTRIGGER] > XBOX_ANALOG_BUTTON_THRESHOLD;
     InterlockedExchange(&s_pad_in_b,
@@ -4135,8 +6072,14 @@ static void controls_poll(void)
     int mp, set;
 
     s_ctl_frame++;
+    skip_cover_poll();
     mp = lv == 0x46u || lv > 0x4Au || MEM32(0x0069CF90u + lv * 4u) == 0;
-    if (lv == 0x1Du || lv == 0x46u)
+    /* The front end also plays story scenes (New Game: Berri's room, the
+     * bar): cutscene keys there while one runs (no list on screen). */
+    if (lv == 0x1Du && MEM8(0x0076F0E0u) == 1 && !MEM8(0x007FA275u)
+        && !(s_ctl_list_frame && s_ctl_frame - s_ctl_list_frame <= 2))
+        set = CONTROLS_CUTSCENE;
+    else if (lv == 0x1Du || lv == 0x46u)
         set = CONTROLS_MENU;
     else if (s_ctl_list_frame && s_ctl_frame - s_ctl_list_frame <= 2)
         set = CONTROLS_MENU_GAME;
@@ -4184,10 +6127,10 @@ static void controls_poll(void)
                     : mode == PAD_UNDER ? "modern, underwater"
                     : mode == PAD_BAT ? "modern, bat flying" : "as the game has it");
     }
+    controls_set_mode(set);           /* every frame: latched skip keys */
     if (set == last)
         return;
     last = set;
-    controls_set_mode(set);
     fprintf(stderr, "[CONTROLS] t=%ld level 0x%02X: %s keys\n", attach_ms(),
             lv, names[set]);
 }
@@ -4206,13 +6149,31 @@ void sub_002A7B60_enter(void)
     controls_poll();
     photo_frame_begin();
     if (g_asked_interval) {
+        int rate = clock_rate();
         want = frame_interval(g_asked_interval);
-        if (MEM8(0x006C0268u) != want) {
+        if (MEM8(0x006C0268u) != want || rate != g_vblank_rate) {
             MEM8(0x006C0268u) = (uint8_t)want;
             MEM32(0x00549BF4u) = (MEM32(0x00549BF4u) & 0x80000000u) | want;
-            fprintf(stderr, "[FSTEP] frame rate: interval %u (%s fps)\n", want,
-                    want == 1u ? "60" : want == 2u ? "30" : "other");
+            if (rate != g_vblank_rate) {
+                g_vblank_rate = rate;
+                s_ft.acc = 0;
+                xbox_SetVblankRate(rate);
+            }
+            fprintf(stderr, "[FSTEP] frame rate: interval %u, vblank clock %d Hz"
+                    " (%d fps)\n", want, rate,
+                    want == 1u ? rate : want == 2u ? 30 : 0);
         }
+    }
+    /* Above 60: keep what frame_timer_update starts from, to redo its
+     * results (sub_00378620_enter). Not in its reset frames (the step is
+     * fixed at 1.0 there) or with the game's own divider. */
+    s_ft.armed = g_vblank_rate > 60 && !MEM8(0x007FA23Cu) && !MEM32(0x008758BCu)
+              && !MEM8(0x007FA204u);
+    if (s_ft.armed) {
+        s_ft.half = MEM16(FT_HALF);
+        s_ft.total = MEM32(FT_TOTAL);
+        s_ft.hist_i = MEM8(FT_HIST_I);
+        s_ft.hist_n = MEM8(FT_HIST_N);
     }
     if (!framestep_log_on())
         return;
@@ -4245,6 +6206,87 @@ void sub_002A7B60_enter(void)
     frames = 0;
     memset(missed, 0, sizeof missed);
     step = dt = 0.0;
+}
+
+/* 0x00378620 (texture animation counters, reads the ticks): frame_timer_
+ * update's last call, on every path. Above 60 its results are redone here
+ * (see g_vblank_rate): the same arithmetic as 0x002A7E89-0x002A7F7F with
+ * this rate's step and ticks. Constants read from where the game's code
+ * reads them: 0x00648E38 (60.0), 0x00649880 (the 50 Hz factor), 0x00648D80
+ * (0.1). */
+void sub_00378620_enter(void)
+{
+    uint32_t vb, ticks;
+    uint16_t half;
+    float step, inv, avg;
+    int i;
+
+    if (!s_ft.armed)
+        return;
+    s_ft.armed = 0;
+    vb = MEM32(FT_TICKS);              /* vblanks at g_vblank_rate */
+    s_ft.acc += vb * 60u;
+    ticks = s_ft.acc / (unsigned)g_vblank_rate;
+    s_ft.acc -= ticks * (unsigned)g_vblank_rate;
+    step = (float)vb * 30.0f / (float)g_vblank_rate;
+    MEM32(FT_TICKS) = ticks;
+    MEM32(FT_TICKS2) = ticks;
+    if (MEMF(0x007F9F58u) == MEMF(0x00648E38u)) {
+        half = (uint16_t)((s_ft.half & 1u) + ticks);
+        MEM16(FT_HALF) = half;
+        MEM8(FT_HALF_OUT) = (uint8_t)(MEM32(FT_HALF) >> 1);
+    } else {
+        half = (uint16_t)(ticks * 0x266u + (s_ft.half & 0x3FFu));
+        MEM16(FT_HALF) = half;
+        MEM8(FT_HALF_OUT) = (uint8_t)(half >> 10);
+    }
+    inv = 0.0f;
+    if (step != 0.0f) {
+        inv = 1.0f / step;
+        if (MEMF(0x007F9F5Cu) != MEMF(0x00648E38u))
+            inv *= MEMF(0x00649880u);
+    }
+    MEMF(FT_STEP) = step;
+    if (MEM8(0x007819D5u)) {
+        /* Multiplayer ([0x007819D5], 2026-11-05): frame_timer_update takes
+         * dt from the vblanks, vblanks x 1/60 s, instead of the rdtsc time,
+         * so on our faster vblank clock dt came to 2 game seconds a wall
+         * second at 120 (the Sturm21 fired 27-30 shots a second against
+         * 15 at 30, everything timed in seconds ran double). Same formula
+         * with this clock's vblank: frame time [0x007FA218] = vblanks /
+         * rate, dt [0x007FA21C] = that unless paused, and what is derived
+         * from them (ms, us, 1 / dt, the two running sums). */
+        float ft = (float)vb / (float)g_vblank_rate, dt;
+        float old_ft = MEMF(0x007FA218u), old_dt = MEMF(0x007FA21Cu);
+        int32_t us;
+        if (ft > 1.0f)
+            ft = 1.0f;
+        dt = MEM8(0x007FA275u) ? 0.0f : ft;
+        MEMF(0x007FA218u) = ft;
+        MEMF(0x007FA21Cu) = dt;
+        MEM32(0x007FA220u) = (uint32_t)(int32_t)(dt * 1000.0f);
+        us = (int32_t)(dt * 1e6f);
+        MEM32(0x007FA228u) = (uint32_t)us;
+        MEM32(0x007FA22Cu) = (uint32_t)(us >> 31);
+        MEMF(0x007F9F4Cu) += dt - old_dt;
+        MEMF(0x007F9F48u) += ft - old_ft;
+        MEMF(0x007FA214u) = MEM8(0x007FA275u) ? 999999.0f : 1.0f / dt;
+    }
+    MEM32(FT_TOTAL) = s_ft.total + ticks;
+    MEM32(0x007FA240u) = (uint32_t)((int32_t)MEM32(FT_TOTAL) % 30);
+    MEMF(0x007FA248u) = inv;
+    MEMF(FT_HIST + 4u * s_ft.hist_i) = step;
+    if (s_ft.hist_n < 10) {
+        MEMF(0x007FA238u) = step;
+        MEMF(0x007FA234u) = inv;
+    } else {
+        avg = 0.0f;
+        for (i = 0; i < 10; i++)
+            avg += MEMF(FT_HIST + 4u * (uint32_t)i);
+        avg *= MEMF(0x00648D80u);
+        MEMF(0x007FA238u) = avg;
+        MEMF(0x007FA234u) = avg != 0.0f ? 1.0f / avg : 0.0f;
+    }
 }
 
 /* Photo mode (photo_mode.c): the in-game frame's draw (0x002A3FD0) gets
@@ -4300,14 +6342,369 @@ void sub_002A60B0(void)
 
 /* char_render_pass (0x0007FB00, cdecl, [esp+4] = character index): photo
  * mode's "hide Conker" leaves his every pass out. */
+/* Characters drawn two-sided in their opaque passes (to-do 80): a lost arm
+ * leaves the jacket open at the shoulder, and the stump pieces
+ * (r_armstumpShape, l_armstumpShape; gore parts "|_PART_STUMP", HOLE, GASH,
+ * HEADTOP...) show only their outside, so the inside of the sleeve was culled
+ * and the tail behind showed through (It's War opening cutscene, ~135 s; the
+ * real game does the same, user's gameplay video). While s_two_sided is set,
+ * D3DDevice_SetRenderState_CullMode (0x00537070, stdcall, [esp+4] mode; the
+ * device keeps it at 0x00549C44) gets D3DCULL_NONE and the mode the game
+ * asked for is kept for afterwards. RECOMP_CHAR_TWO_SIDED=0 turns it off. */
+static int s_two_sided;
+static uint32_t s_cull_wanted;
+
+static int two_sided_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_CHAR_TWO_SIDED");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+/* Not for a character the camera is inside (to-do 97): leaving the head-cam
+ * the camera starts in Conker's head and backs out over a few frames, and
+ * two-sided it showed the inside of the head and his eyes from behind (the
+ * game draws no Conker in head-cam itself: his skin matrices are all 0).
+ * Inside = the render camera's position ([0x0084B868] inverse view +0x50,
+ * row 3) within CHAR_INSIDE_R model units of one of the character's joints
+ * (bind position +0xC x its skin matrix, scaled by that matrix's row 0).
+ * Conker leaving head-cam: 9, 13, 28 world units from an ear joint on the
+ * first three frames, from joint 15 (top of the head). RECOMP_CHAR_INSIDE_R
+ * sets the radius (0 = off), RECOMP_CHAR_INSIDE_LOG=1 [INSIDE] lines. */
+#define JREC_BIND(jt, j) ((jt) + (uint32_t)(j) * 0x24u + 0xCu)
+
+static int char_cam_inside(uint32_t idx)
+{
+    static float r = -1.0f;
+    static int log = -1;
+    uint32_t base = MEM32(0x0084A5F8u), c, bones, def, joints, rc;
+    float ex, ey, ez, best = 1e30f, s = 0.0f;
+    int n, j, bj = -1;
+
+    if (r < 0.0f) {
+        const char *e = getenv("RECOMP_CHAR_INSIDE_R");
+        r = e && *e ? (float)atof(e) : 40.0f;
+        e = getenv("RECOMP_CHAR_INSIDE_LOG");
+        log = e && *e == '1';
+    }
+    rc = MEM32(0x0084B868u);
+    if (r <= 0.0f || idx >= 0x80 || !xact_va_ok(base) || !xact_va_ok(rc))
+        return 0;
+    c = base + idx * 0x6D0u;
+    n = p30_char(c, &bones, &def, &joints);
+    if (!n || !xact_va_ok(joints))
+        return 0;
+    ex = MEMF(rc + 0x80u); ey = MEMF(rc + 0x84u); ez = MEMF(rc + 0x88u);
+    for (j = 0; j < n; j++) {
+        const float *m = p30_bone(bones, j);
+        float bx = MEMF(JREC_BIND(joints, j)), by = MEMF(JREC_BIND(joints, j) + 4u),
+              bz = MEMF(JREC_BIND(joints, j) + 8u);
+        float dx = bx * m[0] + by * m[4] + bz * m[8] + m[12] - ex;
+        float dy = bx * m[1] + by * m[5] + bz * m[9] + m[13] - ey;
+        float dz = bx * m[2] + by * m[6] + bz * m[10] + m[14] - ez;
+        float d = dx * dx + dy * dy + dz * dz;
+        if (d < best) {
+            best = d;
+            bj = j;
+            s = m[0] * m[0] + m[1] * m[1] + m[2] * m[2];
+        }
+    }
+    if (bj < 0 || !(s > 0.0f))
+        return 0;
+    if (log && best < s * r * r * 9.0f)
+        fprintf(stderr, "[INSIDE] t=%ld ms char %u id %02X joint %d %.1f world, %.1f model%s\n",
+                attach_ms(), idx, MEM8(c + 0x10Bu), bj, sqrtf(best), sqrtf(best / s),
+                best < s * r * r ? ": one-sided" : "");
+    return best < s * r * r;
+}
+
+extern void sub_00537070_gen(void);
+void sub_00537070(void)
+{
+    if (s_two_sided) {
+        s_cull_wanted = MEM32(g_esp + 4u);
+        MEM32(g_esp + 4u) = 0;
+    }
+    sub_00537070_gen();
+}
+
+static void set_cull_mode(uint32_t mode)
+{
+    uint32_t eax = g_eax, ecx = g_ecx, edx = g_edx;
+    g_esp -= 4; MEM32(g_esp) = mode;
+    g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
+    sub_00537070_gen();
+    g_eax = eax; g_ecx = ecx; g_edx = edx;
+}
+
+/* Lost arm drawn at rest (to-do 80 part 2): an arm shot off is hidden by
+ * its part's visible bit (_PART_RIGHTARM / _PART_LEFTARM; part table
+ * [[[char+0x4B0+lod*4]+0x24]+8]+0x14 = {count, records of 0x14: +4 name,
+ * +8 bit}, bits at [[char+0x4C4+lod*4]+0xC], MSB first, 0x00081E60), but its
+ * triangles are a range of the same skinned meshes as the jacket, and the
+ * animation still swings its bones. The jacket's shoulder edge follows the
+ * swinging upper arm while the stump (jacket cuff + flesh cap) is an
+ * attachment on the clavicle (attachment +4 bone; its matrix is copied from
+ * the clavicle's skin matrix by attach_update_all 0x00076F10 into
+ * [att+0x60] + [0x007FA230]*64, the frame's half of a double buffer), so a
+ * gap opened at the shoulder top (It's War opening cutscene, ~135 s; the
+ * real game too). While such a character draws, the lost arm's clavicle and
+ * every joint below it get the chest's skin matrix ([char+0x3C8] + joint*64,
+ * read through 0x0081BD80 by the palette build), and so does the stump
+ * attachment while it draws (stump_att_begin, from sub_000780E0): jacket and
+ * stump in their bind fit on the chest (the cuff points out sideways, its
+ * rest). Put back after each draw. Tried first (user's close-ups 2026-11-04):
+ * the chain on the chest with the stump left on the clavicle, and the joints
+ * below the clavicle on the clavicle; both left the gap, because the jacket's
+ * edge mostly follows the chest. Live test that closed it: _work\sold80\poke.py. The
+ * clavicles are found in the joint records ([[char+0x4EC+lod*4]+0x34], 0x24
+ * each: +0xC bind position, +0x18 u16 parent, first child, next sibling):
+ * the highest pair of mirrored siblings with three levels below them (not
+ * hips or eyes); -x = the right arm (squirrel soldier: chest 3, right
+ * clavicle 8, left 9; +x moved the arm he still has, user 2026-11-04).
+ * RECOMP_STUMP_FIX=0 turns it off; [STUMP] line once per character and state. */
+#define STUMP_MAX 32
+static uint32_t s_stump_bones;          /* bone buffer while swapped, 0 = none */
+static int s_stump_n;
+static uint8_t s_stump_joint[STUMP_MAX];
+static uint8_t s_stump_from[STUMP_MAX];
+static uint32_t s_stump_saved[STUMP_MAX][16];
+static uint8_t s_stump_logged[0x80];
+static uint8_t s_stump_idx_by_id[256];  /* character id -> index + 1 while an arm is lost */
+
+static int stump_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_STUMP_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+/* Bit 0 = right arm hidden, bit 1 = left. */
+static int stump_lost_arms(uint32_t c, uint32_t lod)
+{
+    char name[64];
+    uint32_t m = MEM32(c + 0x4B0u + lod * 4), inst = MEM32(c + 0x4C4u + lod * 4);
+    uint32_t t, bits, n, ents, i, b;
+    int lost = 0;
+
+    if (!xact_va_ok(m) || !xact_va_ok(inst) || !xact_va_ok(m = MEM32(m + 0x24u))
+        || !xact_va_ok(m = MEM32(m + 8u)) || !xact_va_ok(t = MEM32(m + 0x14u))
+        || !xact_va_ok(bits = MEM32(inst + 0xCu)) || !xact_va_ok(ents = MEM32(t + 4u)))
+        return 0;
+    n = MEM32(t);
+    for (i = 0; i < n && i < 64; i++) {
+        b = MEM32(ents + i * 0x14u + 8u);
+        if (b >= 256 || (MEM8(bits + (b >> 3)) >> (7 - (b & 7))) & 1)
+            continue;
+        char_guest_str(MEM32(ents + i * 0x14u + 4u), name, sizeof name);
+        if (strstr(name, "_PART_RIGHTARM"))
+            lost |= 1;
+        else if (strstr(name, "_PART_LEFTARM"))
+            lost |= 2;
+    }
+    return lost;
+}
+
+#define JREC(jt, j) ((jt) + (uint32_t)(j) * 0x24u)
+
+static int stump_depth(uint32_t jt, uint32_t j, int level)
+{
+    uint32_t k;
+    int d = 0, x, guard = 0;
+    if (level > 8)
+        return 0;
+    for (k = MEM16(JREC(jt, j) + 0x1Au); k < 128 && guard++ < 32;
+         k = MEM16(JREC(jt, k) + 0x1Cu)) {
+        x = stump_depth(jt, k, level + 1);
+        if (x > d)
+            d = x;
+    }
+    return d + 1;
+}
+
+/* Add j and every joint below it, each taking the matrix of joint 'from'. */
+static void stump_add_chain(uint32_t jt, uint32_t j, uint32_t from, int level)
+{
+    uint32_t k;
+    int guard = 0;
+    if (level > 8 || s_stump_n >= STUMP_MAX)
+        return;
+    s_stump_joint[s_stump_n] = (uint8_t)j;
+    s_stump_from[s_stump_n++] = (uint8_t)from;
+    for (k = MEM16(JREC(jt, j) + 0x1Au); k < 128 && guard++ < 32;
+         k = MEM16(JREC(jt, k) + 0x1Cu))
+        stump_add_chain(jt, k, from, level + 1);
+}
+
+/* Fills s_stump_joint / s_stump_from for the lost arms; 0 = no shoulder found. */
+static int stump_find(uint32_t jt, int lost, int *clav_out)
+{
+    uint32_t stack[128], p, a, b;
+    int sp = 0, seen = 0, best_a = -1, best_b = -1, ga, gb;
+    float best_y = -1e30f;
+
+    stack[sp++] = 0;
+    while (sp && seen++ < 128) {
+        p = stack[--sp];
+        ga = 0;
+        for (a = MEM16(JREC(jt, p) + 0x1Au); a < 128 && ga++ < 32; a = MEM16(JREC(jt, a) + 0x1Cu)) {
+            float ax = MEMF(JREC(jt, a) + 0xCu), ay = MEMF(JREC(jt, a) + 0x10u),
+                  az = MEMF(JREC(jt, a) + 0x14u);
+            if (sp < 127)
+                stack[sp++] = a;
+            gb = 0;
+            for (b = MEM16(JREC(jt, a) + 0x1Cu); b < 128 && gb++ < 32; b = MEM16(JREC(jt, b) + 0x1Cu)) {
+                float bx = MEMF(JREC(jt, b) + 0xCu), by = MEMF(JREC(jt, b) + 0x10u),
+                      bz = MEMF(JREC(jt, b) + 0x14u);
+                if (fabsf(ax) > 1.0f && fabsf(ax + bx) < 0.5f && fabsf(ay - by) < 0.5f
+                    && fabsf(az - bz) < 0.5f && ay > best_y
+                    && stump_depth(jt, a, 0) >= 4 && stump_depth(jt, b, 0) >= 4) {
+                    best_y = ay;
+                    best_a = ax < 0 ? (int)a : (int)b;      /* right */
+                    best_b = ax < 0 ? (int)b : (int)a;
+                }
+            }
+        }
+    }
+    if (best_a < 0)
+        return 0;
+    s_stump_n = 0;
+    clav_out[0] = best_a;
+    clav_out[1] = best_b;
+    for (ga = 0; ga < 2; ga++) {        /* the clavicle and below, on the chest */
+        uint32_t clav = (uint32_t)clav_out[ga];
+        if (lost & (1 << ga))
+            stump_add_chain(jt, clav, MEM16(JREC(jt, clav) + 0x18u), 0);
+    }
+    return s_stump_n;
+}
+
+static void stump_apply(void)
+{
+    int i;
+    for (i = 0; i < s_stump_n; i++)
+        memcpy((void *)XBOX_PTR(s_stump_bones + s_stump_joint[i] * 64u),
+               (const void *)XBOX_PTR(s_stump_bones + s_stump_from[i] * 64u), 64);
+}
+
+static void stump_restore(void)
+{
+    int i;
+    for (i = s_stump_n - 1; i >= 0; i--)
+        memcpy((void *)XBOX_PTR(s_stump_bones + s_stump_joint[i] * 64u), s_stump_saved[i], 64);
+}
+
+/* Swaps the matrices in for a character with a lost arm; 1 = swapped. */
+static int stump_begin(uint32_t idx)
+{
+    uint32_t base = MEM32(0x0084A5F8u), c, lod, bones, jt;
+    int lost, clav[2], i;
+
+    if (!stump_fix_on() || s_stump_bones || idx >= 0x80 || !xact_va_ok(base))
+        return 0;
+    c = base + idx * 0x6D0u;
+    lod = MEM8(c + 0x3A8u);
+    if (lod > 4 || !xact_va_ok(bones = MEM32(c + 0x3C8u)))
+        return 0;
+    lost = stump_lost_arms(c, lod);
+    if (MEM8(c + 0x10Bu))
+        s_stump_idx_by_id[MEM8(c + 0x10Bu)] = lost ? (uint8_t)(idx + 1) : 0;
+    if (s_stump_logged[idx] != (uint8_t)(lost + 1)) {
+        if (lost || s_stump_logged[idx])
+            fprintf(stderr, "[STUMP] t=%ld ms char %u id %02X arms lost: %s%s%s\n", attach_ms(),
+                    idx, MEM8(c + 0x10Bu), lost & 1 ? "right " : "", lost & 2 ? "left " : "",
+                    lost ? "" : "none");
+        s_stump_logged[idx] = (uint8_t)(lost + 1);
+        if (lost) {
+            jt = MEM32(MEM32(c + 0x4ECu + lod * 4) + 0x34u);
+            if (!xact_va_ok(jt) || !stump_find(jt, lost, clav))
+                fprintf(stderr, "[STUMP]   no shoulder pair found in the skeleton: drawn as is\n");
+            else
+                fprintf(stderr, "[STUMP]   clavicles right %d left %d; %d joints on the chest %u\n",
+                        clav[0], clav[1], s_stump_n, s_stump_n ? s_stump_from[0] : 0);
+        }
+    }
+    if (!lost)
+        return 0;
+    jt = MEM32(MEM32(c + 0x4ECu + lod * 4) + 0x34u);
+    if (!xact_va_ok(jt) || !stump_find(jt, lost, clav))
+        return 0;
+    s_stump_bones = bones;
+    for (i = 0; i < s_stump_n; i++)
+        memcpy(s_stump_saved[i], (const void *)XBOX_PTR(bones + s_stump_joint[i] * 64u), 64);
+    stump_apply();
+    return 1;
+}
+
+static void stump_end(void)
+{
+    stump_restore();
+    s_stump_bones = 0;
+}
+
+/* The stump is an attachment on the clavicle with its own matrix, copied
+ * from the clavicle by attach_update_all into [att+0x60] + [0x007FA230]*64
+ * (plain copy: +0x1E != 4, +0x2C = 0, +0xC0 = 0). While it draws, that half
+ * gets the matrix the joint has under the swap; 1 = patched (saved). */
+static uint32_t s_stump_att_m;
+static uint32_t s_stump_att_saved[16];
+
+static int stump_att_begin(uint32_t rec)
+{
+    uint32_t bone = MEM16(rec + 4u), m = MEM32(rec + 0x60u);
+    int i;
+    if (!s_stump_bones || !xact_va_ok(m) || MEM8(rec + 0x1Eu) == 4 || MEM16(rec + 0x2Cu)
+        || MEM32(rec + 0xC0u) || MEM32(rec + 0xC4u) || MEM16(rec + 0x28u))
+        return 0;
+    for (i = 0; i < s_stump_n && s_stump_joint[i] != bone; i++)
+        ;
+    if (i == s_stump_n)
+        return 0;
+    s_stump_att_m = m + (MEM8(0x007FA230u) & 1) * 64u;
+    memcpy(s_stump_att_saved, (const void *)XBOX_PTR(s_stump_att_m), 64);
+    memcpy((void *)XBOX_PTR(s_stump_att_m),
+           (const void *)XBOX_PTR(s_stump_bones + s_stump_from[i] * 64u), 64);
+    return 1;
+}
+
+static void stump_att_end(void)
+{
+    memcpy((void *)XBOX_PTR(s_stump_att_m), s_stump_att_saved, 64);
+}
+
+/* 0x0007FB00 char_render_pass (cdecl, [esp+4] character index, [esp+0x14]
+ * pass: 1 OPAQUE, 12 OPAQUE_BACKGROUND, conker-notes 2026-10-29). */
 extern void sub_0007FB00_gen(void);
 void sub_0007FB00(void)
 {
+    uint32_t pass = MEM32(g_esp + 0x14u);
+    int two, stump;
+
     if (photo_hides_char(MEM32(g_esp + 4u))) {
         g_esp += 4;                     /* ret (cdecl) */
         return;
     }
+    two = !s_two_sided && (pass == 1 || pass == 12) && two_sided_on()
+        && !char_cam_inside(MEM32(g_esp + 4u));
+    if (two) {
+        s_cull_wanted = MEM32(0x00549C44u);
+        set_cull_mode(0);
+        s_two_sided = 1;
+    }
+    stump = stump_begin(MEM32(g_esp + 4u));
     sub_0007FB00_gen();
+    if (stump)
+        stump_end();
+    if (two) {
+        s_two_sided = 0;
+        set_cull_mode(s_cull_wanted);
+    }
 }
 
 /* 0x000780E0 (cdecl, [esp+4] = attachment record, byte +0 its character's
@@ -4319,6 +6716,19 @@ void sub_000780E0(void)
     uint32_t rec = MEM32(g_esp + 4u);
     if (rec && photo_hides_char_id(MEM8(rec))) {
         g_esp += 4;                     /* ret (cdecl) */
+        return;
+    }
+    if (rec && stump_fix_on() && s_stump_idx_by_id[MEM8(rec)]
+        && MEM8(MEM32(0x0084A5F8u) + (s_stump_idx_by_id[MEM8(rec)] - 1u) * 0x6D0u + 0x10Bu)
+               == MEM8(rec)) {
+        /* lost arm: the stump and anything else on that arm on the chest */
+        int own = !s_stump_bones && stump_begin(s_stump_idx_by_id[MEM8(rec)] - 1u);
+        int att = stump_att_begin(rec);
+        sub_000780E0_gen();
+        if (att)
+            stump_att_end();
+        if (own)
+            stump_end();
         return;
     }
     sub_000780E0_gen();
@@ -4601,7 +7011,7 @@ void sub_002A78D0_enter(void)
     g_asked_interval = g_edx & 0xFFu;
     want = frame_interval(g_asked_interval);
     fprintf(stderr, "[FSTEP] video reset: interval %u from %08X%s\n", g_edx,
-            MEM32(g_esp), want != g_asked_interval ? " (60 fps: 1)" : "");
+            MEM32(g_esp), want != g_asked_interval ? " (60 fps up: 1)" : "");
     g_edx = (g_edx & ~0xFFu) | want;
 }
 

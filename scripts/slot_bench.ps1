@@ -20,14 +20,16 @@
 # save 2, save 1 (see field_bench.ps1). Prints mean, min and max fps and
 # the [HITCH] 10 s summaries seen in the window (when RECOMP_HITCH_MS is set).
 # -ShotEvery N: a screenshot of the game every N s after the last press
-# (_work\bench_shots\<log name>_<s>.png), to see what each report covered.
+# (_work\bench_shots\<log name>_<s>.png), to see what each report covered;
+# -ShotAt 139,143.5: screenshots at those seconds only.
 # -Then "<s>=<pad line>",...: pad file lines at those seconds after the last
 # press, e.g. "22=lup:1000" (left stick forward for 1 s); "key:<hex>:<ms>"
 # holds that key (virtual-key code, gamewin.ps1) instead, e.g. "34=key:20:1500"
 # (Space for 1.5 s; the keyboard-and-mouse bindings).
 # -Touch "<s>=<file>",...: create that file at those seconds after the last
 # press, e.g. "76=_work	race_now" with RECOMP_FRAME_TRACE (a frame trace at a
-# known moment of a cutscene).
+# known moment of a cutscene); "<s>=-<file>" removes it again (e.g. a
+# RECOMP_FB_DUMP_FLIPS flag file: every frame between the two).
 # -Presses a,right,...: these menu presses instead of loading -Slot (one per
 # -MenuWaits entry), e.g. the chapter select (see conker-notes 2026-10-26).
 
@@ -43,7 +45,8 @@ param(
     [int]$ShotEvery = 0,
     [string[]]$Then = @(),
     [string[]]$Touch = @(),
-    [string[]]$Presses = @()
+    [string[]]$Presses = @(),
+    [double[]]$ShotAt = @()
 )
 
 $Repo = Resolve-Path "$PSScriptRoot\.."
@@ -104,13 +107,16 @@ foreach ($e in $Touch) {
     $sec, $file = $e -split '=', 2
     $events += @{ t = [double]$sec; k = 'touch'; v = $file }
 }
-if ($ShotEvery -gt 0) {
+if ($ShotEvery -gt 0 -or $ShotAt) {
     $shots = Join-Path $Repo '_work\bench_shots'
     New-Item -ItemType Directory -Force $shots | Out-Null
     $tag = [IO.Path]::GetFileNameWithoutExtension($Log)
-    for ($s = 0; $s -lt $StartSec + $HoldSec; $s += $ShotEvery) {
-        $events += @{ t = [double]$s; k = 'shot' }
+    if ($ShotEvery -gt 0) {
+        for ($s = 0; $s -lt $StartSec + $HoldSec; $s += $ShotEvery) {
+            $events += @{ t = [double]$s; k = 'shot' }
+        }
     }
+    foreach ($s in $ShotAt) { $events += @{ t = $s; k = 'shot' } }
 }
 $events += @{ t = [double]($StartSec + $HoldSec); k = 'end' }
 $t0 = Get-Date
@@ -128,7 +134,15 @@ foreach ($e in ($events | Sort-Object { $_.t }, { $_.k -ne 'pad' })) {
                 Add-Content -Path $Pad -Value $e.v; "  {0,5:N1} s: pad {1}" -f ((Get-Date) - $t0).TotalSeconds, $e.v
             }
         }
-        'touch' { New-Item -ItemType File -Force $e.v | Out-Null; "  {0,5:N1} s: touch {1} (line {2})" -f ((Get-Date) - $t0).TotalSeconds, $e.v, (LineCount) }
+        'touch' {
+            if ($e.v.StartsWith('-')) {
+                Remove-Item $e.v.Substring(1) -ErrorAction SilentlyContinue
+                "  {0,5:N1} s: remove {1} (line {2})" -f ((Get-Date) - $t0).TotalSeconds, $e.v.Substring(1), (LineCount)
+            } else {
+                New-Item -ItemType File -Force $e.v | Out-Null
+                "  {0,5:N1} s: touch {1} (line {2})" -f ((Get-Date) - $t0).TotalSeconds, $e.v, (LineCount)
+            }
+        }
         'shot'  {
             $s = ((Get-Date) - $t0).TotalSeconds
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Repo\scripts\gamewin.ps1" -Shot (Join-Path $shots ("{0}_{1:000}s_line{2}.png" -f $tag, [int]$s, (LineCount))) | Out-Null

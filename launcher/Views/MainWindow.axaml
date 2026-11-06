@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ConkerLauncher.ViewModels"
+        xmlns:v="using:ConkerLauncher.Views"
         x:Class="ConkerLauncher.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Conker: Live &amp; Recompiled"
@@ -156,14 +157,19 @@
         <Image Source="/Assets/logo.png" Height="150" HorizontalAlignment="Center" />
       </Border>
 
-      <!-- Update and Play -->
+      <!-- Version History, Auto Update, Update and Play (SPEC 9.3) -->
       <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,16,0,0">
-        <StackPanel VerticalAlignment="Center" Spacing="2">
+        <StackPanel VerticalAlignment="Center" Spacing="4">
           <TextBlock Text="{Binding Message}" Foreground="#FFE0A040" TextWrapping="Wrap"
                      IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <TextBlock Text="{Binding VersionLine}" Foreground="{StaticResource DimTextBrush}" FontSize="12" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="14">
+            <Button Content="Version History" Command="{Binding OpenHistoryCommand}" FontSize="12" Padding="10,3" />
+            <CheckBox Content="Auto Update" IsChecked="{Binding AutoUpdate}" FontSize="12" MinHeight="24"
+                      ToolTip.Tip="Install a new version by itself whenever the launcher starts" />
+          </StackPanel>
         </StackPanel>
-        <Button Grid.Column="1" Classes="secondary" Content="{Binding UpdateButtonText}" Command="{Binding UpdateCommand}" />
+        <Button Grid.Column="1" Classes="secondary" Content="{Binding UpdateButtonText}" Command="{Binding OpenUpdatePromptCommand}" />
         <Button Grid.Column="2" Classes="play" Content="PLAY" Command="{Binding PlayCommand}" />
       </Grid>
 
@@ -288,6 +294,65 @@
             <Button Classes="play" Content="Import Files" FontSize="16" Command="{Binding ImportFromPromptCommand}" />
           </StackPanel>
         </StackPanel>
+      </Border>
+    </Border>
+    </Panel>
+
+    <!-- A new release (SPEC 9.3): its page text, Update Now / Update Later, Don't remind me. -->
+    <Panel IsVisible="{Binding !UserFiles.IsBusy}">
+    <Border Background="#B0000000" IsVisible="{Binding ShowUpdatePrompt}">
+      <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="600" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="section" Text="Update available" FontSize="22" />
+          <TextBlock Text="{Binding UpdateTitle}" Foreground="{StaticResource DimTextBrush}" />
+          <Border Background="#FF0A0E0A" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="6">
+            <ScrollViewer MaxHeight="340">
+              <v:ReleaseNotesView Markdown="{Binding NewRelease.Body, FallbackValue=''}" Margin="14,10,18,12" />
+            </ScrollViewer>
+          </Border>
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+            <CheckBox Content="Don't remind me" IsChecked="{Binding SkipThisRelease}" VerticalAlignment="Center"
+                      ToolTip.Tip="No window at start for this version; it shows again when a newer one is out" />
+            <Button Grid.Column="1" Classes="secondary" Content="Update Later" Command="{Binding UpdateLaterCommand}" />
+            <Button Grid.Column="2" Classes="play" Content="Update Now" FontSize="16" Command="{Binding UpdateCommand}" />
+          </Grid>
+        </StackPanel>
+      </Border>
+    </Border>
+
+    <!-- Version History: every release's page text, newest first. -->
+    <Border Background="#B0000000" IsVisible="{Binding ShowHistory}">
+      <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="640" Height="600" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="section" Text="Version history" FontSize="22" Margin="0,0,0,12" />
+          <Button DockPanel.Dock="Bottom" Classes="secondary" Content="Close" Command="{Binding CloseHistoryCommand}"
+                  HorizontalAlignment="Right" Margin="0,12,0,0" />
+          <TextBlock DockPanel.Dock="Top" Text="{Binding HistoryNote}" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}"
+                     IsVisible="{Binding HistoryNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          <Border Background="#FF0A0E0A" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="6"
+                  IsVisible="{Binding History, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <ScrollViewer>
+              <ItemsControl ItemsSource="{Binding History}" Margin="14,4,18,12">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HistoryEntry">
+                    <StackPanel Spacing="4" Margin="0,10,0,8">
+                      <WrapPanel>
+                        <TextBlock Classes="section" Text="{Binding Title}" FontSize="18" Margin="0,0,10,0" />
+                        <TextBlock Text="{Binding DateLine}" Foreground="{StaticResource DimTextBrush}" VerticalAlignment="Center" />
+                      </WrapPanel>
+                      <v:ReleaseNotesView Markdown="{Binding Body}" />
+                      <HyperlinkButton Content="Open on GitHub" NavigateUri="{Binding Page}" Padding="0,2"
+                                       IsVisible="{Binding Page, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                      <Border Height="1" Background="{StaticResource PanelBorderBrush}" Margin="0,8,0,0" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Border>
+        </DockPanel>
       </Border>
     </Border>
     </Panel>
