@@ -21,8 +21,12 @@
  * "Juego 1", "Partita 1"); other names keep their text with characters
  * Windows refuses replaced by "_", and " (2)" when a folder is taken. A
  * folder is found by its SaveMeta.xbx name, so renaming one by hand is
- * harmless. At start the old layout, UserData\4d530051\<hex>\, is moved in,
- * and a saves\<hex> folder with a name is renamed.
+ * harmless; two folders with the same save: the one named after it wins.
+ * Story slots are the exception: saves\Game1..3 decide the slot, so a save
+ * copied into another slot's folder becomes that slot at the next start
+ * (its SaveMeta.xbx name renumbered). At start the old layout,
+ * UserData\4d530051\<hex>\, is moved in, and a saves\<hex> folder with a
+ * name is renamed.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -48,6 +52,7 @@ extern int (*g_xbox_dir_entry_redirect)(const WCHAR *host_dir,
 typedef struct {
     char  hex[13];
     WCHAR folder[MAX_PATH];     /* in saves\ */
+    int   own;                  /* the folder is named after its save */
 } SaveFolder;
 
 typedef struct {
@@ -111,22 +116,33 @@ static int meta_name(const WCHAR *dir, WCHAR *name, size_t n)
     return 1;
 }
 
-/* The folder name a save name gets (before " (2)"). */
-static void folder_for(const WCHAR *name, WCHAR *out, size_t n)
+/* Where the digit of a story slot's name is ("Game 1", "Spiel 2", ...), or
+ * 0 for any other name. */
+static size_t slot_digit_at(const WCHAR *name)
 {
     static const WCHAR *const slots[] = { L"Game ", L"Spiel ", L"Jeu ",
                                           L"Juego ", L"Partita " };
-    static const WCHAR *const reserved[] = { L"CON", L"PRN", L"AUX", L"NUL",
-        L"COM1", L"COM2", L"COM3", L"COM4", L"LPT1", L"LPT2", L"LPT3" };
-    size_t i, len;
+    size_t i;
 
     for (i = 0; i < sizeof(slots) / sizeof(slots[0]); i++) {
         size_t k = wcslen(slots[i]);
         if (!wcsncmp(name, slots[i], k) && name[k] >= L'1' && name[k] <= L'9'
-            && !name[k + 1]) {
-            swprintf_s(out, n, L"Game%c", name[k]);
-            return;
-        }
+            && !name[k + 1])
+            return k;
+    }
+    return 0;
+}
+
+/* The folder name a save name gets (before " (2)"). */
+static void folder_for(const WCHAR *name, WCHAR *out, size_t n)
+{
+    static const WCHAR *const reserved[] = { L"CON", L"PRN", L"AUX", L"NUL",
+        L"COM1", L"COM2", L"COM3", L"COM4", L"LPT1", L"LPT2", L"LPT3" };
+    size_t i, len, k = slot_digit_at(name);
+
+    if (k) {
+        swprintf_s(out, n, L"Game%c", name[k]);
+        return;
     }
     wcscpy_s(out, n, name);
     for (i = 0; out[i]; i++)
@@ -169,7 +185,7 @@ static SaveFolder *find_hex(const char *hex)
     return NULL;
 }
 
-static void put(const char *hex, const WCHAR *folder)
+static void put(const char *hex, const WCHAR *folder, int own)
 {
     SaveFolder *e = find_hex(hex);
     if (!e) {
@@ -179,21 +195,27 @@ static void put(const char *hex, const WCHAR *folder)
         strcpy_s(e->hex, sizeof(e->hex), hex);
     }
     wcscpy_s(e->folder, MAX_PATH, folder);
+    e->own = own;
 }
 
 /* The hex a folder in saves\ stands for: its save's name, else its own
- * name when that is a hex name (a folder XAPI made before its name came). */
-static int folder_hex(const WCHAR *folder, char hex[13])
+ * name when that is a hex name (a folder XAPI made before its name came).
+ * *own: the folder carries the name its save gets (saves\Game2 for "Game 2",
+ * not a copy such as saves\Game2 - Copy). */
+static int folder_hex(const WCHAR *folder, char hex[13], int *own)
 {
-    WCHAR dir[MAX_PATH], name[64];
+    WCHAR dir[MAX_PATH], name[64], base[MAX_PATH];
     swprintf_s(dir, MAX_PATH, L"%s\\%s", s_saves, folder);
     if (meta_name(dir, name, 64)) {
         hash_name(name, hex);
+        folder_for(name, base, MAX_PATH);
+        *own = !_wcsicmp(folder, base);
         return 1;
     }
     if (is_hex12_w(folder)) {
         WideCharToMultiByte(CP_ACP, 0, folder, -1, hex, 13, NULL, NULL);
         _strupr_s(hex, 13);
+        *own = 0;
         return 1;
     }
     return 0;
@@ -205,6 +227,7 @@ static void scan(void)
     WIN32_FIND_DATAW fd;
     HANDLE h;
     char hex[13];
+    int own;
 
     swprintf_s(pattern, MAX_PATH, L"%s\\*", s_saves);
     h = FindFirstFileW(pattern, &fd);
@@ -213,8 +236,12 @@ static void scan(void)
     do {
         if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
             && wcscmp(fd.cFileName, L".") && wcscmp(fd.cFileName, L"..")
-            && folder_hex(fd.cFileName, hex))
-            put(hex, fd.cFileName);
+            && folder_hex(fd.cFileName, hex, &own)) {
+            /* Two folders with the same save: the one named after it wins. */
+            SaveFolder *e = find_hex(hex);
+            if (!e || own || !e->own || !folder_exists(e->folder))
+                put(hex, fd.cFileName, own);
+        }
     } while (FindNextFileW(h, &fd));
     FindClose(h);
 }
@@ -239,11 +266,11 @@ static void lookup(const char *hex, WCHAR *folder, size_t n)
             WCHAR base[MAX_PATH];
             folder_for(s_seen[i].name, base, MAX_PATH);
             free_folder(base, folder, n);
-            put(hex, folder);
+            put(hex, folder, !_wcsicmp(folder, base));
             return;
         }
     MultiByteToWideChar(CP_ACP, 0, hex, -1, folder, (int)n);
-    put(hex, folder);
+    put(hex, folder, 0);
 }
 
 void save_names_seen(const wchar_t *name)
@@ -364,7 +391,60 @@ static void move_in(const WCHAR *from, const char *hex, const WCHAR *base)
                 GetLastError());
 }
 
-/* The old layout's save folders, and saves\<hex> folders that have a name. */
+/* A story slot's folder decides its slot (to-do 82): Game 2's files copied
+ * into saves\Game3 still say "Game 2" in SaveMeta.xbx, a second Game 2 that
+ * leaves slot 3 empty. The name gets the folder's number, the language's
+ * word kept ("Spiel 2" -> "Spiel 3"). */
+static void slots_follow_folders(void)
+{
+    WCHAR pattern[MAX_PATH], dir[MAX_PATH], path[MAX_PATH], name[64];
+    WCHAR buf[256], *p;
+    WIN32_FIND_DATAW fd;
+    HANDLE h, f;
+    DWORD got, wrote;
+    size_t k;
+
+    swprintf_s(pattern, MAX_PATH, L"%s\\Game?", s_saves);
+    h = FindFirstFileW(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE)
+        return;
+    do {
+        WCHAR slot = fd.cFileName[4];
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            || _wcsnicmp(fd.cFileName, L"Game", 4) || slot < L'1'
+            || slot > L'3' || fd.cFileName[5])
+            continue;
+        swprintf_s(dir, MAX_PATH, L"%s\\%s", s_saves, fd.cFileName);
+        if (!meta_name(dir, name, 64) || !(k = slot_digit_at(name))
+            || name[k] == slot)
+            continue;
+        swprintf_s(path, MAX_PATH, L"%s\\SaveMeta.xbx", dir);
+        f = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
+                        NULL, OPEN_EXISTING, 0, NULL);
+        if (f == INVALID_HANDLE_VALUE) {
+            fprintf(stderr, "[SAVES] saves\\%S holds %S: could not rename it "
+                    "(error %lu)\n", fd.cFileName, name, GetLastError());
+            continue;
+        }
+        got = 0;
+        ReadFile(f, buf, sizeof(buf) - sizeof(WCHAR), &got, NULL);
+        buf[got / sizeof(WCHAR)] = L'\0';
+        p = wcsstr(buf, L"Name=");
+        if (p) {
+            WCHAR was = name[k];
+            p[5 + k] = name[k] = slot;
+            SetFilePointer(f, 0, NULL, FILE_BEGIN);
+            if (WriteFile(f, buf, got, &wrote, NULL) && wrote == got)
+                fprintf(stderr, "[SAVES] saves\\%S held slot %c's save: "
+                        "now %S\n", fd.cFileName, (char)was, name);
+        }
+        CloseHandle(f);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+}
+
+/* The old layout's save folders, saves\<hex> folders that have a name, and
+ * story slots copied into another slot's folder. */
 static void tidy(void)
 {
     WCHAR pattern[MAX_PATH], dir[MAX_PATH], name[64], base[MAX_PATH];
@@ -373,6 +453,8 @@ static void tidy(void)
     char hex[13];
     int pass;
 
+    /* First, so an old-layout copy of that slot goes to backups\. */
+    slots_follow_folders();
     for (pass = 0; pass < 2; pass++) {
         swprintf_s(pattern, MAX_PATH, L"%s\\*", pass ? s_saves : s_old);
         h = FindFirstFileW(pattern, &fd);

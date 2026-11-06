@@ -73,7 +73,8 @@
  * drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
  * conker_SetScreenHaze, conker_SetVignette, conker_SetScreenDrops,
  * conker_SetUnderwaterOverlay, conker_SetPooFix and
- * conker_SetMainMenuSpeed, conker_SetCutsceneSkip and conker_SetSkipHold
+ * conker_SetMainMenuSpeed, conker_SetSubmenuSpeed, conker_SetCutsceneSkip
+ * and conker_SetSkipHold
  * in recomp_manual.c, from the
  * game's next frame; uncensored text, decensor_set, from the next
  * level that loads) also
@@ -120,6 +121,7 @@ int xbox_FramebufferWindowGpuViewRect(int *x, int *y, int *w, int *h);
 void xbox_InputSetBlocked(int on);
 int xbox_InputFirstHostPad(void);
 DWORD xbox_InputHostPadRead(DWORD slot, XINPUT_STATE *st);
+void xbox_InputSetBackgroundPads(int on);
 void xbox_ApuSetPaused(int on);
 int xbox_SetRenderRes(unsigned w, unsigned h);
 int xbox_SetTextureFilter(int mode);
@@ -136,6 +138,7 @@ void conker_SetCutsceneBlur(int mode);
 void conker_SetFrameRate(int fps);
 void conker_SetDipFix(int on);
 void conker_SetMainMenuSpeed(int on);
+void conker_SetSubmenuSpeed(int on);
 void conker_SetPhys30(int on);
 void conker_SetCutsceneSkip(int on);
 void conker_SetSkipHold(int on);
@@ -907,6 +910,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetDipFix(on);
         if (!strcmp(key, "main_menu_speed") && !settings_env_override(key))
             conker_SetMainMenuSpeed(on);
+        if (!strcmp(key, "submenu_speed") && !settings_env_override(key))
+            conker_SetSubmenuSpeed(on);
         if (!strcmp(key, "physics_30hz") && !settings_env_override(key))
             conker_SetPhys30(on);
         if (!strcmp(key, "skippable_cutscenes") && !settings_env_override(key))
@@ -932,6 +937,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
         /* Audio waits for the next start: the voice banks stay open. */
         if (!strcmp(key, "uncensored_text") && !settings_env_override(key))
             decensor_set(1, on);
+        if (!strcmp(key, "control_out_of_focus") && !settings_env_override(key))
+            xbox_InputSetBackgroundPads(on);
         if (!strcmp(key, "keyboard_mouse") || strstr(key, "_invert_y"))
             controls_apply();
     }
@@ -1429,10 +1436,14 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         "On (no tearing)", "Off (lowest delay, may tear)",
         "G-Sync / FreeSync (VRR)",
     };
-    /* 144 and up wait for fixes (settings.c frame_rate). */
-    static const char *const fps_values[] = { "30", "60", "90", "120" };
+    /* 144 and up wait for fixes (settings.c frame_rate); 240 and uncapped
+     * are listed with --debug (to-do 101, user 2026-11-06). */
+    static const char *const fps_values[] = {
+        "30", "60", "90", "120", "240", "uncapped",
+    };
     static const char *const fps_names[] = {
         "30 fps (original)", "60 fps", "90 fps", "120 fps",
+        "240 fps (debug)", "Uncapped (debug)",
     };
     static const char *const up_values[] = { "bilinear", "fsr" };
     static const char *const up_names[] = {
@@ -1534,7 +1545,7 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         ImGui::Unindent();
     }
     choice("Frame rate", "frame_rate", fps_values, fps_names,
-           (int)(sizeof(fps_values) / sizeof(fps_values[0])), true);
+           settings_debug() ? 6 : 4, true);
     /* The dip fix at 30 is on by default and a debug choice (user
      * 2026-10-22); 60 and above always have it. */
     if (settings_debug() && !strcmp(settings_get("frame_rate"), "30")) {
@@ -1542,7 +1553,11 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         note("    Off = original (runs fast when the frame rate dips)");
     }
     checkbox("Main Menu Speed", "main_menu_speed", true,
-             "Above 60 fps the main menu turns between its boards at the "
+             "Above 60 fps the main menu turns between its boards and zooms "
+             "into them at the original speed (off: faster, twice as fast at "
+             "120)");
+    checkbox("Sub-menu Speed", "submenu_speed", true,
+             "Above 60 fps game select and the chapter list fade at the "
              "original speed (off: faster, twice as fast at 120)");
     /* On by default, a debug choice (user 2026-11-04). */
     if (settings_debug())
@@ -2295,6 +2310,10 @@ static void ports_tab(void)
      * pointer. */
     info("The mouse turns the camera directly only on slot 1; on another "
          "slot it works as that player's right stick.");
+    checkbox("Control when out of focus", "control_out_of_focus", true,
+             "Controllers keep playing the game while another window is in "
+             "front. Off: they do nothing until the game window is in front "
+             "again (the keyboard always waits).");
 }
 
 static void story_tab(void)

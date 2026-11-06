@@ -27,8 +27,8 @@
  * Input (game thread, once a frame): the keys of F3's photo table through
  * the keyboard-and-mouse pad (controls_poll selects the empty photo profile,
  * so the game gets nothing; xbox_KbmHeld says what is held), the mouse's
- * movement handed over directly, and the first connected controller read
- * with XInput while the toolkit keeps it from the game. Nothing while an
+ * movement handed over directly, and slot 1's controller read with
+ * XInput while the toolkit keeps it from the game. Nothing while an
  * F2 / F3 menu is open: it has the pad and keys then.
  *
  * Zoom is the render camera's field of view (+0x104, degrees) written
@@ -77,7 +77,7 @@ int  xbox_KbmHeld(unsigned input);
 void xbox_KbmMouseDirect(int axes);
 int  xbox_KbmTakeMouse(long *dx, long *dy);
 void xbox_InputSetBlocked(int on);
-int  xbox_InputFirstHostPad(void);
+int  xbox_InputHostPadOfPort(DWORD port);
 DWORD xbox_InputHostPadRead(DWORD slot, XINPUT_STATE *st);
 #define KBM_DIRECT_XY 3
 
@@ -331,13 +331,14 @@ static float trigger(BYTE v)
     return v < 30 ? 0.0f : (v - 30) / 225.0f;
 }
 
-/* The first connected controller, as the overlay and the toolkit pick
- * player 1: an Xbox pad or a PlayStation pad, in XInput's layout. The
- * toolkit never asks an empty slot (slow in XInput). */
+/* Slot 1's controller (F3 Slots: game port 0), an Xbox pad or a
+ * PlayStation pad, in XInput's layout; none when slot 1 is "No input". The
+ * first connected pad until 2026-11-05 flew the camera with every slot
+ * empty (to-do 68). The toolkit never asks an empty slot (slow in XInput). */
 static int read_pad(Pad *p)
 {
     XINPUT_STATE st;
-    int slot = xbox_InputFirstHostPad();
+    int slot = xbox_InputHostPadOfPort(0);
 
     memset(p, 0, sizeof(*p));
     if (slot < 0 || xbox_InputHostPadRead((DWORD)slot, &st) != ERROR_SUCCESS)

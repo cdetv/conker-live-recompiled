@@ -134,29 +134,41 @@ static const Option s_options[] = {
       "Frame rate in the top left corner: 0 = off (default), 1 = frames\n"
       "per second, 2 = also how long a frame takes (average and longest).\n"
       "F1 steps through them in the game." },
-    /* 144 and up (and uncapped) work through RECOMP_FRAME_RATE but are
-     * left out until the game's whole-tick code is fixed for them (user
-     * 2026-11-03; conker-notes "drunk walk loses its turning"). */
+    /* 144 and up work through RECOMP_FRAME_RATE but are left out until the
+     * game's whole-tick code is fixed for them (user 2026-11-03;
+     * conker-notes "drunk walk loses its turning"); 240 and uncapped are
+     * taken for testing, F2 lists them with --debug (to-do 101). */
     { "display", "frame_rate", OPT_CHOICE, "60", "30", "RECOMP_FRAME_RATE",
-      "30 60 90 120",
+      "30 60 90 120 240 uncapped",
       "Frames per second the game runs at: 30 (the original), 60 (default;\n"
       "smoother), 90 or 120 (for fast monitors; best when the PC holds the\n"
       "rate steadily: some animations step unevenly when it dips). With\n"
       "VSync on no rate goes above the monitor's refresh, with vrr 3 under\n"
-      "it. The game keeps its speed at every rate. Applies at once." },
+      "it. The game keeps its speed at every rate. Applies at once. 240 and\n"
+      "uncapped are for testing (the F2 menu shows them with --debug; some\n"
+      "things still run too fast there)." },
     /* Was dip_fix (default 0) for a day; renamed so files that F2 had
      * already written with dip_fix = 0 get the new default. */
     { "display", "slowdown_fix", OPT_BOOL, "1", "1", "RECOMP_DIP_FIX", NULL,
       "At 30 fps, keep the game at its normal speed when the frame rate\n"
       "dips: 1 = on (default), 0 = off (the original, which runs fast in\n"
       "a dip). 60 fps always does this." },
-    /* User 2026-11-04 (to-do 76): named by the user, on by default. */
+    /* User 2026-11-04 (to-do 76): named by the user, on by default; the
+     * zoom joined it 2026-11-06 (to-do 102). */
     { "display", "main_menu_speed", OPT_BOOL, "1", "1", "RECOMP_MENU_SPEED",
       NULL,
       "Above 60 fps, the main menu turns from board to board (left / right)\n"
-      "at its original speed: 1 = on (default), 0 = off (it turns faster the\n"
-      "higher the frame rate, twice as fast at 120). The chapter list and\n"
-      "the other pages are not changed. Applies at once." },
+      "and zooms into / out of a board at its original speed: 1 = on\n"
+      "(default), 0 = off (faster the higher the frame rate, twice as fast\n"
+      "at 120). Applies at once." },
+    /* To-do 102 (user 2026-11-06): on by default, its own option. */
+    { "display", "submenu_speed", OPT_BOOL, "1", "1", "RECOMP_SUBMENU_SPEED",
+      NULL,
+      "Above 60 fps, the menus behind the boards (game select, chapter\n"
+      "list) fade at their original speed: the chapter name when you change\n"
+      "chapter and the fades between screens. 1 = on (default), 0 = off\n"
+      "(faster the higher the frame rate, twice as fast at 120). Applies at\n"
+      "once." },
     /* To-do 78 (2026-11-04): on by default; F2 only with --debug (user). */
     { "display", "physics_30hz", OPT_BOOL, "1", "1", "RECOMP_PHYS30", NULL,
       "Above 30 fps, tails, ragdolls and cloth move at their original\n"
@@ -313,6 +325,11 @@ static const Option s_options[] = {
       "none any 1 2 3 4 ps1 ps2 ps3 ps4", NULL },
     { "controls", "controller_slot4", OPT_CHOICE, "none", "none", NULL,
       "none any 1 2 3 4 ps1 ps2 ps3 ps4", NULL },
+    { "controls", "control_out_of_focus", OPT_BOOL, "0", "0",
+      "RECOMP_PAD_BACKGROUND", NULL,
+      "Controllers while another window is in front: 0 = they do nothing\n"
+      "until the game window is in front again (default), 1 = they keep\n"
+      "playing the game. The keyboard always waits. F3 > Slots." },
     { "controls", "controls_window", OPT_RECT, "", "", NULL, NULL,
       "Where the F3 controls menu sits and its size, like menu_window." },
     { "controls_story", "story_mouse_x", OPT_NUM, "100", "100", NULL, NULL,

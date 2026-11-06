@@ -662,6 +662,26 @@ static void xact_trk_line(const char *what, uint32_t trk)
             MEM32(trk + 0x68), MEM32(trk + 0x74), MEM32(g_esp));
 }
 
+/* Return addresses further up the guest stack (dwords in the code sections
+ * that follow a call instruction; the first `max` within `depth` dwords),
+ * as one "<tag>   callers:" line. */
+static void guest_callers_line(const char *tag, int depth, int max)
+{
+    int i, n = 0;
+    fprintf(stderr, "%s   callers:", tag);
+    for (i = 1; i < depth && n < max; i++) {
+        uint32_t a = MEM32(g_esp + 4u * (uint32_t)i);
+        if (a < 0x00011000u || a >= 0x00556000u)
+            continue;
+        if (MEM8(a - 5) == 0xE8 || MEM8(a - 2) == 0xFF ||
+            MEM8(a - 3) == 0xFF || MEM8(a - 6) == 0xFF) {
+            fprintf(stderr, " %08X", a);
+            n++;
+        }
+    }
+    fprintf(stderr, "\n");
+}
+
 /* 0x0055324F: a sound's state change. */
 void sub_0055324F_enter(void)
 {
@@ -673,23 +693,9 @@ void sub_0055324F_enter(void)
             MEM32(snd + 0x44), MEM16(snd + 0x30), g_ebx,
             xact_va_ok(MEM32(snd + 0x10)) ? MEM8(MEM32(snd + 0x10) + 8) : 0,
             MEM32(snd + 0x34), MEM32(g_esp));
-    /* Who resumed or stopped it: return addresses further up the guest
-     * stack (dwords in the code sections that follow a call instruction). */
-    if (g_ebx == 2 || g_ebx == 7) {
-        int i, n = 0;
-        fprintf(stderr, "[XACTSND]   callers:");
-        for (i = 1; i < 96 && n < 12; i++) {
-            uint32_t a = MEM32(g_esp + 4u * (uint32_t)i);
-            if (a < 0x00011000u || a >= 0x00556000u)
-                continue;
-            if (MEM8(a - 5) == 0xE8 || MEM8(a - 2) == 0xFF ||
-                MEM8(a - 3) == 0xFF || MEM8(a - 6) == 0xFF) {
-                fprintf(stderr, " %08X", a);
-                n++;
-            }
-        }
-        fprintf(stderr, "\n");
-    }
+    /* Who resumed or stopped it. */
+    if (g_ebx == 2 || g_ebx == 7)
+        guest_callers_line("[XACTSND]", 96, 12);
 }
 
 /* 0x00554CD4: a track event fires ([esp+8] = context: +0x10 track, +0x14
@@ -1512,6 +1518,30 @@ void sub_00018B30_enter(void)
     strcpy(last, text);
     fprintf(stderr, "[AUDIO] t=%ld ms %s\n",
             (long)(clock() * 1000 / CLOCKS_PER_SEC), text);
+    /* RECOMP_AUDIO_CALLERS=<cue>[,<cue>...]: who asked for these sounds
+     * (InitCue runs inside the game's play call; to-do 100, the slingshot). */
+    {
+        const char *want = getenv("RECOMP_AUDIO_CALLERS");
+        const char *p = strstr(text, "Initialiser for ");
+        if (want && *want && p) {
+            char name[96], list[512], *tok, *ctx = NULL;
+            size_t k = 0;
+            p += 16;
+            while (p[k] && p[k] != ' ' && k + 1 < sizeof name) {
+                name[k] = p[k];
+                k++;
+            }
+            name[k] = 0;
+            snprintf(list, sizeof list, "%s", want);
+            for (tok = strtok_s(list, ",", &ctx); tok; tok = strtok_s(NULL, ",", &ctx))
+                if (!strcmp(tok, name)) {
+                    /* The sound code's frames are big: look 4 KB up. */
+                    fprintf(stderr, "[AUDIO] frame %u %s", MEM32(0x007F9F60), name);
+                    guest_callers_line("", 1024, 24);
+                    break;
+                }
+        }
+    }
     fflush(stderr);
 }
 
@@ -1707,6 +1737,248 @@ static void char_guest_str(uint32_t s, char *out, int size)
     out[size - 1] = 0;
 }
 
+/* Cutscene guns that fire without a flash (to-do 81). In a cutscene a
+ * soldier's shots are script events, not part of his animation: event
+ * 0x5F / 2 in the cutscene event switch 0x000599C0 (return 0x0005B783) calls
+ * gun_flash_start 0x001A7F50 (cdecl: character, 0.08 s, attachment type
+ * 0x43, flash 0) for a combat squirrel (kind 0x58). It shows the gun
+ * attachment's _PART_FLASH_1 (shape at attachment +0x2E) and makes a type
+ * 0x4E effect (0x001A80B0) that hides it again after the time, on game time
+ * [0x007FA21C]. The It's War opening plays the same firing animations
+ * (crouchaim_fire, squirrel_dive_shoot) on soldiers the script gives no
+ * shots: id 35 diving behind Conker and then at the right of the next cut,
+ * and 1A, 31 and 32 crouching earlier on. Their guns kick with no flash; the
+ * real game does the same (user, gameplay videos). The script's first shot
+ * comes 0-340 ms into a firing animation, then about every 0.2 s.
+ * A firing animation (name "fire" or "shoot") that the cutscene starts
+ * (char_set_animation 0x002F1790 called from 0x0005637D) on a combat squirrel
+ * is tracked; while it plays and no shot of the game's has come for that
+ * character, his gun flashes as a script shot would: 0.12 s in, then every
+ * 0.17 / 0.23 s by turns. Any gun_flash_start of the game's for him ends it
+ * (the script shoots this one). RECOMP_CUTSCENE_FLASH=0 = original;
+ * RECOMP_CUTSCENE_FLASH_LOG=1: [CFLASH] lines (tracked, flash, ended).
+ * The flash part is a cone along the barrel: with the gun pointing at the
+ * camera (35's close-up) it is edge-on and shows nothing. An added flash
+ * also gets a muzzle light: the gun's _LOCATOR_BARREL in the world from
+ * 0x001A81B0 (cdecl: locator 0, attachment type, 0; eax = character, ebx =
+ * the vec3 it writes; returns with it unwritten when the gun has no
+ * locator; a gameplay shot 0x000E8CD0 does the same), then a light there
+ * from 0x0011E790 (ecx = &position, dl = 0; stack: &{u8 3, u8 fade, u16
+ * ticks, u16, u16}, f32 size, f32 r, g, b, 0x7F, 0, 0xFF; the caller pops
+ * them), the maker of the game's shot lights. Lights only brighten what is
+ * near, they draw nothing themselves: the gameplay muzzle light 0x0019A290
+ * (colour 4.0, size 50000, fade 0x18, 4-6 ticks) washed the whole close-up
+ * white for most of a second; the combat Tediz' 0x000E72F0 (2.0, size 6-7,
+ * fade 0xFF, 3-5) showed nothing. Ours: size 5000, fade 0xFF, 3 ticks, a
+ * two-frame pop per shot in the close-up (user: looks good, 2026-11-05);
+ * colour 2.0 turned Conker practically white (user: half as bright); the
+ * lit surfaces clip, so 1.0 was still near white and 0.5 keeps his colours
+ * (RECOMP_CUTSCENE_FLASH_GLOW_COLOUR=<colour> sets it).
+ * Only for a gun at the lens (user: the glow just there, and no farther than
+ * needed): the muzzle within CUTSCENE_FLASH_GLOW_R (30) world units of the
+ * render camera ([0x0084B868] +0x80, as char_cam_inside). It's War opening:
+ * 35's close-up 20-22, 35 behind Conker 122, 1A 230, the rest 400-1400.
+ * RECOMP_CUTSCENE_FLASH_GLOW=0 = the flash part only,
+ * RECOMP_CUTSCENE_FLASH_GLOW_R=<units> the reach. */
+static int cutscene_flash_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_CUTSCENE_FLASH");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+static int cutscene_flash_log(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_CUTSCENE_FLASH_LOG");
+        on = e && *e && *e != '0';
+    }
+    return on;
+}
+
+static int cutscene_flash_glow(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_CUTSCENE_FLASH_GLOW");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+static float cutscene_flash_glow_r(void)
+{
+    static float r = -1.0f;
+    if (r < 0.0f) {
+        const char *e = getenv("RECOMP_CUTSCENE_FLASH_GLOW_R");
+        r = e && *e ? (float)atof(e) : 30.0f;
+    }
+    return r;
+}
+
+static float cutscene_flash_glow_colour(void)
+{
+    static float c = -1.0f;
+    if (c < 0.0f) {
+        const char *e = getenv("RECOMP_CUTSCENE_FLASH_GLOW_COLOUR");
+        c = e && *e ? (float)atof(e) : 0.5f;
+    }
+    return c;
+}
+
+extern void sub_001A81B0(void);
+extern void sub_0011E790(void);
+
+/* A muzzle light at character c's gun (attachment type 0x43). */
+static void cutscene_flash_light(uint32_t c)
+{
+    uint32_t eax = g_eax, ebx = g_ebx, ecx = g_ecx, edx = g_edx, esp = g_esp;
+    uint32_t pos = (g_esp - 0x40u) & ~0xFu, moved, st = pos + 0x10u, rc;
+    float dist = 1e30f;
+    MEM32(pos) = MEM32(c + 0x78u);              /* unwritten = still here */
+    MEM32(pos + 4u) = MEM32(c + 0x7Cu);
+    MEM32(pos + 8u) = MEM32(c + 0x80u);
+    g_esp = pos;
+    g_esp -= 4; MEM32(g_esp) = 0u;
+    g_esp -= 4; MEM32(g_esp) = 0x43u;           /* gun attachment type */
+    g_esp -= 4; MEM32(g_esp) = 0u;              /* _LOCATOR_BARREL */
+    g_esp -= 4; MEM32(g_esp) = 0u;  /* return address, popped by the callee */
+    g_eax = c; g_ebx = pos;
+    sub_001A81B0();
+    moved = MEM32(pos) != MEM32(c + 0x78u) || MEM32(pos + 4u) != MEM32(c + 0x7Cu)
+            || MEM32(pos + 8u) != MEM32(c + 0x80u);
+    rc = MEM32(0x0084B868u);
+    if (moved && xact_va_ok(rc)) {
+        float dx = MEMF(pos) - MEMF(rc + 0x80u), dy = MEMF(pos + 4u) - MEMF(rc + 0x84u),
+              dz = MEMF(pos + 8u) - MEMF(rc + 0x88u);
+        dist = sqrtf(dx * dx + dy * dy + dz * dz);
+    }
+    if (moved && (g_eax & 0xFFu) && dist <= cutscene_flash_glow_r()) {
+        MEM8(st) = 3u;
+        MEM8(st + 1u) = 0xFFu;                      /* fade */
+        MEM16(st + 2u) = 3u;                        /* ticks */
+        MEM16(st + 4u) = 3u;
+        MEM16(st + 6u) = 0u;
+        g_esp = pos;
+        g_esp -= 4; MEM32(g_esp) = 0xFFu;
+        g_esp -= 4; MEM32(g_esp) = 0u;
+        g_esp -= 4; MEM32(g_esp) = 0x7Fu;
+        g_esp -= 4; MEMF(g_esp) = cutscene_flash_glow_colour();    /* b */
+        g_esp -= 4; MEMF(g_esp) = cutscene_flash_glow_colour();    /* g */
+        g_esp -= 4; MEMF(g_esp) = cutscene_flash_glow_colour();    /* r */
+        g_esp -= 4; MEMF(g_esp) = 5000.0f;          /* size */
+        g_esp -= 4; MEM32(g_esp) = st;
+        g_esp -= 4; MEM32(g_esp) = 0u;  /* return address, popped by the callee */
+        g_ecx = pos; g_edx = 0u;
+        sub_0011E790();
+    }
+    if (cutscene_flash_log())
+        fprintf(stderr, "[CFLASH] t=%ld ms id %02X light %s: muzzle %.1f from the camera\n",
+                attach_ms(), MEM8(c + 0x10Bu), !moved ? "skipped (no barrel)"
+                : dist <= cutscene_flash_glow_r() ? "made" : "not made (far)", dist);
+    g_eax = eax; g_ebx = ebx; g_ecx = ecx; g_edx = edx; g_esp = esp;
+}
+
+static struct { uint32_t c, anim; float t, next; int n; } s_cflash[8];
+
+static void cutscene_flash_end(int i, const char *why)
+{
+    if (cutscene_flash_log())
+        fprintf(stderr, "[CFLASH] t=%ld ms id %02X anim %u: %s after %d added\n",
+                attach_ms(), MEM8(s_cflash[i].c + 0x10Bu), s_cflash[i].anim, why,
+                s_cflash[i].n);
+    s_cflash[i].c = 0;
+}
+
+/* From char_set_animation (sub_002F1790_enter): character c starts animation
+ * anim (name at name_va), asked for from `from`. */
+static void cutscene_flash_anim(uint32_t c, uint32_t anim, uint32_t name_va,
+                                uint32_t from)
+{
+    char name[96];
+    const char *leaf;
+    int i, slot = -1;
+    for (i = 0; i < 8; i++)
+        if (s_cflash[i].c == c)
+            cutscene_flash_end(i, "next animation");
+    if (from != 0x0005637Du || MEM32(c + 0x68) != 0x58u)
+        return;
+    char_guest_str(name_va, name, sizeof name);
+    _strlwr(name);
+    leaf = strrchr(name, '\\');
+    leaf = leaf ? leaf + 1 : name;
+    if (!strstr(leaf, "fire") && !strstr(leaf, "shoot"))
+        return;
+    for (i = 0; i < 8 && slot < 0; i++)
+        if (!s_cflash[i].c)
+            slot = i;
+    if (slot < 0)
+        return;
+    s_cflash[slot].c = c;
+    s_cflash[slot].anim = anim;
+    s_cflash[slot].t = 0.0f;
+    s_cflash[slot].next = 0.12f;
+    s_cflash[slot].n = 0;
+    if (cutscene_flash_log())
+        fprintf(stderr, "[CFLASH] t=%ld ms id %02X anim %u \"%s\": tracked\n",
+                attach_ms(), MEM8(c + 0x10Bu), anim, leaf);
+}
+
+extern void sub_001A7F50_gen(void);
+
+/* Per frame (sub_00076F10_enter): the flashes due. */
+static void cutscene_flash_frame(void)
+{
+    float dt = MEMF(0x007FA21Cu);
+    int i;
+    for (i = 0; i < 8; i++) {
+        uint32_t c = s_cflash[i].c, eax, ecx, edx, esp;
+        if (!c)
+            continue;
+        if (!MEM32(c + 0x64) || MEM32(c + 0xA4) != s_cflash[i].anim) {
+            cutscene_flash_end(i, "animation over");
+            continue;
+        }
+        s_cflash[i].t += dt;
+        if (s_cflash[i].t < s_cflash[i].next)
+            continue;
+        s_cflash[i].n++;
+        s_cflash[i].next += (s_cflash[i].n & 1) ? 0.17f : 0.23f;
+        if (s_cflash[i].next < s_cflash[i].t)   /* a long frame: one flash */
+            s_cflash[i].next = s_cflash[i].t + 0.17f;
+        if (cutscene_flash_log())
+            fprintf(stderr, "[CFLASH] t=%ld ms id %02X anim %u: flash %d at %.2f s\n",
+                    attach_ms(), MEM8(c + 0x10Bu), s_cflash[i].anim, s_cflash[i].n,
+                    s_cflash[i].t);
+        eax = g_eax; ecx = g_ecx; edx = g_edx; esp = g_esp;
+        g_esp -= 4; MEM32(g_esp) = 0u;              /* flash index */
+        g_esp -= 4; MEM32(g_esp) = 0x43u;           /* gun attachment type */
+        g_esp -= 4; MEM32(g_esp) = 0x3DA3D70Au;     /* 0.08 s */
+        g_esp -= 4; MEM32(g_esp) = c;
+        g_esp -= 4; MEM32(g_esp) = 0u;  /* return address, popped by the callee */
+        sub_001A7F50_gen();
+        g_eax = eax; g_ecx = ecx; g_edx = edx; g_esp = esp;
+        if (cutscene_flash_glow())
+            cutscene_flash_light(c);
+    }
+}
+
+/* gun_flash_start: a flash of the game's own for a tracked character ends
+ * the added ones (the script shoots him). */
+void sub_001A7F50(void)
+{
+    uint32_t owner = MEM32(g_esp + 4u);
+    int i;
+    for (i = 0; i < 8; i++)
+        if (owner && s_cflash[i].c == owner)
+            cutscene_flash_end(i, "the game's own shot");
+    sub_001A7F50_gen();
+}
+
 /* Berri head-down in the floor (final arena, after she is shot; 2026-10-21).
  * A character's world matrix is rebuilt before each draw from three angles in
  * degrees (0x000808F0, [esp+4] = character index: x +0x1C0, y +0x114, z
@@ -1760,8 +2032,13 @@ void sub_002F1790_enter(void)
 {
     char name[96];
     uint32_t c = g_eax;
-    if (!char_log_on() || !xact_va_ok(c) || MEM32(c + 0xA4) == MEM32(g_esp + 8))
+    if (!xact_va_ok(c) || MEM32(c + 0xA4) == MEM32(g_esp + 8))
         return;                         /* most calls re-ask every frame */
+    if (cutscene_flash_on())
+        cutscene_flash_anim(c, MEM32(g_esp + 8), MEM32(g_esp + 4),
+                            MEM32(g_esp) == 0x002F16F7u ? MEM32(g_esp + 0x30) : 0);
+    if (!char_log_on())
+        return;
     char_guest_str(MEM32(g_esp + 4), name, sizeof name);
     fprintf(stderr, "[ANIMREQ] t=%ld ms f%u char %08X id %02X kind %X \"%s\" index %u -> %u "
             "a3 %08X a5 %08X a6 %.2f a8 %u pos %.1f %.1f %.1f (ret %08X from %08X)\n", attach_ms(),
@@ -2049,31 +2326,45 @@ void sub_002D45D0(void)
 static struct {
     int on, log, seen;
     long set_ms[256];
+} s_hit30 = { -1, -1, 0 };
+
+/* A character's 30 fps frames, per character id [char+0x10B]: the frames'
+ * steps add up, and a frame where they reach one 30 fps frame is a tick for
+ * every call in it; at step 1 and above (30 fps, its dips) every frame is.
+ * Shared by the hit counter above and the projectile timers (to-do 100). */
+static struct {
     uint32_t fc[256];
     float acc[256];
     uint8_t tick[256];
-} s_hit30 = { -1, -1, 0 };
+} s_c30;
+
+static int char30_tick(uint8_t id)
+{
+    uint32_t fc = MEM32(0x007F9F60u);
+    float step = MEMF(0x007FA24Cu);
+
+    if (!(step > 0.0f && step < 0.999f)) {
+        s_c30.acc[id] = 0.0f;
+        s_c30.tick[id] = 1;
+    } else if (fc != s_c30.fc[id]) {
+        s_c30.acc[id] += step;
+        s_c30.tick[id] = s_c30.acc[id] >= 0.999f;
+        if (s_c30.tick[id]) {
+            s_c30.acc[id] -= 1.0f;
+            if (s_c30.acc[id] < 0.0f)
+                s_c30.acc[id] = 0.0f;
+        }
+    }
+    s_c30.fc[id] = fc;
+    return s_c30.tick[id];
+}
 
 static void hit30_after(uint32_t c, uint8_t before)
 {
     uint8_t after = MEM8(c + 0x214), id = MEM8(c + 0x10B);
-    uint32_t fc = MEM32(0x007F9F60u);
     float step = MEMF(0x007FA24Cu);
 
-    if (!s_hit30.on || !(step > 0.0f && step < 0.999f)) {
-        s_hit30.acc[id] = 0.0f;
-        s_hit30.tick[id] = 1;
-    } else if (fc != s_hit30.fc[id]) {
-        s_hit30.acc[id] += step;
-        s_hit30.tick[id] = s_hit30.acc[id] >= 0.999f;
-        if (s_hit30.tick[id]) {
-            s_hit30.acc[id] -= 1.0f;
-            if (s_hit30.acc[id] < 0.0f)
-                s_hit30.acc[id] = 0.0f;
-        }
-    }
-    s_hit30.fc[id] = fc;
-    if (!s_hit30.tick[id] && before && after == (uint8_t)(before - 1)) {
+    if (s_hit30.on && !char30_tick(id) && before && after == (uint8_t)(before - 1)) {
         MEM8(c + 0x214) = before;       /* not a 30 fps frame for this one */
         after = before;
     }
@@ -2128,7 +2419,7 @@ void sub_002D5540(void)
     b6a = MEM8(ctl + 0x6Au);
     sub_002D5540_gen();
     hit30_after(c, before);
-    if (s_hit30.tick[MEM8(c + 0x10B)])
+    if (!s_hit30.on || char30_tick(MEM8(c + 0x10B)))
         return;
     if (b1b6 && MEM8(c + 0x1B6u) == (uint8_t)(b1b6 - 1))
         MEM8(c + 0x1B6u) = b1b6;
@@ -2152,6 +2443,80 @@ void sub_002E9550(void)
     before = MEM8(c + 0x214);
     sub_002E9550_gen();
     hit30_after(c, before);
+}
+
+/* Projectile timers at 30 Hz (to-do 100, #4: the Windy slingshot beetles at
+ * 120). A projectile is a character in the character array (spawned by
+ * 0x003030C0; the slingshot's from its release animation's event 11,
+ * 0x00304340) with a lifetime [char+0x17D] = 100. The projectile update
+ * 0x002DB350 ([esp+4] = projectile, kind [char+0x476]) takes one off a call
+ * (0x002DD04C) and removes it at 0, unless the kind has a frame limit
+ * ([char+0xFC]). 100 frames are 3.33 s at 30 fps but 0.83 s at 120, so the
+ * pellet was gone before the far beetles (shot to hit 0.37 / 0.77 / 1.07 /
+ * 1.43 s: run_20261106_012519 at 30, _013119 at ~90-107: three beetles,
+ * _014414 at 120: two). Its other per-call counters: at rest the lifetime
+ * goes every other call (toggle [char+0x1B8] gives one back, 0x002DBD98) and
+ * [char+0x17B] counts up to 10; a homing one's turn countdown [char+0x17C]
+ * (-1 a call above 8, 0x002DC491); and [char+0x179] counts up while its
+ * health [char+0xDC] is 0, removed above 30. On frames that are not a 30 fps
+ * frame for the projectile their change is put back (a lifetime set in the
+ * call, 100 again, 6 after a hit or 1, is kept). RECOMP_SHOT30_FIX=0 =
+ * original; RECOMP_SHOT30_LOG=1: [SHOT30] when a lifetime runs out. */
+static struct {
+    int on, log, seen;
+    uint16_t serial[256];
+    long born_ms[256];
+} s_shot30 = { -1, -1, 0 };
+
+extern void sub_002DB350_gen(void);
+void sub_002DB350(void)
+{
+    uint32_t c = MEM32(g_esp + 4);
+    uint8_t id, b17d, b17c, b17b, b179;
+    uint16_t b1b8;
+
+    if (s_shot30.on < 0) {
+        const char *e = getenv("RECOMP_SHOT30_FIX");
+        s_shot30.on = !(e && *e == '0');
+        e = getenv("RECOMP_SHOT30_LOG");
+        s_shot30.log = e && *e == '1';
+    }
+    if (!xact_va_ok(c)) {
+        sub_002DB350_gen();
+        return;
+    }
+    id = MEM8(c + 0x10B);
+    if (MEM16(c + 0xCC) != s_shot30.serial[id]) {   /* a new projectile here */
+        s_shot30.serial[id] = MEM16(c + 0xCC);
+        s_shot30.born_ms[id] = attach_ms();
+    }
+    b17d = MEM8(c + 0x17D);
+    b17c = MEM8(c + 0x17C);
+    b17b = MEM8(c + 0x17B);
+    b179 = MEM8(c + 0x179);
+    b1b8 = MEM16(c + 0x1B8);
+    sub_002DB350_gen();
+    if (!s_shot30.seen) {
+        s_shot30.seen = 1;
+        fprintf(stderr, "[SHOT30] projectile timers count 30 Hz frames: %s\n",
+                s_shot30.on ? "on" : "off (RECOMP_SHOT30_FIX=0)");
+    }
+    if (s_shot30.on && !char30_tick(id)) {
+        if (b17d && MEM8(c + 0x17D) == (uint8_t)(b17d - 1))
+            MEM8(c + 0x17D) = b17d;
+        if (MEM16(c + 0x1B8) == (uint16_t)((b1b8 - 1) & 1) && MEM16(c + 0x1B8) != b1b8)
+            MEM16(c + 0x1B8) = b1b8;
+        if (b17c > 8 && MEM8(c + 0x17C) == (uint8_t)(b17c - 1))
+            MEM8(c + 0x17C) = b17c;
+        if (b17b < 10 && MEM8(c + 0x17B) == (uint8_t)(b17b + 1))
+            MEM8(c + 0x17B) = b17b;
+        if (MEM8(c + 0x179) == (uint8_t)(b179 + 1))
+            MEM8(c + 0x179) = b179;
+    }
+    if (s_shot30.log && b17d && !MEM8(c + 0x17D))
+        fprintf(stderr, "[SHOT30] t=%ld ms f%u projectile %08X id %02X kind %u: lifetime out after "
+                "%.2f s (step %.3f)\n", attach_ms(), MEM32(0x007F9F60u), c, id, MEM16(c + 0x476),
+                (attach_ms() - s_shot30.born_ms[id]) / 1000.0, MEMF(0x007FA24Cu));
 }
 
 /* Gun fire rate above 30 fps (2026-11-05, to-do 94, user: fix before
@@ -2844,9 +3209,12 @@ void sub_000964D0(void)
  * ends, so the scrolling ran fast too. The wrapper scales the speed by
  * this frame's real share of a tick (step x 2) over the clamped count for
  * the call, only when that is below 1, and puts it back unless the call
- * ended the turn (0). The chapter list and other pages stay as they are
- * (user 2026-11-04). main_menu_speed = 0 / RECOMP_MENU_SPEED=0 = as before;
- * RECOMP_MENU_LOG=1 adds a [MENUSPEED] line per turn. */
+ * ended the turn (0). The zoom into / out of a board after A / B (to-do
+ * 102, user 2026-11-06: under the same option) is the same: zoom
+ * [0x00776220] (0..1) += ticks x speed [0x00776224] x 0.75, the speed set
+ * on the press and zeroed at either end; scaled the same way and put back
+ * unless the call set a new one. main_menu_speed = 0 / RECOMP_MENU_SPEED=0
+ * = as before; RECOMP_MENU_LOG=1 adds a [MENUSPEED] line per turn / zoom. */
 static volatile int g_menu_speed = -1;
 
 void conker_SetMainMenuSpeed(int on)
@@ -2858,13 +3226,13 @@ extern void sub_001FD0F0_gen(void);
 void sub_001FD0F0(void)
 {
     static int log = -1;
-    float v = MEMF(0x0077621Cu), k = 1.0f;
+    float v = MEMF(0x0077621Cu), z = MEMF(0x00776224u), k = 1.0f, vk, zk;
     int ticks = (int)MEM32(0x00776214u);
     if (g_menu_speed < 0) {
         const char *e = getenv("RECOMP_MENU_SPEED");
         g_menu_speed = !(e && *e == '0');
     }
-    if (g_menu_speed && v != 0.0f && MEM32(0x007FA1F8u) == 0x1D && ticks > 0)
+    if (g_menu_speed && (v != 0.0f || z != 0.0f) && MEM32(0x007FA1F8u) == 0x1D && ticks > 0)
         k = MEMF(0x007FA24Cu) * 2.0f / (float)ticks;
     if (!(k > 0.0f && k < 1.0f)) {
         sub_001FD0F0_gen();
@@ -2874,14 +3242,70 @@ void sub_001FD0F0(void)
         const char *e = getenv("RECOMP_MENU_LOG");
         log = e && *e && *e != '0';
     }
-    if (log && (MEMF(0x00776218u) == 1.0f || MEMF(0x00776218u) == 0.0f))
+    if (log && v != 0.0f && (MEMF(0x00776218u) == 1.0f || MEMF(0x00776218u) == 0.0f))
         fprintf(stderr, "[MENUSPEED] turn speed %.3f x %.3f (ticks %d, step %.3f)\n", v, k,
                 ticks, MEMF(0x007FA24Cu));
-    MEMF(0x0077621Cu) = v * k;
+    if (log && z != 0.0f && (MEMF(0x00776220u) == 1.0f || MEMF(0x00776220u) == 0.0f))
+        fprintf(stderr, "[MENUSPEED] zoom speed %.3f x %.3f (ticks %d, step %.3f)\n", z, k,
+                ticks, MEMF(0x007FA24Cu));
+    vk = v * k;
+    zk = z * k;
+    MEMF(0x0077621Cu) = vk;
+    MEMF(0x00776224u) = zk;
     sub_001FD0F0_gen();
-    if (MEMF(0x0077621Cu) != 0.0f)
+    if (v != 0.0f && MEMF(0x0077621Cu) != 0.0f)
         MEMF(0x0077621Cu) = v;
+    if (z != 0.0f && MEMF(0x00776224u) == zk)
+        MEMF(0x00776224u) = z;
 }
+
+/* Sub-menu Speed (to-do 102, user 2026-11-06: on by default, its own
+ * option). The front end's other users of the ticks [0x00776214] (clamped
+ * to 1..4 by 0x001FC390, so above 60 a frame with no 60 Hz tick counts as
+ * one) are fades: the chapter name's cross-fade on left / right
+ * [0x0077655F] (+-32 a tick, the chapter list page 0x001FAF70) and the
+ * screen fade [0x006BCFE8] (- rate [0x006BCFE9] a tick: the menu update
+ * 0x001FA7D0 and the states 0x001FBC10, 0x001FE980, 0x001FE9F0). All of
+ * them multiply, so for these calls the ticks are the real count
+ * [0x007FA20C] when that is 0, and put back after (the main menu camera,
+ * called from the level, keeps its own scaling above). 30 and 60 fps always
+ * have a tick a frame, so they are untouched. The scene list's held-stick
+ * repeat (GetTickCount, 0x00249FD0) and the UI pages' animations (dt) were
+ * already real time (2026-11-06 probes). submenu_speed = 0 /
+ * RECOMP_SUBMENU_SPEED=0 = as before. */
+static volatile int g_submenu_speed = -1;
+
+void conker_SetSubmenuSpeed(int on)
+{
+    g_submenu_speed = on != 0;
+}
+
+static void submenu_call(void (*gen)(void))
+{
+    uint32_t keep = MEM32(0x00776214u);
+    if (g_submenu_speed < 0) {
+        const char *e = getenv("RECOMP_SUBMENU_SPEED");
+        g_submenu_speed = !(e && *e == '0');
+    }
+    if (!g_submenu_speed || keep != 1u || (int)MEM32(0x007FA20Cu) > 0) {
+        gen();
+        return;
+    }
+    MEM32(0x00776214u) = 0;
+    gen();
+    MEM32(0x00776214u) = keep;
+}
+
+extern void sub_001FA7D0_gen(void);
+void sub_001FA7D0(void) { submenu_call(sub_001FA7D0_gen); }
+extern void sub_001FAF70_gen(void);
+void sub_001FAF70(void) { submenu_call(sub_001FAF70_gen); }
+extern void sub_001FBC10_gen(void);
+void sub_001FBC10(void) { submenu_call(sub_001FBC10_gen); }
+extern void sub_001FE980_gen(void);
+void sub_001FE980(void) { submenu_call(sub_001FE980_gen); }
+extern void sub_001FE9F0_gen(void);
+void sub_001FE9F0(void) { submenu_call(sub_001FE9F0_gen); }
 
 /* RECOMP_CHAR_DUMP=<id hex>: every 60 frames, [CDUMP] lines with that
  * character's whole record (0x6D0 bytes) and its first model object
@@ -2993,6 +3417,8 @@ void sub_00076F10_enter(void)
     static struct { uint32_t a, anim, frames; } seen[8];
     uint32_t a;
     int guard = 0;
+    if (cutscene_flash_on())
+        cutscene_flash_frame();
     if (char_log_on())
         char_log_frame();
     if (!attach_log_on())
