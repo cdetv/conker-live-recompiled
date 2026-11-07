@@ -215,6 +215,28 @@ static const Option s_options[] = {
       "Smoothing of jagged edges: off (the original), fxaa (NVIDIA FXAA:\n"
       "quick, slightly softens the whole picture) or smaa (default; SMAA:\n"
       "smooths edges more cleanly and keeps text and textures sharper)." },
+    /* To-do 17 (2026-11-06): the shadow pictures drawn bigger
+     * (src/shadows.c); 4x unset = the runtime's own default. */
+    { "picture", "shadow_resolution", OPT_CHOICE, "4x", "4x",
+      "RECOMP_SHADOW_RES", "original 2x 4x 8x 16x",
+      "How sharp the characters' shadows are: original (the game's 128 x\n"
+      "128 picture per shadow: soft and blocky), 2x, 4x (default), 8x or\n"
+      "16x (the sharpest; more video memory and GPU time). Applies at\n"
+      "once." },
+    /* To-do 105 (2026-11-06): softer edges at any size (src/shadows.c);
+     * default 50 (user 2026-11-06), the runtime's own unset too. */
+    { "picture", "shadow_softness", OPT_NUM, "50", "50",
+      "RECOMP_SHADOW_SOFTNESS", NULL,
+      "How soft the characters' shadow edges are, 0 to 100 percent: 0 =\n"
+      "as sharp as shadow_resolution draws them, 50 = soft (default),\n"
+      "100 = softest. The same softness at every size; no effect at\n"
+      "original. Applies at once.", 0.0f, 100.0f },
+    /* To-do 106 (2026-11-06): light maps as a B-spline (src/lightmaps.c). */
+    { "picture", "smooth_world_shadows", OPT_BOOL, "1", "1",
+      "RECOMP_SMOOTH_LIGHTMAPS", NULL,
+      "The shadows baked into the levels (fences, plants, buildings under\n"
+      "the lamps): 1 = read smoothly, rounded edges instead of blocky steps\n"
+      "(default), 0 = as the original. Applies at once." },
     { "picture", "sharpen", OPT_NUM, "100", "0", "RECOMP_SHARPEN", NULL,
       "Sharpening (AMD FidelityFX CAS), 0 to 100 percent: 0 = off,\n"
       "100 = strongest (default).", 0.0f, 100.0f },

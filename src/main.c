@@ -238,7 +238,17 @@ static void open_log(void)
               t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
     if (freopen_s(&f, path, "w", stdout) || !f)
         return;
-    _dup2(_fileno(stdout), _fileno(stderr));
+    /* A windowed .exe starts with no stderr descriptor (_fileno = -2), and
+     * _dup2 needs a real one to point at the log: open stderr on NUL first,
+     * or every stderr line (settings, [CRASH], most diagnostics) is lost
+     * (to-do 111). */
+    if (_fileno(stderr) < 0) {
+        FILE *e;
+        if (freopen_s(&e, "NUL", "w", stderr) || !e)
+            return;
+    }
+    if (_dup2(_fileno(stdout), _fileno(stderr)) != 0)
+        fprintf(stdout, "[LOG] stderr not captured: _dup2 failed\n");
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     SetStdHandle(STD_OUTPUT_HANDLE, (HANDLE)_get_osfhandle(_fileno(stdout)));
@@ -726,6 +736,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     /* The F2 settings menu: hooks into the window and the GPU back end,
      * which only call them once they exist. */
     overlay_init();
+    /* Sharper shadows (src/shadows.c): the shadow pictures drawn bigger. */
+    {
+        extern void shadows_init(void);
+        shadows_init();
+    }
+    /* Smoother world shadows (src/lightmaps.c): light maps as a B-spline. */
+    {
+        extern void lightmaps_init(void);
+        lightmaps_init();
+    }
     /* Keyboard and mouse (src/controls.c): settings.ini's keys to the
      * toolkit's pad, which then also holds the mouse in the window. */
     {

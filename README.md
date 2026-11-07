@@ -78,6 +78,8 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | VSync | — | On, off, or G-Sync / FreeSync (VRR) |
 | Display mode | — | Windowed, borderless or exclusive full screen at your monitor's refresh rate |
 | Texture filtering | Original | Original, or anisotropic up to 16x |
+| Character shadows | Original | Up to 16x sharper, with adjustable softness |
+| World shadows | Blocky edges | Smooth |
 | Anti-aliasing | — | FXAA or SMAA |
 | Sharpening | — | AMD FidelityFX CAS, adjustable |
 | Pop-in | Grass, fur and distant characters thin out or vanish | **Pop-in Fix**: full detail at any distance; foliage, characters, fur and ambient particle (experimental) can each be turned on or off |
@@ -112,6 +114,25 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   <tr>
     <td><img src="images/pop-in-before.png" alt="Grass thinned out in the distance with the Pop-in Fix off"></td>
     <td><img src="images/pop-in-after.png" alt="Full grass and flowers in the distance with the Pop-in Fix on"></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th width="50%">Shadows: original</th>
+    <th width="50%">Shadows: 16x</th>
+  </tr>
+  <tr>
+    <td><img src="images/compare-shadows-char-a.png" alt="Conker's shadow as on the Xbox"></td>
+    <td><img src="images/compare-shadows-char-b.png" alt="Conker's shadow at 16x"></td>
+  </tr>
+  <tr>
+    <th>Shadows: original</th>
+    <th>Smooth world shadows, shadows 8x</th>
+  </tr>
+  <tr>
+    <td><img src="images/compare-shadows-world-a.png" alt="World and character shadows as on the Xbox"></td>
+    <td><img src="images/compare-shadows-world-b.png" alt="Smooth world shadows and an 8x character shadow"></td>
   </tr>
 </table>
 
@@ -158,7 +179,8 @@ at a time. Or turn off Hold to Skip to skip on a press.
 
 ### Sound
 
-- The Xbox's sound chip emulated as in xemu, for the original mix.
+- The Xbox's sound chip emulated as in xemu, for the original mix, with sound
+  effects no longer louder than the music (xemu's mix plays 3D sounds too loud).
 - Speaker mix and 3D sound (HRTF) options.
 - Sound can be silenced while paused.
 
@@ -255,7 +277,6 @@ Ideas for future updates, in no particular order. Plans can change.
 - Mouse controls for menus
 - Gyro aiming
 - HD-friendly GUI / expanded button prompts
-- Improved shadows
 - Improved water and fluids
 - Achievements
 - Working online play (via System Link emulation)
@@ -266,7 +287,6 @@ Ideas for future updates, in no particular order. Plans can change.
 - Xbox Live and System Link are not available (multiplayer against bots works).
 - The first time an area is seen, a short pause can happen while the graphics
   card prepares it; it is remembered for next time.
-- Sound can crackle for a moment when the game slows down.
 - The original loading screen doesn't show.
 - Opening photo mode during a cutscene can break the cutscene's sound. For
   example, during the Great Mighty Poo song it removes the voice lines.

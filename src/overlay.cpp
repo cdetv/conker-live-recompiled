@@ -68,7 +68,8 @@
  * xbox_SetCrt, the toolkit's
  * filter chain; from the next present, also while paused; the glow slider,
  * conker_SetGlow, scales the game's own glow from its next frame, and
- * cutscene blur, conker_SetCutsceneBlur, likewise; the
+ * cutscene blur, conker_SetCutsceneBlur, likewise; shadow quality,
+ * conker_SetShadowRes in shadows.c, from each shadow's next draw; the
  * frame rate, the dip fix, grass detail, screen haze, vignette and screen
  * drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
  * conker_SetScreenHaze, conker_SetVignette, conker_SetScreenDrops,
@@ -135,6 +136,9 @@ int xbox_SetVsync(int mode);
 int xbox_SetCrt(int mode, float strength);
 void conker_SetGlow(float pct);
 void conker_SetCutsceneBlur(int mode);
+void conker_SetShadowRes(unsigned factor);
+void conker_SetShadowSoftness(float pct);
+void conker_SetSmoothLightmaps(int on);
 void conker_SetFrameRate(int fps);
 void conker_SetDipFix(int on);
 void conker_SetMainMenuSpeed(int on);
@@ -934,6 +938,9 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetUnderwaterOverlay(on);
         if (!strcmp(key, "poo_fix") && !settings_env_override(key))
             conker_SetPooFix(on);
+        if (!strcmp(key, "smooth_world_shadows")
+            && !settings_env_override(key))
+            conker_SetSmoothLightmaps(on);
         /* Audio waits for the next start: the voice banks stay open. */
         if (!strcmp(key, "uncensored_text") && !settings_env_override(key))
             decensor_set(1, on);
@@ -1124,6 +1131,9 @@ static void choice(const char *label, const char *key,
                 if (!s_error[0] && !strcmp(key, "cutscene_blur")
                     && !settings_env_override(key))
                     conker_SetCutsceneBlur(i);
+                if (!s_error[0] && !strcmp(key, "shadow_resolution")
+                    && !settings_env_override(key))
+                    conker_SetShadowRes((unsigned)atoi(values[i]));
                 if (!s_error[0] && (!strcmp(key, "mp_zoom_mode")
                                     || !strcmp(key, "story_slingshot_aim"))) {
                     controls_apply();
@@ -1161,6 +1171,7 @@ static Slide s_slides[] = {
     { "mp_mouse_x", 100.0f, false },
     { "mp_mouse_y", 100.0f, false },
     { "particle_density", 15.0f, false },
+    { "shadow_softness", 50.0f, false },
 };
 #define NUM_SLIDES ((int)(sizeof(s_slides) / sizeof(s_slides[0])))
 
@@ -1210,6 +1221,11 @@ static void apply_slider(const char *key, bool saved)
     if (!strcmp(key, "particle_density")) {
         if (!settings_env_override(key))
             conker_SetParticleDensity(slide_value(slide_for(key)));
+        return;
+    }
+    if (!strcmp(key, "shadow_softness")) {
+        if (!settings_env_override(key))
+            conker_SetShadowSoftness(slide_value(slide_for(key)));
         return;
     }
     apply_picture();
@@ -1458,6 +1474,13 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     static const char *const crt_names[] = {
         "Off (original)", "Scanlines", "CRT (scanlines, curve, glow)",
     };
+    /* atoi gives conker_SetShadowRes's factor ("original": 0 = 1x). */
+    static const char *const shadow_values[] = { "original", "2x", "4x",
+                                                 "8x", "16x" };
+    static const char *const shadow_names[] = {
+        "Original (soft, blocky)", "2x", "4x (sharper)", "8x (very sharp)",
+        "16x (sharpest, more GPU)",
+    };
     /* In conker_SetCutsceneBlur's order. */
     static const char *const dof_values[] = {
         "off", "original", "updated", "cinematic",
@@ -1591,6 +1614,18 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     section("Picture");
     choice("Anti-aliasing", "antialiasing", aa_values, aa_names,
            (int)(sizeof(aa_values) / sizeof(aa_values[0])), true);
+    choice("Shadows", "shadow_resolution", shadow_values, shadow_names,
+           (int)(sizeof(shadow_values) / sizeof(shadow_values[0])), true);
+    /* To-do 105: the game's own shadows at original, nothing to soften. */
+    ImGui::BeginDisabled(!_stricmp(settings_get("shadow_resolution"),
+                                   "original"));
+    slider("Shadow softness", "shadow_softness", 0.0f, 100.0f, "0",
+           "%.0f %%", "Back to off (0 %: as sharp as Shadows draws them)");
+    ImGui::EndDisabled();
+    checkbox("Smooth world shadows", "smooth_world_shadows", true,
+             "The shadows baked into the levels (fences, plants, buildings) "
+             "read smoothly instead of as blocky steps. Off = as the "
+             "original");
     {
         static const char *const orig = "Back to the original (1.00)";
         slider("Gamma", "gamma", 0.5f, 1.5f, "1", "%.2f", orig);

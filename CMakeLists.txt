@@ -104,6 +104,8 @@ set(GAME_SOURCES
     src/photo_mode.c
     src/decensor.c
     src/save_names.c
+    src/shadows.c
+    src/lightmaps.c
     src/overlay.cpp
     # Add game-specific sources here, e.g.:
     # src/asset_loader.c
@@ -170,12 +172,16 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # The xemu audio emulation (LGPL) is its own xemu_apu.dll, loaded from the
 # .exe's folder (SPEC 9.5; toolkit src/apu/apu_host.h). Its .pdb goes along
-# for the crash handler and the sampling profiler.
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+# for the crash handler and the sampling profiler. Copied by a target of its
+# own on every build: a post-build step on the .exe ran only when the .exe
+# relinked, so a change inside the DLL alone left the old copy there (and a
+# release would have packaged it; to-do 6, 2026-11-06).
+add_custom_target(xemu_apu_copy ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:xemu_apu> $<TARGET_PDB_FILE:xemu_apu>
             $<TARGET_FILE_DIR:${PROJECT_NAME}>
     VERBATIM)
+add_dependencies(xemu_apu_copy xemu_apu ${PROJECT_NAME})
 
 # The game folder for a dev build: the .exe looks in "game" next to itself,
 # as a release does once the launcher has imported the disc (SPEC 9.3).

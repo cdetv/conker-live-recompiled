@@ -4802,6 +4802,309 @@ void conker_SetCutsceneSkip(int on)
     g_skip_on = on != 0;
 }
 
+/* ── Conker: cutscene event log (RECOMP_CUTEVENT_LOG=1, debug) ──────────
+ *
+ * Issue 16 (2026-11-06): the throne room's story scene (level 0x18) went
+ * black in the Professor's lab shot above 30 fps, and its lab ambience
+ * never started. The level holds three sets (Throneroom, _OutsideCastle,
+ * _Lab); the per-frame event dispatcher (0x00056050) loads the one camera 0's
+ * +0x334 falls in at the end of its run (0x0012B260 unload, 0x0012B1D0 load,
+ * name in esi). Events aimed at a character or object (track type 2 / 3)
+ * are dropped by 0x0005E240 when that target is not found, before the
+ * executor 0x000569A0 runs. These lines show which events were tried, which
+ * ran, and when a set loaded, to tell a dropped event from a late one:
+ *   [CUTEVT] try  slot, cutscene time now/last, event time, record bytes, track type/id
+ *   [CUTEVT] run  the same record reached the executor
+ *   [CUTEVT] set  a set load, with camera 0's +0x334 */
+static int cutevent_log_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_CUTEVENT_LOG");
+        on = e && *e && *e != '0';
+    }
+    return on;
+}
+
+void sub_0005E240_enter(void)
+{
+    uint32_t slot = g_esi, rec = MEM32(g_esp + 4), track = MEM32(g_esp + 8) & 0xFFu;
+    uint32_t tracks, tt = 0xFFFF, tid = 0xFF;
+    if (!cutevent_log_on())
+        return;
+    tracks = slot < 8 ? MEM32(0x0076EF2Cu + slot * 4) : 0;
+    if (xact_va_ok(tracks)) {
+        tt = MEM16(tracks + track * 8);
+        tid = MEM8(tracks + track * 8 + 2);
+    }
+    fprintf(stderr, "[CUTEVT] t=%ld ms try level %02X slot %u time %d/%d ev %d "
+            "rec %08X [%02X %02X %04X %02X %02X %04X] track %u type %u id %02X\n",
+            attach_ms(), MEM32(0x007FA1F8u), slot,
+            slot < 2 ? (int)MEM32(0x0076F0F8u + slot * 4) : -1,
+            slot < 2 ? (int)MEM32(0x0076F0F0u + slot * 4) : -1,
+            (int)MEM32(g_esp + 0x10), rec,
+            xact_va_ok(rec) ? MEM8(rec) : 0, xact_va_ok(rec) ? MEM8(rec + 1) : 0,
+            xact_va_ok(rec) ? MEM16(rec + 2) : 0, xact_va_ok(rec) ? MEM8(rec + 4) : 0,
+            xact_va_ok(rec) ? MEM8(rec + 5) : 0, xact_va_ok(rec) ? MEM16(rec + 6) : 0,
+            track, tt, tid);
+}
+
+void sub_000569A0_enter(void)
+{
+    if (cutevent_log_on())
+        fprintf(stderr, "[CUTEVT] t=%ld ms run rec %08X (ret %08X)\n",
+                attach_ms(), g_eax, MEM32(g_esp));
+}
+
+void sub_0012B1D0_enter(void)
+{
+    uint32_t cam = MEM32(0x008470DCu);
+    char name[40] = "?";
+    int i;
+    if (!cutevent_log_on())
+        return;
+    if (xact_va_ok(g_esi))
+        for (i = 0; i < (int)sizeof name - 1 && MEM8(g_esi + i); i++) {
+            name[i] = (char)MEM8(g_esi + i);
+            name[i + 1] = '\0';
+        }
+    fprintf(stderr, "[CUTEVT] t=%ld ms set load \"%s\" (chosen %d, loaded %08X, "
+            "camera +0x334 %.0f, ret %08X)\n", attach_ms(), name,
+            (int)MEM32(0x0068C490u), MEM32(0x008493BCu),
+            xact_va_ok(cam) ? MEMF(cam + 0x334u) : 0.0f, MEM32(g_esp));
+}
+
+/* The same log follows levels and scene parts around a skip (issue 16: a skip
+ * in the throne room scene's first part crashed the barn load in the level
+ * unload, on -1 values, at any frame rate):
+ *   [CUTEVT] level change  0x002AA0C0: requested [0x007FA1F4], current [0x007FA1F8]
+ *   [CUTEVT] level unload  0x002AA140
+ *   [CUTEVT] sections push 0x0034EEE0 (list in ebx) / pop 0x0034EF90; depth [0x0084B108],
+ *            stack [0x008013A0 + depth*4]
+ *   [CUTEVT] scene start 0x0004EC10 (stack: level, scene, slot), end 0x000507A0 (esi =
+ *            slot; next part: level [0x0076F0B7], scene [0x0076F0B8] - 1), skip_now 0x0004FDC0 */
+static void cutevent_where(const char *what)
+{
+    uint32_t d = MEM32(0x0084B108u);
+    fprintf(stderr, "[CUTEVT] t=%ld ms %s: level %02X (requested %02X) sections depth %d "
+            "top %08X (ret %08X)\n", attach_ms(), what, MEM32(0x007FA1F8u),
+            MEM32(0x007FA1F4u), (int)d, d && d < 64 ? MEM32(0x0080139Cu + d * 4) : 0,
+            MEM32(g_esp));
+}
+
+void sub_002AA0C0_enter(void)
+{
+    if (cutevent_log_on())
+        cutevent_where("level change");
+}
+
+void sub_002AA140_enter(void)
+{
+    if (cutevent_log_on())
+        cutevent_where("level unload");
+}
+
+void sub_0034EEE0_enter(void)
+{
+    char first[24] = "?";
+    uint32_t s;
+    int i;
+    if (!cutevent_log_on())
+        return;
+    if (xact_va_ok(g_ebx) && xact_va_ok(s = MEM32(g_ebx)))
+        for (i = 0; i < (int)sizeof first - 1 && MEM8(s + i); i++) {
+            first[i] = (char)MEM8(s + i);
+            first[i + 1] = '\0';
+        }
+    cutevent_where("sections push");
+    fprintf(stderr, "[CUTEVT]   list %08X first \"%s\"\n", g_ebx, first);
+}
+
+void sub_0034EF90_enter(void)
+{
+    if (cutevent_log_on())
+        cutevent_where("sections pop");
+}
+
+void sub_0004EC10_enter(void)
+{
+    if (cutevent_log_on())
+        fprintf(stderr, "[CUTEVT] t=%ld ms scene start: level %02X scene %u slot %u "
+                "(current level %02X, ret %08X)\n", attach_ms(), MEM32(g_esp + 4),
+                MEM32(g_esp + 8), MEM32(g_esp + 12), MEM32(0x007FA1F8u), MEM32(g_esp));
+}
+
+void sub_000507A0_enter(void)
+{
+    uint32_t s = g_esi;
+    if (cutevent_log_on())
+        fprintf(stderr, "[CUTEVT] t=%ld ms scene end: slot %u level %02X scene %u time %d "
+                "next level %02X scene %d skipping %u (ret %08X)\n", attach_ms(), s,
+                MEM32(0x007FA1F8u), s < 4 ? MEM8(0x0076F0DCu + s) : 0,
+                s < 2 ? (int)MEM32(0x0076F0F8u + s * 4) : -1, MEM8(0x0076F0B7u),
+                (int)MEM8(0x0076F0B8u) - 1, MEM8(0x00765601u), MEM32(g_esp));
+}
+
+void sub_0004FDC0_enter(void)
+{
+    if (cutevent_log_on())
+        fprintf(stderr, "[CUTEVT] t=%ld ms skip_now (ret %08X)\n", attach_ms(), MEM32(g_esp));
+}
+
+/* Level request 0x002A94A0 (kind, byte, a, b; level in esi): kinds 1 / 2 set
+ * the outer loop's state [0x007819D6] to 3 (init level esi), 4 / 6 to 2
+ * (change level), 5 to 1 (front end); ignored while [0x0076EC82] is set. */
+void sub_002A94A0_enter(void)
+{
+    if (cutevent_log_on())
+        fprintf(stderr, "[CUTEVT] t=%ld ms level request: kind %u level %02X arg %u "
+                "(state %u, ignore flag %u/%u, current %02X, ret %08X, then %08X %08X)\n",
+                attach_ms(), MEM32(g_esp + 4), g_esi, MEM8(g_esp + 8),
+                MEM8(0x007819D6u), MEM8(0x0076EC82u), MEM8(0x00771130u),
+                MEM32(0x007FA1F8u), MEM32(g_esp), MEM32(g_esp + 0x14), MEM32(g_esp + 0x18));
+}
+
+/* ── Conker: a cutscene that starts mid-timeline above 30 fps ─────────────
+ *
+ * Issue 16 (2026-11-06; RECOMP_CUTSCENE_START_FIX, on; =0 the original).
+ * A cutscene can start at a time other than 0: its start event (type 5,
+ * 0x77) sets the start [0x007655F4] (word), and 0x0004F8A0 puts the clock
+ * there (slot s: now [0x0076F0F8 + s*4], last [0x0076F0F0 + s*4]; the reset
+ * 0x0004E9E0 made last -100 and cleared flag [0x0076F0D8 + s]). Its opening
+ * events (times 0..start: who stands where, the set's ambience, the first
+ * view) are meant to fire together: the clock step 0x000501F0 sets last to
+ * -1 the first time now leaves the start, so the dispatcher 0x00056050 fires
+ * everything up to now -- but only while the flag is 0, and every dispatcher
+ * run (mode 0) sets it, even one whose window last..now was empty.
+ *
+ * At 30 fps every step moves the clock 2 ticks, so it always leaves the
+ * start before the dispatcher's first run. Above 60 fps a step is under a
+ * tick (now = (int)(60 * seconds): 100.5 -> 100), and at 60 the float sum
+ * can land just under (100.99998 -> 100): the dispatcher runs on a clock
+ * still at the start, finds nothing, sets the flag, and the opening events
+ * are never fired. The throne room story scene's second part (the
+ * Professor's lab, start 100) then drew nothing but subtitles and a shadow
+ * under the game's own black pass, its lab ambience never started, and a
+ * skip into it crashed (conker-notes 2026-11-06). A start of 0 is safe: the
+ * step forces now 0 -> 1.
+ *
+ * Fix: the dispatcher's entry notes when its flag-setting run sees an empty
+ * window ("owed"); the clock step's entry then clears the flag again while
+ * the clock still sits on the start, so the game's own catch-up runs when
+ * the clock moves. A first run that did fire the opening (a scene started
+ * between the step and the dispatcher: window -100..start) is never owed,
+ * so nothing fires twice. RECOMP_CUTEVENT_LOG=1 prints [CUTEVT] start fix. */
+static int s_cut_owed[2];
+
+static int cutscene_start_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_CUTSCENE_START_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+void sub_00056050_enter(void)
+{
+    uint32_t mode = MEM32(g_esp + 4), s = MEM32(g_esp + 8);
+    if (mode != 0 || s > 1 || !cutscene_start_fix_on() || MEM8(0x0076F0D8u + s))
+        return;
+    s_cut_owed[s] = MEM32(0x0076F0F0u + s * 4) == MEM32(0x0076F0F8u + s * 4);
+}
+
+void sub_000501F0_enter(void)
+{
+    uint32_t s = g_esi, start, now;
+    if (s > 1 || !s_cut_owed[s] || !cutscene_start_fix_on())
+        return;
+    start = MEM16(0x007655F4u);
+    now = MEM32(0x0076F0F8u + s * 4);
+    if (now != start) {
+        s_cut_owed[s] = 0;              /* left the start: the catch-up ran */
+        return;
+    }
+    if (MEM8(0x0076F0E0u + s) == 1 && MEM8(0x0076F0D8u + s)
+        && MEM32(0x0076F0F0u + s * 4) == start) {
+        MEM8(0x0076F0D8u + s) = 0;
+        if (cutevent_log_on())
+            fprintf(stderr, "[CUTEVT] t=%ld ms start fix: slot %u still on its start "
+                    "%u, opening events kept for the catch-up\n", attach_ms(), s, start);
+    }
+}
+
+/* ── IsBadReadPtr without SEH (issue 16) ──────────────────────────────────
+ *
+ * XAPI's IsBadReadPtr (0x0042C843, stdcall lp, ucb; IsBadCodePtr 0x0042C911
+ * calls it with 1) reads the first byte and one byte per page inside an SEH
+ * frame (__SEH_prolog 0x00470A34) and answers TRUE when a read faults. The
+ * translation has no SEH, so that read of a bad pointer was a real access
+ * violation. The game's "free it if it is valid" helpers (0x000630C0;
+ * XMemFree 0x002AF6CF; ~100 IsBadCodePtr callers) pass such pointers on
+ * purpose: skipping the throne room story scene in its first part left -1
+ * in one, and the barnyard load crashed freeing it (at 30 fps too;
+ * conker-notes 2026-11-06). This answers the same from the host pages
+ * (committed and readable = good) without reading them. The first 16 TRUE
+ * answers print [BADPTR] with the caller; RECOMP_BADPTR_FIX=0 = the
+ * generated body (crashes on a bad pointer, as before). */
+extern void sub_0042C843_gen(void);
+
+static int guest_range_readable(uint32_t lp, uint32_t last)
+{
+    uintptr_t h, end;
+    /* Guest RAM (64 MB) is one mapping, always committed and readable. */
+    if (lp >= 0x00010000u && last < 0x04000000u)
+        return 1;
+    h = XBOX_PTR(lp) & ~(uintptr_t)0xFFF;
+    end = XBOX_PTR(last);
+    while (h <= end) {
+        MEMORY_BASIC_INFORMATION mbi;
+        uintptr_t next;
+        DWORD p;
+        if (!VirtualQuery((void *)h, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT)
+            return 0;
+        p = mbi.Protect;
+        if ((p & (PAGE_NOACCESS | PAGE_GUARD))
+            || !(p & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ
+                      | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+            return 0;
+        next = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+        if (next <= h)
+            return 0;
+        h = next;
+    }
+    return 1;
+}
+
+void sub_0042C843(void)
+{
+    static int on = -1, shown;
+    uint32_t lp = MEM32(g_esp + 4), ucb = MEM32(g_esp + 8), bad;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_BADPTR_FIX");
+        on = !(e && *e == '0');
+    }
+    if (!on) {
+        sub_0042C843_gen();
+        return;
+    }
+    if (!ucb)
+        bad = 0;
+    else if (!lp || lp + ucb - 1 < lp)
+        bad = 1;
+    else
+        bad = !guest_range_readable(lp, lp + ucb - 1);
+    if (bad && lp && shown < 16) {      /* NULL is the everyday "nothing to free" */
+        shown++;
+        fprintf(stderr, "[BADPTR] IsBadReadPtr(%08X, %u) = TRUE (ret %08X, its caller's "
+                "ret %08X)\n", lp, ucb, MEM32(g_esp),
+                MEM32(g_esp) == 0x0042C91Cu ? MEM32(g_esp + 0xC) : 0);
+    }
+    g_eax = bad;
+    g_esp += 12;                        /* ret 8 */
+}
+
 void conker_SetSkipHold(int on)
 {
     g_skip_hold = on != 0;
@@ -4965,15 +5268,27 @@ static void skip_short_now(int fade)
         MEM32(0x00771C5Cu) = (uint32_t)fade;
         MEM32(0x00771C60u) = 0u;
     }
+    /* Every call from here pushes a return address: a translated function's
+     * ret pops one (esp += 4), so a bare call moved the guest stack 4 bytes
+     * up. Before 2026-11-06 the last three calls had none: a short scene's
+     * skip left esp 8 bytes off, the functions unwinding after it restored
+     * ebx & co. from the wrong slots, and after the throne room scene's
+     * part one was skipped the outer loop wrote ebx's 0x45 as the level
+     * state and unloaded the barnyard twice (crash; issue 16, conker-notes
+     * 2026-11-06 "throne room"). 0x0001F6D0 is ret 4 (its argument too). */
     g_esp -= 4; MEM32(g_esp) = MEM32(MEM32(0x00847024u) + 0x3Cu);
     g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
     sub_0001F6D0();
+    g_esp -= 4; MEM32(g_esp) = 0;
     sub_0001B140();
-    if (g_eax == 1u || g_eax == 2u)
+    if (g_eax == 1u || g_eax == 2u) {
+        g_esp -= 4; MEM32(g_esp) = 0;
         sub_0001B180();
+    }
     MEM8(0x0076F0B4u) = 0;
     MEM8(0x00765600u) = 0;
     MEM8(0x00765601u) = 2;
+    g_esp -= 4; MEM32(g_esp) = 0;
     sub_0004FDC0();
     MEM8(0x00765601u) = 0;
 }
