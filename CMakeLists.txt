@@ -106,6 +106,7 @@ set(GAME_SOURCES
     src/save_names.c
     src/shadows.c
     src/lightmaps.c
+    src/precompile.c
     src/overlay.cpp
     # Add game-specific sources here, e.g.:
     # src/asset_loader.c
@@ -158,6 +159,11 @@ else()
 endif()
 configure_file(src/conker.rc.in "${CMAKE_CURRENT_BINARY_DIR}/conker.rc" @ONLY)
 target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/conker.rc")
+
+# The version, for what the game writes for the launcher (src/precompile.c).
+# That file only: on the whole target a version bump would rebuild everything.
+set_source_files_properties(src/precompile.c PROPERTIES
+    COMPILE_DEFINITIONS "CONKER_VERSION_STR=\"${CONKER_VERSION}\"")
 
 # Link against the xboxrecomp umbrella target (all 6 runtime libraries)
 target_link_libraries(${PROJECT_NAME} PRIVATE xboxrecomp imgui)

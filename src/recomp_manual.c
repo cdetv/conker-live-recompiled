@@ -37,6 +37,7 @@
 #include "xbox_kbm.h"
 #include "photo_mode.h"
 #include "save_names.h"
+#include "precompile.h"
 
 /* ── Manual function overrides ─────────────────────────────── */
 
@@ -734,6 +735,373 @@ void sub_005531E1_enter(void)
         xact_trk_line("done", g_esi);
 }
 
+/* ------------------------------------------------------------------------
+ * Sound channels (to-do 13, SPEC 10.1 Sound): a volume and a mute for
+ * music, effects, dialogue and other (ambience, menu sounds), a solo for
+ * testing (--debug), a master volume and a cutscene volume.
+ *
+ * Every XACT voice's volume goes through one call, 0x0054E484 (eax = XACT's
+ * voice wrapper, [esp+4] = millibels, 0 = full, -10000 = silent), mostly
+ * from 0x00551690 (sound, track), which works it out from the sound's
+ * volume, the track's and the game's variables whenever one changes
+ * (conker-notes 2026-11-07 "Sound channels"). The entry hook adds the
+ * channel's millibels to the argument. The channel comes from the track's
+ * wave bank (track +0x74, an XACT handle): audiocore's bank list at
+ * 0x0084B8EC (+4 next, +0x20 the XACT handle, +0x14 the game's
+ * CAudioWaveBank, whose +4 is its path) gives the bank's file name, and the
+ * name its kind, as the game's own bank table does (0x00687F80: am_
+ * ambience, cut_ cutscene speech, m_ / multi_ music, the rest effects;
+ * sfx_speech* in-game speech, sfx_frontend* menu sounds).
+ *
+ * XACT sets a voice's volume only when something changes, so a channel
+ * change is re-sent: the voices seen (wrapper -> sound, track) are asked
+ * again through 0x00551690 for every playing sound, from audio_update on
+ * the game thread (where the game makes all its XACT calls).
+ *
+ * Master and cutscene volume are one gain on the output (toolkit
+ * xbox_ApuSetOutputGain, which glides and limits above 1): movies
+ * included; the cutscene volume applies while a cutscene plays
+ * ([0x0076F0E0] == 1, the cutscene camera; dof_update's test).
+ *
+ * Volumes are percent on a squared curve (50 % = -12 dB, 0 = silent); the
+ * cutscene volume goes to 200 % (+12 dB; user 2026-11-07: percent, the
+ * original in the middle). At the defaults (100 %, no mute) the hook
+ * changes nothing and the output gain is 1: the original sound.
+ * RECOMP_VOLUME_LOG=1: [VOLUME] lines (classes, changes, re-sends);
+ * =2 also each SetVolume call. RECOMP_AUDIO_SOLO=music|effects|dialogue|
+ * other = the debug solo from the start. */
+void xbox_ApuSetOutputGain(float gain);
+extern void sub_00551690(void);
+
+enum { SND_MUSIC, SND_EFFECTS, SND_DIALOGUE, SND_OTHER, SND_CHANNELS };
+static const char *const s_snd_names[SND_CHANNELS] = {
+    "music", "effects", "dialogue", "other",
+};
+static const char *const s_snd_vol_env[SND_CHANNELS] = {
+    "RECOMP_MUSIC_VOLUME", "RECOMP_EFFECTS_VOLUME", "RECOMP_DIALOGUE_VOLUME",
+    "RECOMP_OTHER_VOLUME",
+};
+static const char *const s_snd_mute_env[SND_CHANNELS] = {
+    "RECOMP_MUSIC_MUTE", "RECOMP_EFFECTS_MUTE", "RECOMP_DIALOGUE_MUTE",
+    "RECOMP_OTHER_MUTE",
+};
+
+static volatile float g_snd_vol[SND_CHANNELS];   /* percent */
+static volatile int   g_snd_mute[SND_CHANNELS];
+static volatile int   g_snd_solo = -1;           /* channel, -1 none */
+static volatile float g_snd_master = 100.0f;     /* percent */
+static volatile int   g_snd_master_mute;
+static volatile float g_snd_cut = 100.0f;        /* percent, in cutscenes */
+static volatile long  g_snd_gen;                 /* bumped by every change */
+static int g_snd_ready;
+static int g_snd_log = -1;
+static unsigned g_snd_class_count[SND_CHANNELS + 1];   /* + not found */
+
+static float snd_env_pct(const char *name, float def, float hi)
+{
+    const char *e = getenv(name);
+    float v = e && *e ? (float)atof(e) : def;
+    return v < 0.0f ? 0.0f : v > hi ? hi : v;
+}
+
+static int snd_channel_named(const char *s)
+{
+    int i;
+    for (i = 0; s && i < SND_CHANNELS; i++)
+        if (!_stricmp(s, s_snd_names[i]))
+            return i;
+    return -1;
+}
+
+/* The switches (settings.ini sets them), read once. */
+static void snd_init(void)
+{
+    int i;
+    const char *e;
+    if (g_snd_ready)
+        return;
+    for (i = 0; i < SND_CHANNELS; i++) {
+        e = getenv(s_snd_mute_env[i]);
+        g_snd_vol[i] = snd_env_pct(s_snd_vol_env[i], 100.0f, 100.0f);
+        g_snd_mute[i] = e && *e && *e != '0';
+    }
+    g_snd_master = snd_env_pct("RECOMP_MASTER_VOLUME", 100.0f, 100.0f);
+    e = getenv("RECOMP_MASTER_MUTE");
+    g_snd_master_mute = e && *e && *e != '0';
+    g_snd_cut = snd_env_pct("RECOMP_CUTSCENE_VOLUME", 100.0f, 200.0f);
+    g_snd_solo = snd_channel_named(getenv("RECOMP_AUDIO_SOLO"));
+    e = getenv("RECOMP_VOLUME_LOG");
+    g_snd_log = e && *e ? atoi(e) : 0;
+    g_snd_ready = 1;
+    fprintf(stderr, "[VOLUME] master %.0f %%%s, music %.0f %%%s, effects %.0f %%%s, "
+            "dialogue %.0f %%%s, other %.0f %%%s, cutscenes %.0f %%%s%s\n",
+            g_snd_master, g_snd_master_mute ? " muted" : "",
+            g_snd_vol[0], g_snd_mute[0] ? " muted" : "",
+            g_snd_vol[1], g_snd_mute[1] ? " muted" : "",
+            g_snd_vol[2], g_snd_mute[2] ? " muted" : "",
+            g_snd_vol[3], g_snd_mute[3] ? " muted" : "", g_snd_cut,
+            g_snd_solo >= 0 ? ", solo " : "",
+            g_snd_solo >= 0 ? s_snd_names[g_snd_solo] : "");
+}
+
+/* What a channel adds to a voice's volume, in millibels (0 = nothing). */
+static int snd_offset_mb(int ch)
+{
+    float p;
+    if (ch < 0 || ch >= SND_CHANNELS)
+        return 0;
+    if (g_snd_mute[ch] || (g_snd_solo >= 0 && g_snd_solo != ch))
+        return -10000;
+    p = g_snd_vol[ch] / 100.0f;
+    if (p >= 1.0f)
+        return 0;
+    if (p <= 0.0f)
+        return -10000;
+    /* Squared: 2000 * log10(p * p). */
+    return (int)lrintf(4000.0f * log10f(p));
+}
+
+/* A bank file's channel from its name ("audio\m_windy01.xwb"). */
+static int snd_channel_of_path(uint32_t path)
+{
+    char name[48];
+    int i, n = 0;
+    uint8_t c;
+    if (!xact_va_ok(path))
+        return -1;
+    for (i = 0; i < 96 && (c = MEM8(path + (uint32_t)i)) != 0; i++) {
+        if (c == '\\' || c == '/') {
+            n = 0;
+            continue;
+        }
+        if (n < (int)sizeof(name) - 1)
+            name[n++] = (char)(c >= 'A' && c <= 'Z' ? c + 32 : c);
+    }
+    name[n] = 0;
+    if (!strncmp(name, "m_", 2) || !strncmp(name, "multi_", 6))
+        return SND_MUSIC;
+    if (!strncmp(name, "am_", 3) || !strncmp(name, "sfx_frontend", 12))
+        return SND_OTHER;
+    if (!strncmp(name, "cut_", 4) || !strncmp(name, "sfx_spe", 7))
+        return SND_DIALOGUE;
+    return SND_EFFECTS;
+}
+
+/* An XACT wave bank's channel, from the game's registered banks; -1 when it
+ * is not among them. */
+static int snd_channel_of_bank(uint32_t wb)
+{
+    uint32_t n = MEM32(0x0084B8F0u);
+    int guard = 0;
+    while (xact_va_ok(n) && guard++ < 256) {
+        if (MEM32(n + 0x20) == wb) {
+            uint32_t bank = MEM32(n + 0x14);
+            return xact_va_ok(bank) ? snd_channel_of_path(MEM32(bank + 4)) : -1;
+        }
+        n = MEM32(n + 4);
+    }
+    return -1;
+}
+
+/* The voices seen: wrapper -> the sound and track that last set its volume
+ * (re-sent when a channel changes) and its channel. */
+#define SND_VOICES 512
+typedef struct { uint32_t w, snd, trk; int ch; } SndVoice;
+static SndVoice s_snd_voices[SND_VOICES];
+
+static SndVoice *snd_voice(uint32_t w, int add)
+{
+    int i, free_i = -1;
+    for (i = 0; i < SND_VOICES; i++) {
+        if (s_snd_voices[i].w == w)
+            return &s_snd_voices[i];
+        if (free_i < 0 && !s_snd_voices[i].w)
+            free_i = i;
+    }
+    if (!add)
+        return NULL;
+    if (free_i < 0) {
+        /* Full: drop the ones whose track has moved on. */
+        for (i = 0; i < SND_VOICES; i++) {
+            SndVoice *v = &s_snd_voices[i];
+            if (!xact_va_ok(v->trk) || MEM32(v->trk + 4) != v->w) {
+                v->w = 0;
+                if (free_i < 0)
+                    free_i = i;
+            }
+        }
+        if (free_i < 0)
+            return NULL;
+    }
+    s_snd_voices[free_i].w = w;
+    return &s_snd_voices[free_i];
+}
+
+/* 0x0054E484: XACT voice SetVolume (eax = wrapper, [esp+4] = millibels). */
+void sub_0054E484_enter(void)
+{
+    uint32_t w = g_eax, ret = MEM32(g_esp);
+    int32_t mb = (int32_t)MEM32(g_esp + 4), was = mb;
+    int ch = -1, off;
+    SndVoice *v;
+
+    snd_init();
+    if (ret == 0x0055172Fu) {
+        /* From 0x00551690: its frame holds sound [ebp+8], track [ebp+0xC]. */
+        uint32_t snd = MEM32(g_ebp + 8), trk = MEM32(g_ebp + 0xC);
+        if (xact_va_ok(trk)) {
+            ch = snd_channel_of_bank(MEM32(trk + 0x74));
+            g_snd_class_count[ch < 0 ? SND_CHANNELS : ch]++;
+            if ((v = snd_voice(w, 1)) != NULL) {
+                if (g_snd_log > 0 && (v->snd != snd || v->trk != trk))
+                    fprintf(stderr, "[VOLUME] voice %08X: %s (bank %08X)\n", w,
+                            ch < 0 ? "bank not found, effects" : s_snd_names[ch],
+                            MEM32(trk + 0x74));
+                v->snd = snd;
+                v->trk = trk;
+                v->ch = ch;
+            }
+        }
+    } else if ((v = snd_voice(w, 0)) != NULL) {
+        ch = v->ch;
+    }
+    if (ch < 0)
+        ch = SND_EFFECTS;
+    off = snd_offset_mb(ch);
+    if (off) {
+        mb += off;
+        if (mb < -10000)
+            mb = -10000;
+        if (mb > 0)
+            mb = 0;
+        MEM32(g_esp + 4) = (uint32_t)mb;
+    }
+    if (g_snd_log > 1)
+        fprintf(stderr, "[VOLUME] set %08X %s %d -> %d mB (ret %08X)\n", w,
+                s_snd_names[ch], was, mb, ret);
+}
+
+/* Every playing sound's voices asked for their volume again (game thread,
+ * audio_update), after a channel change. */
+static void snd_resend(void)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_ebp = g_ebp, r_esp = g_esp;
+    int i, sent = 0;
+
+    for (i = 0; i < SND_VOICES; i++) {
+        SndVoice *v = &s_snd_voices[i];
+        if (!v->w)
+            continue;
+        if (!xact_va_ok(v->trk) || !xact_va_ok(v->snd) ||
+            MEM32(v->trk + 4) != v->w || MEM32(v->trk + 8) != v->snd) {
+            v->w = 0;               /* the track has moved on */
+            continue;
+        }
+        if (MEM16(v->snd + 0x30) != 2)   /* only playing sounds */
+            continue;
+        g_esp -= 4; MEM32(g_esp) = v->trk;
+        g_esp -= 4; MEM32(g_esp) = v->snd;
+        g_esp -= 4; MEM32(g_esp) = 0;   /* return address, popped by the callee */
+        sub_00551690();
+        g_esp = r_esp;
+        sent++;
+    }
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_ebp = r_ebp; g_esp = r_esp;
+    if (g_snd_log > 0)
+        fprintf(stderr, "[VOLUME] re-sent %d voice(s); voices by bank so far: "
+                "music %u, effects %u, dialogue %u, other %u, not found %u\n",
+                sent, g_snd_class_count[0], g_snd_class_count[1],
+                g_snd_class_count[2], g_snd_class_count[3],
+                g_snd_class_count[4]);
+}
+
+/* Once per audio_update: a channel change re-sent, and the output gain
+ * (master x the cutscene volume while a cutscene plays). */
+static void snd_update(void)
+{
+    static long done_gen;
+    static int was_cut = -1;
+    long gen = g_snd_gen;
+    int cut;
+    float m, gain;
+
+    snd_init();
+    if (gen != done_gen) {
+        done_gen = gen;
+        snd_resend();
+    }
+    cut = MEM8(0x0076F0E0u) == 1;
+    if (cut != was_cut && g_snd_log > 0)
+        fprintf(stderr, "[VOLUME] cutscene %s (level %02X)\n", cut ? "on" : "off",
+                MEM32(0x007FA1F8u));
+    was_cut = cut;
+    m = g_snd_master_mute ? 0.0f : g_snd_master / 100.0f;
+    gain = m * m;
+    if (cut)
+        gain *= (g_snd_cut / 100.0f) * (g_snd_cut / 100.0f);
+    xbox_ApuSetOutputGain(gain);
+}
+
+/* For the F2 menu (overlay.cpp). A channel: volume in percent (< 0 = keep)
+ * and mute (< 0 = keep); solo: a channel or -1; master in percent; the
+ * cutscene volume in percent. They apply from the next audio_update. */
+void conker_SetSoundChannel(int ch, float pct, int mute)
+{
+    if (ch < 0 || ch >= SND_CHANNELS)
+        return;
+    snd_init();
+    if (pct >= 0.0f)
+        g_snd_vol[ch] = pct > 100.0f ? 100.0f : pct;
+    if (mute >= 0)
+        g_snd_mute[ch] = mute != 0;
+    _InterlockedIncrement(&g_snd_gen);
+}
+
+void conker_SetSoundSolo(int ch)
+{
+    snd_init();
+    g_snd_solo = ch >= 0 && ch < SND_CHANNELS ? ch : -1;
+    _InterlockedIncrement(&g_snd_gen);
+    fprintf(stderr, "[VOLUME] solo %s\n", g_snd_solo >= 0 ? s_snd_names[g_snd_solo] : "off");
+}
+
+int conker_SoundSolo(void)
+{
+    snd_init();
+    return g_snd_solo;
+}
+
+void conker_SetMasterVolume(float pct)
+{
+    snd_init();
+    g_snd_master = pct < 0.0f ? 0.0f : pct > 100.0f ? 100.0f : pct;
+}
+
+void conker_SetMasterMute(int on)
+{
+    snd_init();
+    g_snd_master_mute = on != 0;
+}
+
+void conker_SetCutsceneVolume(float pct)
+{
+    snd_init();
+    g_snd_cut = pct < 0.0f ? 0.0f : pct > 200.0f ? 200.0f : pct;
+}
+
+/* At start-up (main.c): the master volume from the first sound on (the
+ * opening movies play before the game's audio manager runs audio_update). */
+void conker_SoundInit(void)
+{
+    float m;
+    snd_init();
+    m = g_snd_master_mute ? 0.0f : g_snd_master / 100.0f;
+    if (m < 1.0f)
+        xbox_ApuSetOutputGain(m * m);
+}
+
 static const char *audio_log_str(uint32_t va, char *buf, size_t n);
 
 /* The queued level music's wave banks not yet primed (gate described above),
@@ -1062,6 +1430,318 @@ void sub_0053C630(void)
     g_esp += 4;                     /* ret */
 }
 
+/* ── Conker: the loading screen (to-do 26) ────────────────────────────────
+ *
+ * A level load (level_load_run 0x002AADC0) loops over its loader's steps
+ * and after each one calls loadscreen_step 0x002AD3B0 (bl = draw even when
+ * the screen's animation is over, loader +0x40): animate the loading screen
+ * (time-based: 0x002AD240 reads the clock, not a step count), draw it into
+ * the FRONT buffer (0x002ACA70, 0x002ACB20), then D3D_SetFence +
+ * D3D_BlockOnTime. On the Xbox the display scans the front buffer out as
+ * it is drawn, so the screen shows; here a present happened only at a
+ * Swap, so it was drawn and never shown (conker-notes 2026-10-30). The
+ * picture is already in the front buffer when the loop starts (drawn before
+ * it, so the last game frame is gone by then).
+ *
+ * A load's length is not the drawing: a field load from the main menu is
+ * 3.6 s with every step drawn, with one every 33 ms and with none, because
+ * the loader (state 2, 0x002AB870) waits until 0x00018C00 finds all 76
+ * sound banks free, and the menu tune's cue reports its stop ~3.05 s after
+ * StopTune (the sound's own release in XACT; conker-notes 2026-11-07).
+ *
+ * RECOMP_LOADSCREEN (= settings loading_screen):
+ *   on (default): every step as the game does, and what it drew shown (at
+ *     most once every LS_PRESENT_MS);
+ *   off: no loading screen: black at once (xbox_Nv2aPresentNow black: the
+ *     last frame is already overwritten), no drawing, the next level fades
+ *     in over LS_FADE_IN_MS (conker_LoadCover for the overlay); skipped
+ *     steps yield the thread (RECOMP_LOAD_YIELD=0 none, 2 = Sleep(1));
+ *   hidden (debug): every step drawn, never shown = before this change.
+ * One [LOAD] line per load. */
+#define LS_PRESENT_MS  14.0
+#define LS_FADE_IN_MS 300.0
+enum { LS_ON, LS_OFF, LS_HIDDEN };
+extern void xbox_Nv2aPresentNow(int black);
+extern void sub_002AD3B0_gen(void);
+extern void sub_002AADC0_gen(void);
+
+static double skip_ms(void);
+
+static struct {
+    double t0, last_present, step_ms;
+    unsigned steps, drawn, presents;
+    int active, mode;                   /* mode: this load's */
+} s_ld;
+static volatile double g_lc_t0, g_lc_t1;    /* off: load start / end, 0 = none */
+static volatile int g_ls_mode = -1;
+
+static int loadscreen_mode(void)
+{
+    if (g_ls_mode < 0) {
+        const char *e = getenv("RECOMP_LOADSCREEN");
+        g_ls_mode = e && (!_stricmp(e, "off") || !strcmp(e, "0")) ? LS_OFF
+                  : e && !_stricmp(e, "hidden") ? LS_HIDDEN : LS_ON;
+    }
+    return g_ls_mode;
+}
+
+/* F2 (applies from the next load): 1 = the loading screen, 0 = none. */
+void conker_SetLoadingScreen(int on)
+{
+    g_ls_mode = on ? LS_ON : LS_OFF;
+}
+
+static void load_yield(void)
+{
+    static int y = -1;
+    if (y < 0) {
+        const char *e = getenv("RECOMP_LOAD_YIELD");
+        y = e && *e ? atoi(e) : 1;
+    }
+    if (y == 1)
+        SwitchToThread();
+    else if (y >= 2)
+        Sleep(1);
+}
+
+/* For the overlay: how black the load cover is, 0..1 (mode off): black
+ * through the load, then fading out as the next level draws. */
+float conker_LoadCover(void)
+{
+    double t0 = g_lc_t0, t1 = g_lc_t1, a;
+    if (t0 <= 0.0)
+        return 0.0f;
+    if (t1 <= 0.0)
+        return 1.0f;
+    a = 1.0 - (skip_ms() - t1) / LS_FADE_IN_MS;
+    if (a <= 0.0) {
+        g_lc_t0 = g_lc_t1 = 0.0;
+        return 0.0f;
+    }
+    return (float)(a > 1.0 ? 1.0 : a);
+}
+
+/* ── Conker: fast loads (to-do 118) and what holds a load (to-do 110) ────
+ *
+ * A level load waits until the old level's sound banks are freed, and a
+ * bank is freed only when no cue plays on it any more. A music stop is not
+ * immediate: CMusicTune_StopTune -> CAudioCue_Stop -> audioSoundBankStopCue
+ * 0x00400B80 with ecx = 0 -> the XACT stop without its immediate flag 2, so
+ * XACT plays the sound's release, and the cue reports
+ * AUDIO_NOTIFICATION_STOP only when that is over: the menu tune 3.0 s, the
+ * Windy exit's birdytoon 8.0 s (run_20261106_180620). That set a field load
+ * from the main menu at 3.6 s and Windy -> throne room at 8 s (in the tips
+ * screen wait 0x002A3C20, Sleep(16) until 0x00018870 frees every bank);
+ * the release's 63 s+ hang there (to-do 110) was such a stop never ending.
+ * The tunes are stopped by level_unload 0x002AA140 (game_main_loop, right
+ * before level_change), its last call, the audio "NewGame" 0x000187C0 ->
+ * 0x0001E570 (every tune; XACT log callers, run_20261107_113938).
+ *
+ * RECOMP_FAST_LOADS (= settings fast_loads, default off, user 2026-11-07;
+ * 1 = on): inside level_unload, level_load_run 0x002AADC0 and the tips
+ * wait every stop is the immediate kind (ecx = 1 at 0x00400B80), the path
+ * the game itself takes for a stop without a fade. Not the stop that
+ * audioSoundBankFreeCue 0x00400C00 makes of a cue freed while playing
+ * (return 0x00400D02): that cue is half-way through being freed. The music
+ * then cuts at the load's start instead of fading under the loading
+ * screen. Off = the original. No loading screen with it: Loading Screen
+ * off (user 2026-11-07: no separate choice under Fast Loads).
+ *
+ * Never issue a second, immediate stop for a sound already releasing (the
+ * first build did, clearing bit 2 of the sound bank cue's +0x38, its "stop
+ * issued" guard): XACT's stop update (0x00552EFF) then counts the tracks
+ * done without stopping their voices (track flag 0x40 is set by then), the
+ * voice still plays its release, goes back to the pool, and DirectSound
+ * later walked a broken voice list (crash in 0x004CB2D1 +0x113, every soak
+ * run at It's War's MachineGunNest, run_20261107_112727 / _113122).
+ *
+ * Either way a load or tips wait that runs past 5 s prints what still holds
+ * it ([LOAD] line: sound banks still registered, their users) and again
+ * every 10 s, so a hang like to-do 110's names its cause. */
+static int cutevent_log_on(void);
+static void cutevent_where(const char *what);
+static int s_fl_window;                 /* > 0: inside an unload or load */
+static double s_fl_t0, s_fl_report, s_fl_unload_ms;
+static unsigned s_fl_forced;            /* since the last [LOAD] line */
+static volatile int g_fl_mode = -1;
+extern void sub_002A3C20_gen(void);
+extern void sub_002AA140_gen(void);
+
+static int fast_loads_on(void)
+{
+    if (g_fl_mode < 0) {
+        const char *e = getenv("RECOMP_FAST_LOADS");
+        g_fl_mode = e && *e && strcmp(e, "0") && _stricmp(e, "off");
+    }
+    return g_fl_mode;
+}
+
+/* F2 (applies from the next load). */
+void conker_SetFastLoads(int on)
+{
+    g_fl_mode = on ? 1 : 0;
+}
+
+/* audioSoundBankStopCue (eax = sound bank cue, ecx != 0 = immediate; it
+ * does nothing when +0x38 bit 2, a stop issued, is set; bit 4 makes it
+ * immediate itself). */
+void sub_00400B80_enter(void)
+{
+    uint32_t sb = g_eax;
+
+    if (!s_fl_window || g_ecx || !xact_va_ok(sb) || (MEM32(sb + 0x38) & 6u) ||
+        MEM32(g_esp) == 0x00400D02u || !fast_loads_on())
+        return;
+    g_ecx = 1;
+    s_fl_forced++;
+}
+
+static void fl_open(void)
+{
+    if (s_fl_window++)
+        return;
+    s_fl_t0 = skip_ms();
+    s_fl_report = s_fl_t0 + 5000.0;
+}
+
+static void fl_close(void)
+{
+    if (s_fl_window > 0)
+        s_fl_window--;
+}
+
+/* Past 5 s in a load: the sound banks still registered (what the waits
+ * wait for), every 10 s. From the loading steps and audio_update. */
+static void fl_wait_report(void)
+{
+    uint32_t mgr = MEM32(0x00847024u), banks, b, i;
+    double now;
+    char nm[64];
+    int n = 0;
+
+    if (!s_fl_window || (now = skip_ms()) < s_fl_report)
+        return;
+    s_fl_report = now + 10000.0;
+    fprintf(stderr, "[LOAD] still waiting after %.1f s (fast loads %s); sound banks"
+            " still registered:", (now - s_fl_t0) / 1000.0,
+            fast_loads_on() ? "on" : "off");
+    banks = xact_va_ok(mgr) ? MEM32(mgr + 4) : 0;
+    for (i = 0; xact_va_ok(banks) && i < 76; i++) {
+        b = MEM32(banks + 4 * i);
+        if (!xact_va_ok(b) || !MEM8(b + 0x15) || MEM8(b + 0x22))
+            continue;
+        fprintf(stderr, " %s (users %u%s)", audio_log_str(MEM32(b + 4), nm, sizeof nm),
+                MEM32(b + 0x18), MEM8(b + 0x14) ? ", locked" : "");
+        n++;
+    }
+    fprintf(stderr, "%s\n", n ? "" : " none");
+    fflush(stderr);
+}
+
+/* level_unload (game_main_loop, before level_change): frees the level and
+ * stops its tunes last. */
+void sub_002AA140(void)
+{
+    double t0 = skip_ms();
+    if (cutevent_log_on())
+        cutevent_where("level unload");
+    fl_open();
+    sub_002AA140_gen();
+    fl_close();
+    s_fl_unload_ms = skip_ms() - t0;
+}
+
+/* The tips screen wait (some loads): stops music and effects, then waits
+ * until every sound bank is freed. */
+void sub_002A3C20(void)
+{
+    double t0 = skip_ms();
+    fl_open();
+    sub_002A3C20_gen();
+    fl_close();
+    fprintf(stderr, "[LOAD] tips screen wait: %.0f ms (fast loads %s; %u stops made"
+            " immediate)\n", skip_ms() - t0, fast_loads_on() ? "on" : "off",
+            s_fl_forced);
+    fflush(stderr);
+    s_fl_forced = 0;
+}
+
+void sub_002AD3B0(void)
+{
+    int mode = s_ld.active ? s_ld.mode : loadscreen_mode();
+    double now, t;
+    uint32_t screen;
+    int force = (g_ebx & 0xFFu) != 0;
+
+    fl_wait_report();
+    if (!s_ld.active || mode == LS_OFF) {
+        if (!s_ld.active) {             /* not seen so far */
+            static unsigned n;
+            if (n++ < 16) {
+                fprintf(stderr, "[LOAD] loading screen step outside a load"
+                        " (bl %d, caller %08X)\n", force, MEM32(g_esp));
+                fflush(stderr);
+            }
+        }
+        if (mode == LS_OFF) {
+            s_ld.steps++;
+            load_yield();
+            g_esp += 4;                 /* ret */
+            return;
+        }
+        sub_002AD3B0_gen();
+        return;
+    }
+    s_ld.steps++;
+    now = skip_ms();
+    sub_002AD3B0_gen();
+    t = skip_ms();
+    s_ld.step_ms += t - now;
+    screen = MEM32(0x008758C4u);
+    if (force || (screen && !MEM8(screen + 0x84))) {
+        s_ld.drawn++;
+        if (mode == LS_ON && t - s_ld.last_present >= LS_PRESENT_MS) {
+            s_ld.last_present = t;
+            s_ld.presents++;
+            xbox_Nv2aPresentNow(0);
+        }
+    }
+}
+
+void sub_002AADC0(void)
+{
+    int mode = loadscreen_mode();
+    uint32_t to = MEM32(0x007FA1F4u);   /* the level being loaded */
+    double t1;
+
+    memset(&s_ld, 0, sizeof s_ld);
+    s_ld.t0 = skip_ms();
+    s_ld.mode = mode;
+    s_ld.active = 1;
+    if (mode == LS_OFF) {
+        g_lc_t1 = 0.0;
+        g_lc_t0 = s_ld.t0;
+        s_ld.presents++;
+        xbox_Nv2aPresentNow(1);         /* black, not the loading picture */
+    }
+    fl_open();
+    sub_002AADC0_gen();
+    fl_close();
+    t1 = skip_ms();
+    s_ld.active = 0;
+    if (mode == LS_OFF)
+        g_lc_t1 = t1;
+    fprintf(stderr, "[LOAD] level 0x%02X: %.0f ms (loading screen %s; %u"
+            " steps, %u drawn, %.0f ms in them, %u shown; unload before it"
+            " %.0f ms; fast loads %s: %u stops made immediate)\n", to,
+            t1 - s_ld.t0, mode == LS_ON ? "on" : mode == LS_OFF ? "off"
+            : "hidden", s_ld.steps, s_ld.drawn, s_ld.step_ms, s_ld.presents,
+            s_fl_unload_ms, fast_loads_on() ? "on" : "off", s_fl_forced);
+    s_fl_forced = 0;
+    s_fl_unload_ms = 0.0;
+    fflush(stderr);
+}
+
 /* RECOMP_EMITTER_WATCH=<cue name> (with RECOMP_AUDIO_LOG=2): follow one
  * sound emitter from CAudioSoundEmitterContainer::Add to its removal, and
  * print each frame which dwords of the emitter (first 0x100 bytes) and of
@@ -1326,7 +2006,121 @@ static void audio_update_logs(void)
  * at 30 fps each run gets its own frame's values, as before; exact 1/30 s
  * steps instead put the battery's 4th cannon a frame late every volley,
  * 3 in 9 originally (to-do 5). RECOMP_AUDIO_TIME_FIX=0 = without this
- * part. */
+ * part.
+ *
+ * Photo mode (to-do 9): the freeze skips the game's own sound pause (cue
+ * pause, music pause; photo_mode.c); only the APU was held. In the Great
+ * Mighty Poo song a 10 s freeze left the song's timeline 10 s ahead of the
+ * held stream: its first marker came 49.0 s after the song started, as
+ * without a freeze, and ~5 s after the freeze a second set of song streams
+ * started over the held one, which was dropped with the rest of the vocals
+ * (user 2026-11-06, run_20261106_215411). XACT's track events run on
+ * KeQuerySystemTime: its sound pause (0x00551246) notes the time and on
+ * resume moves every pending event on by the time paused, so only the
+ * game's own pause keeps a song in step (photo_game_sound_pause above).
+ * The game's sound logic in this update also runs on the frame time and
+ * ticks (cue start delays and stop timeouts, emitter lifetimes; the pause
+ * menu leaves those running), so while photo mode holds the sound
+ * (pause_silence on) every call also gets no time: ticks, frame time and
+ * 30 fps frames 0 (0 frame time and 0 frames are what a run between 30 fps
+ * frames already gets above 30 fps), and the frozen frames' time is not
+ * saved up for afterwards. Nothing in the sound code reads the step
+ * [0x007FA24C]. With pause_silence off the sound plays on, and so does its
+ * time. A frame step moves the world one frame and not the sound.
+ * RECOMP_PHOTO_SOUND_FIX=0 = as before, =2 zero time only (not enough on
+ * its own: run_20261106_220814); "[PHOTO] game's sound pause / resume" and
+ * "[PHOTO] sound held" lines per freeze. */
+static int photo_sound_mode(void)
+{
+    static int mode = -1;
+    if (mode < 0) {
+        const char *e = getenv("RECOMP_PHOTO_SOUND_FIX");
+        mode = e && *e == '0' ? 0 : e && *e == '2' ? 2 : 1;
+    }
+    return mode;
+}
+
+static int photo_sound_held(void)
+{
+    return photo_sound_mode() && photo_frozen()
+        && strcmp(settings_get("pause_silence"), "0") != 0;
+}
+
+/* The game's own sound pause for photo mode (to-do 9): game_frame's pause
+ * compare (0x002A4A5C on, 0x002A4B1E off) without the pause menu's music
+ * duck (0x0001E750 tune 0x23) and its stop. Zero time alone was not enough:
+ * the song's marker still came 49.0 s after the song started, in the middle
+ * of a 10 s freeze, with the APU held (run_20261106_220814): XACT's track
+ * events run on KeQuerySystemTime, which the APU hold does not stop. The
+ * game's pause pauses every cue through XACT (0x0001AAE0 -> 0x00400D30 ->
+ * 0x00551246, which moves the events on by the time paused), as for the
+ * pause menu. With it the marker came 10.0 s later and the cutscene ended
+ * with its song (run_20261106_221959). Unless the audio manager's +0x85 is
+ * set: effects manager
+ * [mgr+0x40] (paused flag +0x14) 0x0002F2C0(on) with ebx = its +4 (the
+ * cue table), music [mgr+0x3C] (paused flag its byte 0) 0x0001E4B0(on)
+ * with ebx = it, [[mgr+0x44]+0x1D] = on; then the speech state 0x0001B140
+ * (eax 0 = no speech, else [0x00847050] = 2 paused / 1 going). Both calls
+ * are ret 4. Only what this pause set is undone. */
+extern void sub_0002F2C0(void);
+extern void sub_0001E4B0(void);
+extern void sub_0001B140(void);
+
+static void photo_game_sound_pause(int on)
+{
+    static int paused_fx, paused_music, paused_any;
+    uint32_t mgr = MEM32(0x00847024u), fx, music, r_eax, r_ecx, r_edx, r_ebx;
+    uint32_t r_esi, r_edi, r_ebp, r_esp;
+    long t0 = (long)(clock() * 1000 / CLOCKS_PER_SEC);
+    int speech, did_fx = 0, did_music = 0;
+
+    if (!on && !paused_any)
+        return;
+    if (!xact_va_ok(mgr))
+        return;
+    r_eax = g_eax; r_ecx = g_ecx; r_edx = g_edx; r_ebx = g_ebx;
+    r_esi = g_esi; r_edi = g_edi; r_ebp = g_ebp; r_esp = g_esp;
+    if (!MEM8(mgr + 0x85u)) {
+        fx = MEM32(mgr + 0x40u);
+        music = MEM32(mgr + 0x3Cu);
+        MEM8(0x00847046u) = 0;
+        if (xact_va_ok(fx) && (on ? !MEM8(fx + 0x14u) : paused_fx && MEM8(fx + 0x14u))) {
+            g_ebx = MEM32(fx + 4u);
+            g_esp -= 4; MEM32(g_esp) = (uint32_t)on;
+            g_esp -= 4; MEM32(g_esp) = 0;   /* return address, popped by the callee */
+            sub_0002F2C0();
+            g_esp = r_esp;
+            MEM8(fx + 0x14u) = (uint8_t)on;
+            paused_fx = on;
+            did_fx = 1;
+        }
+        if (xact_va_ok(music) && (on ? !MEM8(music) : paused_music && MEM8(music))) {
+            g_ebx = music;
+            g_esp -= 4; MEM32(g_esp) = (uint32_t)on;
+            g_esp -= 4; MEM32(g_esp) = 0;
+            sub_0001E4B0();
+            g_esp = r_esp;
+            MEM8(music) = (uint8_t)on;
+            paused_music = on;
+            did_music = 1;
+        }
+        if (xact_va_ok(MEM32(mgr + 0x44u)))
+            MEM8(MEM32(mgr + 0x44u) + 0x1Du) = (uint8_t)on;
+    }
+    g_esp -= 4; MEM32(g_esp) = 0;
+    sub_0001B140();
+    g_esp = r_esp;
+    speech = (int)g_eax;
+    if (speech)
+        MEM32(0x00847050u) = on ? 2u : 1u;
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_ebp = r_ebp; g_esp = r_esp;
+    paused_any = on;
+    fprintf(stderr, "[PHOTO] game's sound %s: effects %s, music %s, speech state %d (%ld ms)\n",
+            on ? "pause" : "resume", did_fx ? "yes" : "no", did_music ? "yes" : "no",
+            speech, (long)(clock() * 1000 / CLOCKS_PER_SEC) - t0);
+}
+
 extern void sub_00017CF0_gen(void);
 void sub_00017CF0(void)
 {
@@ -1335,29 +2129,69 @@ void sub_00017CF0(void)
     static float step_acc, time_acc;
     static int ran_this_frame;
     static long log_ms;
+    static int was_held;
+    static uint32_t held_frames, held_ticks;
+    static float held_time;
     extern void sample_profiler_frame(void);
     long now = (long)(clock() * 1000 / CLOCKS_PER_SEC);
     uint32_t mgr = g_ecx, fc = MEM32(0x007F9F60u), stamp, keep8, keepc;
     uint32_t n30 = 0, keep50 = 0;
     float keep18 = 0.0f;
+    int held;
 
     /* RECOMP_HITCH_MS: one call per game frame (src/sample_profiler.c). */
     sample_profiler_frame();
+    snd_update();
     level_music_wait_for_banks();
     audio_update_logs();
+    fl_wait_report();
     if (on < 0) {
         const char *e = getenv("RECOMP_AUDIO_TICK_FIX");
         on = !(e && *e == '0');
         e = getenv("RECOMP_AUDIO_TIME_FIX");
         time_on = !(e && *e == '0');
     }
+    held = photo_sound_held();
     if (fc != last_fc) {
         last_fc = fc;
-        acc += MEM32(0x007FA208u);
-        step_acc += MEMF(0x007FA24Cu);
-        time_acc += MEMF(0x007FA218u);
+        if (held) {
+            held_frames++;
+            held_ticks += MEM32(0x007FA208u);
+            held_time += MEMF(0x007FA218u);
+        } else {
+            acc += MEM32(0x007FA208u);
+            step_acc += MEMF(0x007FA24Cu);
+            time_acc += MEMF(0x007FA218u);
+        }
         ran_this_frame = 0;
         frames++;
+    }
+    if (held) {
+        if (!was_held && photo_sound_mode() == 1)
+            photo_game_sound_pause(1);
+        was_held = 1;
+        keep8 = MEM32(0x007FA208u);
+        keepc = MEM32(0x007FA20Cu);
+        keep18 = MEMF(0x007FA218u);
+        keep50 = MEM8(0x007FA250u);
+        MEM32(0x007FA208u) = 0;
+        MEM32(0x007FA20Cu) = 0;
+        MEMF(0x007FA218u) = 0.0f;
+        MEM8(0x007FA250u) = 0;
+        sub_00017CF0_gen();
+        MEM32(0x007FA208u) = keep8;
+        MEM32(0x007FA20Cu) = keepc;
+        MEMF(0x007FA218u) = keep18;
+        MEM8(0x007FA250u) = (uint8_t)keep50;
+        return;
+    }
+    if (was_held) {
+        photo_game_sound_pause(0);      /* undoes only what it did */
+        fprintf(stderr, "[PHOTO] sound held %u frames: %.1f s of frame time,"
+                " %u ticks not given\n", held_frames, held_time, held_ticks);
+        was_held = 0;
+        held_frames = held_ticks = 0;
+        held_time = 0.0f;
     }
     if (!on || ran_this_frame || !xact_va_ok(mgr)) {
         sub_00017CF0_gen();
@@ -3222,6 +4056,20 @@ void conker_SetMainMenuSpeed(int on)
     g_menu_speed = on != 0;
 }
 
+/* For the overlay's quit question (to-do 28): 1 while the main menu shows
+ * its boards with none zoomed into and none turning (level 0x1D, front-end
+ * state [0x00776574] 3, zoom [0x00776220] and its speed [0x00776224] 0,
+ * turn speed [0x0077621C] 0), no scene playing ([0x0076F0E0] != 1) and the
+ * Live box closed ([0x00862D08]). There frontend_menu_update 0x001FA7D0
+ * runs only the idle timer, so B and Esc mean nothing to the game. Any
+ * thread. */
+int conker_MainMenuBoard(void)
+{
+    return MEM32(0x007FA1F8u) == 0x1D && MEM32(0x00776574u) == 3
+        && MEMF(0x00776220u) == 0.0f && MEMF(0x00776224u) == 0.0f
+        && MEMF(0x0077621Cu) == 0.0f && MEM8(0x0076F0E0u) != 1
+        && MEM8(0x00862D08u) == 0;
+}
 extern void sub_001FD0F0_gen(void);
 void sub_001FD0F0(void)
 {
@@ -4341,6 +5189,116 @@ static uint32_t fog_byte(uint32_t va)
     return c < 0 ? 0u : c > 255 ? 255u : (uint32_t)c;
 }
 
+/* Fog toggle (to-do 120, GitHub issue 17; F2 Picture "Fog", fog = 0 in
+ * settings.ini, RECOMP_FOG=0). The level's distance fog has one source:
+ * 0x003ED850 turns the level's values into c[103] = 1/(far-near),
+ * near/(far-near), max, uploaded through SetVertexShaderConstant1
+ * (0x00536AA0, fastcall ecx = register, edx = 0x0081BE00, returns to
+ * 0x003ED9D6; register 103, or the newer programs' base + 0x60), and every
+ * world vertex program writes oFog = min(depth term, max): the fog amount
+ * the pixel shaders mix towards the fog colour. Fog off = max 0 in that
+ * upload, so every amount is 0 and nothing else changes: FogEnable, the
+ * program variants and the combiners stay as the level set them (FogEnable
+ * 0 would read as full fog through the world's own final combiner, which
+ * mixes by amount, not D3D's visibility). Ghidra shows no direct writer
+ * of the fog table mode [0x007502F8] (0, linear), and the fog colour alpha
+ * [0x007502EB] is written only by 0x0010A2B0 (0xFF), so the second fog
+ * constant (c[189], set when that alpha is below 0xFF) is not in play.
+ * A second renderer, 0x00408D70 (its programs from the declaration at
+ * 0x007557CC), keeps its fog in the vertex colour instead: c[107] =
+ * 1/(far-near), far/(far-near) (from the stack, returns to 0x00408E11),
+ * oD0.rgb = view z x c[107].x + c[107].y = visibility (1 near, 0 far, in
+ * some variants times a second range's term, c[112], left alone): fog off =
+ * c[107] = 0, 1. Grass gets no fog either (grass_fog_measure). Read every
+ * upload: live. One [FOG] line per path, the first time it runs. */
+static volatile int g_fog = -1, g_uw_fog = -1;
+
+void conker_SetFog(int on)
+{
+    g_fog = on != 0;
+}
+
+/* Under water the level's fog record gives a second set (record + 0x10C,
+ * 0x0012B2B0, when camera 0's [+4] + 0x8C2 is set): the murky water colour.
+ * F2 Picture "Underwater Fog" (underwater_fog, RECOMP_UNDERWATER_FOG=0)
+ * switches that one on its own (user 2026-11-07). */
+void conker_SetUnderwaterFog(int on)
+{
+    g_uw_fog = on != 0;
+}
+
+/* Camera 0's water object ([0x008470DC] + 4); +0x8C2 = under water. */
+static uint32_t fog_cam_water(void)
+{
+    uint32_t cam = MEM32(0x008470DCu), sub;
+
+    if (!xact_va_ok(cam))
+        return 0;
+    sub = MEM32(cam + 4u);
+    return xact_va_ok(sub) ? sub : 0;
+}
+
+static int fog_underwater(void)
+{
+    uint32_t sub = fog_cam_water();
+
+    return sub && MEM8(sub + 0x8C2u) != 0;
+}
+
+static int uw_fog_on(void)
+{
+    if (g_uw_fog < 0)
+        g_uw_fog = env_on("RECOMP_UNDERWATER_FOG", 1);
+    return g_uw_fog;
+}
+
+/* Conker stays green under water with Underwater Fog off: not the fog
+ * amount, and not the light map set 0x0012B2B0 picks (a test giving it the
+ * above-water sets left him green; conker-notes 2026-11-07). Kept (user
+ * 2026-11-07: "looks more natural in normal gameplay"). */
+static int fog_on(void)
+{
+    static int was_under = -1;
+    int under = fog_underwater();
+
+    if (g_fog < 0)
+        g_fog = env_on("RECOMP_FOG", 1);
+    if (under != was_under) {
+        if (was_under >= 0)
+            fprintf(stderr, "[FOG] camera %s water\n", under ? "under" : "out of");
+        was_under = under;
+    }
+    return under ? uw_fog_on() : g_fog;
+}
+
+/* 0x00536AA0: D3DDevice_SetVertexShaderConstant1 (fastcall). */
+void sub_00536AA0_enter(void)
+{
+    static int seen_world, seen_second;
+    uint32_t ret = MEM32(g_esp);
+
+    if (ret == 0x003ED9D6u && g_edx == 0x0081BE00u) {
+        if (!seen_world) {
+            seen_world = 1;
+            fprintf(stderr, "[FOG] world fog: c[%u] = %g %g max %g (fog %s)\n",
+                    g_ecx, MEMF(0x0081BE00u), MEMF(0x0081BE04u),
+                    MEMF(0x0081BE08u), fog_on() ? "on" : "off");
+        }
+        if (!fog_on())
+            MEMF(0x0081BE08u) = 0.0f;   /* c[103].z: the fog amount's cap */
+    } else if (ret == 0x00408E11u) {
+        if (!seen_second) {
+            seen_second = 1;
+            fprintf(stderr, "[FOG] second renderer fog: c[%u] = %g %g (fog %s)\n",
+                    g_ecx, MEMF(g_edx), MEMF(g_edx + 4u), fog_on() ? "on" : "off");
+        }
+        if (!fog_on()) {
+            MEMF(g_edx) = 0.0f;         /* c[107]: visibility 1 everywhere */
+            MEMF(g_edx + 4u) = 1.0f;
+        }
+    }
+}
+
 static void grass_fog_measure(uint32_t patch, int player)
 {
     static int on = -1;
@@ -4349,7 +5307,7 @@ static void grass_fog_measure(uint32_t patch, int player)
 
     if (on < 0)
         on = env_on("RECOMP_GRASS_FOG", 1);
-    if (!on || !xact_va_ok(rec))
+    if (!on || !fog_on() || !xact_va_ok(rec))
         return;
     ffar = MEMF(0x00771CE4u);
     fnear = MEMF(0x00771CE8u);
@@ -4898,11 +5856,7 @@ void sub_002AA0C0_enter(void)
         cutevent_where("level change");
 }
 
-void sub_002AA140_enter(void)
-{
-    if (cutevent_log_on())
-        cutevent_where("level unload");
-}
+/* level_unload: the wrapper sub_002AA140 (fast loads, above). */
 
 void sub_0034EEE0_enter(void)
 {
@@ -6887,6 +7841,7 @@ void sub_002A7B60_enter(void)
 
     soak_poll();
     vsh_scan_poll();
+    precompile_poll();                  /* --precompile-shaders only */
     controls_poll();
     photo_frame_begin();
     if (g_asked_interval) {

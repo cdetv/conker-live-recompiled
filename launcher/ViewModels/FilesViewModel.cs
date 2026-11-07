@@ -12,12 +12,14 @@ public sealed partial class FilesViewModel : ObservableObject
     private readonly GameImporter importer;
     private readonly DecensorPatch decensor;
     private readonly IFilePicker picker;
+    private readonly Func<bool> isGameRunning;
     private CancellationTokenSource? job;
 
-    public FilesViewModel(GameFolder folder, IFilePicker picker, UserFilesViewModel userFiles)
+    public FilesViewModel(GameFolder folder, IFilePicker picker, UserFilesViewModel userFiles, Func<bool> isGameRunning)
     {
         this.folder = folder;
         this.picker = picker;
+        this.isGameRunning = isGameRunning;
         UserFiles = userFiles;
         importer = new GameImporter(folder);
         decensor = new DecensorPatch(folder);
@@ -42,6 +44,7 @@ public sealed partial class FilesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GameFilesText), nameof(ImportButtonText))]
+    [NotifyCanExecuteChangedFor(nameof(PrecompileShadersCommand))]
     public partial bool GameFilesImported { get; set; }
 
     public string GameFilesText => GameFilesImported
@@ -74,13 +77,13 @@ public sealed partial class FilesViewModel : ObservableObject
 
     /// <summary>An import or download is running.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand), nameof(PrecompileShadersCommand))]
     [NotifyPropertyChangedFor(nameof(GameJobVisible), nameof(DecensorJobVisible))]
     public partial bool IsBusy { get; set; }
 
     /// <summary>The launcher is updating itself: no new job (the restart would cut it off).</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand), nameof(PrecompileShadersCommand))]
     public partial bool Updating { get; set; }
 
     [ObservableProperty]
@@ -115,12 +118,78 @@ public sealed partial class FilesViewModel : ObservableObject
     [ObservableProperty]
     public partial bool StatusIsError { get; set; }
 
+    /// <summary>A Precompile Shaders run started from here is still going (the game's window shows it).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PrecompileShadersCommand), nameof(AskDeleteShadersCommand), nameof(ImportGameCommand),
+                                nameof(AddPatchCommand), nameof(DownloadPatchCommand))]
+    [NotifyPropertyChangedFor(nameof(ShadersText), nameof(PrecompileButtonText))]
+    public partial bool IsPrecompiling { get; set; }
+
+    /// <summary>What the last run wrote; null when none ran.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShadersText), nameof(PrecompileButtonText))]
+    public partial PrecompileResult? Precompiled { get; set; }
+
+    /// <summary>The cache holds shaders or a result: Delete Shaders has something to delete.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AskDeleteShadersCommand))]
+    public partial bool CacheHasFiles { get; set; }
+
+    /// <summary>Delete Shaders asked its question (Yes / No in its place).</summary>
+    [ObservableProperty]
+    public partial bool ConfirmDeleteShaders { get; set; }
+
+    /// <summary>Why the run didn't start, or the delete failed.</summary>
+    [ObservableProperty]
+    public partial string? PrecompileError { get; set; }
+
+    /// <summary>A stopped run of this version: the next one continues where it was.</summary>
+    private bool CanContinue => Precompiled is { Finished: false, ResumeWhere: not null } r
+                                && (r.Version is null || r.Version == Updater.Current);
+
+    public string ShadersText =>
+        IsPrecompiling ? "Precompiling shaders. The game's window shows how far it is; Esc or B on a controller there stops it."
+        : Precompiled is not { } r
+            ? "The game compiles each shader the first time it is needed, which can cause short slowdowns the first time "
+              + "you play an area. Precompile them all now: the game runs every level behind a progress screen with "
+              + "the sound off, then closes (about 10 minutes, longer on a slower PC)."
+        : r.Version is { } v && v != Updater.Current
+            ? $"Shaders were precompiled with v{v}. Updates can change the game's shaders: precompile again to have them all."
+        : r.Finished ? $"Shaders precompiled on {r.Date} (took {Minutes(r.Seconds)})."
+        : CanContinue
+            ? $"Precompiling was stopped on {r.Date} at {r.ResumeWhere}. Continue Precompiling picks up where it stopped; "
+              + "the shaders compiled until then are kept."
+        : $"Precompiling was stopped on {r.Date}. The shaders compiled until then are kept; precompile again to finish.";
+
+    public string PrecompileButtonText =>
+        Precompiled is null ? "Precompile Shaders" : CanContinue ? "Continue Precompiling" : "Precompile Again";
+
+    private static string Minutes(int seconds) => seconds < 90 ? $"{seconds} seconds" : $"{(seconds + 30) / 60} minutes";
+
+    /// <summary>The main window's game watch: the game started or ended.</summary>
+    public void GameRunningChanged()
+    {
+        PrecompileShadersCommand.NotifyCanExecuteChanged();
+        AskDeleteShadersCommand.NotifyCanExecuteChanged();
+        if (!IsPrecompiling)
+        {
+            Precompiled = ShaderCache.ReadResult();
+            CacheHasFiles = ShaderCache.HasFiles();
+        }
+    }
+
     /// <summary>Looks at the folder again.</summary>
     public void Refresh()
     {
         bool before = GameFilesImported;
         GameFilesImported = folder.GameFilesImported;
         DecensorInstalled = decensor.IsInstalled;
+        if (!IsPrecompiling)
+        {
+            Precompiled = ShaderCache.ReadResult();
+            CacheHasFiles = ShaderCache.HasFiles();
+        }
+
         OnPropertyChanged(nameof(DecensorText));
         OnPropertyChanged(nameof(DownloadButtonText));
         if (before != GameFilesImported)
@@ -193,7 +262,98 @@ public sealed partial class FilesViewModel : ObservableObject
         });
     }
 
-    private bool CanStartJob() => !IsBusy && !Updating;
+    private bool CanStartJob() => !IsBusy && !Updating && !IsPrecompiling;
+
+    /// <summary>
+    /// Precompile Shaders (to-do 25): <c>conker.exe --precompile-shaders</c> on the user files. The
+    /// launcher stays open and shows the result when the game closes (src/precompile.c).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanPrecompile))]
+    private async Task PrecompileShadersAsync()
+    {
+        PrecompileError = null;
+        if (!File.Exists(folder.GameExe))
+        {
+            PrecompileError = "conker.exe is missing from the launcher's folder.";
+            return;
+        }
+
+        var start = new ProcessStartInfo(folder.GameExe) { WorkingDirectory = folder.Root, UseShellExecute = false };
+        start.ArgumentList.Add("--save-dir");
+        start.ArgumentList.Add(SaveFolder.Root);
+        start.ArgumentList.Add("--precompile-shaders");
+        Process? game;
+        try
+        {
+            game = Process.Start(start);
+        }
+        catch (System.ComponentModel.Win32Exception e)
+        {
+            PrecompileError = $"The game didn't start: {e.Message}";
+            return;
+        }
+
+        if (game is null)
+        {
+            return;
+        }
+
+        using (game)
+        {
+            IsPrecompiling = true;
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            try
+            {
+                await game.WaitForExitAsync();
+            }
+            finally
+            {
+                IsPrecompiling = false;
+                Precompiled = ShaderCache.ReadResult();
+                CacheHasFiles = ShaderCache.HasFiles();
+                StateChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    /// <summary>Delete Shaders: asks first (Yes / No in the button's place).</summary>
+    [RelayCommand(CanExecute = nameof(CanDeleteShaders))]
+    private void AskDeleteShaders()
+    {
+        PrecompileError = null;
+        ConfirmDeleteShaders = true;
+    }
+
+    [RelayCommand]
+    private void CancelDeleteShaders() => ConfirmDeleteShaders = false;
+
+    /// <summary>Yes: every .vso / .cso and precompiled.ini in the cache go (ShaderCache.Delete).</summary>
+    [RelayCommand]
+    private void DeleteShaders()
+    {
+        ConfirmDeleteShaders = false;
+        if (!CanDeleteShaders())
+        {
+            return;     // the game started meanwhile
+        }
+
+        try
+        {
+            ShaderCache.Delete();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            PrecompileError = $"Some shaders couldn't be deleted: {e.Message}";
+        }
+
+        Precompiled = ShaderCache.ReadResult();
+        CacheHasFiles = ShaderCache.HasFiles();
+    }
+
+    private bool CanDeleteShaders() => CacheHasFiles && !IsPrecompiling && !UserFiles.IsBusy && !isGameRunning();
+
+    private bool CanPrecompile() =>
+        GameFilesImported && !IsBusy && !Updating && !IsPrecompiling && !UserFiles.IsBusy && !isGameRunning();
 
     [RelayCommand]
     private void Cancel() => job?.Cancel();

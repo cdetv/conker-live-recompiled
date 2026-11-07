@@ -86,6 +86,11 @@ const char *controls_key_label(int input);
  * the F3 menu. */
 void controls_apply(void);
 
+/* Each port's rumble and stick dead zone (to-do 29): port -1 = all from
+ * settings.ini (controls_apply does that); else one port, a live slider
+ * value (>= 0) in place of the saved one. */
+void controls_apply_pad_feel(int port, float strength, float dead_zone);
+
 /* Controller ports 0-3 (the game's players 1-4), from settings.ini: which
  * controller drives one (a host pad: 0-3 = Windows' (XInput) controller
  * 1-4, 4-7 = PlayStation controller 1-4; -2 = any, -1 = none), the port

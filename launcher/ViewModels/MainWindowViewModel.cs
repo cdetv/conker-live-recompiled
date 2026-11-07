@@ -19,7 +19,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         updater = new Updater(folder);
         // First: it decides where SaveFolder is, which the other tabs read.
         UserFiles = new UserFilesViewModel(folder, IsGameRunning);
-        Files = new FilesViewModel(folder, picker, UserFiles);
+        Files = new FilesViewModel(folder, picker, UserFiles, IsGameRunning);
         Settings = new SettingsViewModel(folder, LaunchDebugCommand);
         Controls = new ControlsViewModel(folder);
         UserFiles.StateChanged += (_, _) =>
@@ -34,6 +34,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 Controls.Reload();
             }
 
+            Files.PrecompileShadersCommand.NotifyCanExecuteChanged();
+            Files.AskDeleteShadersCommand.NotifyCanExecuteChanged();
             PlayCommand.NotifyCanExecuteChanged();
             LaunchDebugCommand.NotifyCanExecuteChanged();
             UpdateCommand.NotifyCanExecuteChanged();
@@ -288,7 +290,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         CloseRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    private bool CanPlay() => Files.GameFilesImported && !Files.IsBusy && !IsUpdating && !UserFiles.IsBusy;
+    private bool CanPlay() => Files.GameFilesImported && !Files.IsBusy && !Files.IsPrecompiling && !IsUpdating && !UserFiles.IsBusy;
 
     /// <summary>Locks Settings and Controls while this folder's conker.exe runs; after it ends, shows what F2/F3 left.</summary>
     private void WatchGame()
@@ -307,6 +309,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         Settings.IsLocked = running;
         Controls.IsLocked = running;
+        Files.GameRunningChanged();
         if (!running)
         {
             Settings.Reload();
@@ -421,7 +424,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Files.Updating = false;
     }
 
-    private bool CanUpdate() => NewRelease is not null && !IsUpdating && !Files.IsBusy && !UserFiles.IsBusy;
+    private bool CanUpdate() => NewRelease is not null && !IsUpdating && !Files.IsBusy && !Files.IsPrecompiling && !UserFiles.IsBusy;
 }
 
 /// <summary>A release in the Version History window.</summary>

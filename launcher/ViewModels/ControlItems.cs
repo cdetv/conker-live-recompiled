@@ -5,14 +5,6 @@ using ConkerLauncher.Services;
 
 namespace ConkerLauncher.ViewModels;
 
-/// <summary>One tab of the F3 menu (Single player, Multiplayer, Photo mode, Menus, Slots).</summary>
-public sealed class ControlsTab(string name)
-{
-    public string Name { get; } = name;
-
-    public ObservableCollection<SettingItem> Items { get; } = [];
-}
-
 /// <summary>Grey explanatory text, as F3 shows it.</summary>
 public sealed class NoteItem(MenuEntry entry) : SettingItem(entry)
 {

@@ -775,6 +775,9 @@ int  xbox_InputAssignActive(void);
 void xbox_InputSetKeyboardPort(int port);
 int  xbox_InputHostPadConnected(unsigned long slot);
 int  xbox_InputHostPadOfPort(unsigned long port);
+void xbox_SetRumbleStrength(int port, int percent);
+void xbox_SetStickDeadZone(int port, float title_left, float title_right,
+                           float wanted);
 
 /* "1"-"4": Windows' (XInput) controller 1-4 = host pad 0-3; "ps1"-"ps4":
  * PlayStation controller 1-4 = host pad 4-7. */
@@ -831,6 +834,34 @@ static void apply_ports(void)
     p = atoi(settings_get("keyboard_slot")) - 1;
     InterlockedExchange(&s_kb_port, p >= 0 && p < 4 ? p : 0);
     xbox_InputSetKeyboardPort((int)s_kb_port);
+    controls_apply_pad_feel(-1, -1.0f, -1.0f);
+}
+
+/* To-do 29 (per slot, user 2026-11-07): each port's rumble (on and
+ * strength) and stick dead zone to the toolkit (xinput_device.c). The
+ * game's own dead zone is 15 of 110 on the left stick, 15 of 99 on the
+ * right (0x003D2630, conker-notes "Input"); at 14 % (the default) nothing
+ * is reshaped. port -1 = all four from settings.ini; else one port, with a
+ * slider's live value (>= 0) in place of the saved one. */
+void controls_apply_pad_feel(int port, float strength, float dead_zone)
+{
+    char key[32];
+    int p;
+    for (p = 0; p < 4; p++) {
+        float s, d;
+        if (port >= 0 && p != port)
+            continue;
+        snprintf(key, sizeof(key), "rumble_strength%d", p + 1);
+        s = strength >= 0.0f ? strength : (float)atof(settings_get(key));
+        snprintf(key, sizeof(key), "rumble%d", p + 1);
+        if (!strcmp(settings_get(key), "0"))
+            s = 0.0f;
+        xbox_SetRumbleStrength(p, (int)(s + 0.5f));
+        snprintf(key, sizeof(key), "stick_dead_zone%d", p + 1);
+        d = dead_zone >= 0.0f ? dead_zone : (float)atof(settings_get(key));
+        xbox_SetStickDeadZone(p, 15.0f / 110.0f, 15.0f / 99.0f,
+                              d == 14.0f ? -1.0f : d / 100.0f);
+    }
 }
 
 void controls_apply(void)

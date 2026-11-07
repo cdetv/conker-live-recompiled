@@ -33,6 +33,9 @@
     <DataTemplate DataType="vm:SectionItem">
       <TextBlock Classes="section" Text="{Binding Label}" Margin="0,14,0,4" />
     </DataTemplate>
+    <DataTemplate DataType="vm:LineItem">
+      <Border Height="1" Background="{StaticResource DimTextBrush}" Opacity="0.5" Margin="0,12,0,6" />
+    </DataTemplate>
     <DataTemplate DataType="vm:NoteItem">
       <TextBlock Text="{Binding Label}" TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}" Margin="0,2,0,4" />
     </DataTemplate>
@@ -55,9 +58,25 @@
     </DataTemplate>
     <DataTemplate DataType="vm:SliderItem">
       <StackPanel Spacing="0" Margin="{Binding SliderIndent}" ToolTip.Tip="{Binding Tip}" Background="Transparent"
-                  IsVisible="{Binding IsShown}">
-        <TextBlock Text="{Binding Label}" />
-        <Grid ColumnDefinitions="*,64,Auto" ColumnSpacing="8">
+                  IsVisible="{Binding IsShown}" Grid.IsSharedSizeScope="True">
+        <Grid ColumnSpacing="8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="64" />
+            <ColumnDefinition Width="Auto" SharedSizeGroup="Reset" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+          <!-- A sound channel's Mute (to-do 13; user 2026-11-07): the word over the value, the box over the reset button. -->
+          <TextBlock Grid.Column="1" Text="Mute" IsVisible="{Binding HasMute}" VerticalAlignment="Center" HorizontalAlignment="Right" />
+          <CheckBox Grid.Column="2" IsChecked="{Binding IsMuted}" IsVisible="{Binding HasMute}" HorizontalAlignment="Center"
+                    AutomationProperties.Name="{Binding MuteName}" MinWidth="0" MinHeight="0" Padding="0" />
+        </Grid>
+        <Grid ColumnSpacing="8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="64" />
+            <ColumnDefinition Width="Auto" SharedSizeGroup="Reset" />
+          </Grid.ColumnDefinitions>
           <Slider AutomationProperties.Name="{Binding Label}" Minimum="{Binding Minimum}" Maximum="{Binding Maximum}" Value="{Binding Value}"
                   TickFrequency="{Binding Step}" IsSnapToTickEnabled="True"
                   SmallChange="{Binding Step}" IsEnabled="{Binding IsAvailable}" />
@@ -203,6 +222,22 @@
                 <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
                            Text="The decensor patch is made by nastys, Vaani and Theconker64 and is downloaded from their GitHub releases. It is not part of this launcher." />
 
+                <!-- Shaders: conker.exe precompile-shaders fills the shader cache (to-do 25, SPEC 9.3). -->
+                <TextBlock Classes="section" Text="Shaders" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding ShadersText}" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !ConfirmDeleteShaders}">
+                  <Button Content="{Binding PrecompileButtonText}" Command="{Binding PrecompileShadersCommand}" />
+                  <Button Content="Delete Shaders" Command="{Binding AskDeleteShadersCommand}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmDeleteShaders}">
+                  <TextBlock Text="Delete every compiled shader? The game compiles them again as you play (or precompile again)."
+                             TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="480" />
+                  <Button Content="Yes" Command="{Binding DeleteShadersCommand}" />
+                  <Button Content="No" Command="{Binding CancelDeleteShadersCommand}" />
+                </StackPanel>
+                <TextBlock Text="{Binding PrecompileError}" TextWrapping="Wrap" Classes="error"
+                           IsVisible="{Binding PrecompileError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
                 <!-- User files: where they are kept (SPEC 9.3); a change moves them. -->
                 <TextBlock Classes="section" Text="User files" Margin="0,8,0,0" />
                 <StackPanel Spacing="4" DataContext="{Binding UserFiles}" x:DataType="vm:UserFilesViewModel">
@@ -239,14 +274,28 @@
                           ToolTip.Tip="Starts the game with --debug: debug choices in its F2 menu, frame rate in the title bar" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmReset}">
-                  <TextBlock Text="Set everything on this tab back to the default?" VerticalAlignment="Center" />
+                  <TextBlock Text="Set every setting (all four tabs, not the controls) back to the default?"
+                             TextWrapping="Wrap" VerticalAlignment="Center" />
                   <Button Content="Reset" Command="{Binding ResetCommand}" />
                   <Button Content="Cancel" Command="{Binding CancelResetCommand}" />
                 </StackPanel>
+                <ItemsControl ItemsSource="{Binding TopItems}" IsEnabled="{Binding IsEditable}" />
               </StackPanel>
-              <ScrollViewer>
-                <ItemsControl ItemsSource="{Binding Items}" IsEnabled="{Binding IsEditable}" Margin="4,0,16,4" />
-              </ScrollViewer>
+              <!-- F2's tabs (to-do 11). -->
+              <TabControl Classes="inner" ItemsSource="{Binding Tabs}" IsEnabled="{Binding IsEditable}">
+                <TabControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:MenuTab">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </TabControl.ItemTemplate>
+                <TabControl.ContentTemplate>
+                  <DataTemplate x:DataType="vm:MenuTab">
+                    <ScrollViewer Offset="{Binding ScrollOffset, Mode=OneWay}">
+                      <ItemsControl ItemsSource="{Binding Items}" Margin="4,0,16,4" />
+                    </ScrollViewer>
+                  </DataTemplate>
+                </TabControl.ContentTemplate>
+              </TabControl>
             </DockPanel>
           </TabItem>
           <TabItem Header="CONTROLS">
@@ -261,13 +310,13 @@
               </StackPanel>
               <TabControl Classes="inner" ItemsSource="{Binding Tabs}" IsEnabled="{Binding IsEditable}">
                 <TabControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:ControlsTab">
+                  <DataTemplate x:DataType="vm:MenuTab">
                     <TextBlock Text="{Binding Name}" />
                   </DataTemplate>
                 </TabControl.ItemTemplate>
                 <TabControl.ContentTemplate>
-                  <DataTemplate x:DataType="vm:ControlsTab">
-                    <ScrollViewer>
+                  <DataTemplate x:DataType="vm:MenuTab">
+                    <ScrollViewer Offset="{Binding ScrollOffset, Mode=OneWay}">
                       <ItemsControl ItemsSource="{Binding Items}" Margin="4,0,16,4" />
                     </ScrollViewer>
                   </DataTemplate>

@@ -33,7 +33,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
     /// <summary>What comes before F3's tabs ("Use keyboard and mouse").</summary>
     public ObservableCollection<SettingItem> TopItems { get; } = [];
 
-    public ObservableCollection<ControlsTab> Tabs { get; } = [];
+    public ObservableCollection<MenuTab> Tabs { get; } = [];
 
     /// <summary>The game is running: its F3 menu rewrites settings.ini, so the tab is locked.</summary>
     [ObservableProperty]
@@ -73,12 +73,12 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         TopItems.Clear();
         Tabs.Clear();
         items.Clear();
-        ControlsTab? tab = null;
+        MenuTab? tab = null;
         foreach (MenuEntry entry in schema.Controls)
         {
             if (entry.Type == "tab")
             {
-                tab = new ControlsTab(entry.Label);
+                tab = new MenuTab(entry.Label);
                 Tabs.Add(tab);
                 continue;
             }
@@ -319,7 +319,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
     private void UpdateKeys()
     {
         string scheme = ValueOf("story_scheme");
-        foreach (ControlsTab tab in Tabs)
+        foreach (MenuTab tab in Tabs)
         {
             foreach (SettingItem item in tab.Items)
             {

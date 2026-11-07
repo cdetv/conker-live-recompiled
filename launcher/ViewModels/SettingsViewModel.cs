@@ -8,8 +8,8 @@ using ConkerLauncher.Services;
 namespace ConkerLauncher.ViewModels;
 
 /// <summary>
-/// The Settings tab (SPEC 9.3): the F2 menu's entries, built from <c>conker.exe --dump-settings</c>.
-/// A change is written to settings.ini shortly after it is made (a moving slider writes once it
+/// The Settings tab (SPEC 9.3): the F2 menu's entries and tabs (Display, Picture, Sound, Recomp),
+/// built from <c>conker.exe --dump-settings</c>. A change is written to settings.ini shortly after it is made (a moving slider writes once it
 /// stops), only the option's own line.
 /// </summary>
 public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
@@ -17,6 +17,8 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     private readonly GameFolder folder;
     private readonly DecensorPatch decensor;
     private readonly Dictionary<string, string> pending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<SettingItem> items = [];
+    private bool haveDecensor;
     private readonly DispatcherTimer saveTimer;
     private SettingsSchema? schema;
 
@@ -29,7 +31,10 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         saveTimer.Tick += (_, _) => Flush();
     }
 
-    public ObservableCollection<SettingItem> Items { get; } = [];
+    /// <summary>What comes before F2's tabs (nothing today; everything, from a game without tabs).</summary>
+    public ObservableCollection<SettingItem> TopItems { get; } = [];
+
+    public ObservableCollection<MenuTab> Tabs { get; } = [];
 
     /// <summary>Starts the game with <c>--debug</c> (the main window's command).</summary>
     public IRelayCommand LaunchDebugCommand { get; }
@@ -63,12 +68,23 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         }
 
         schema = loaded;
-        Items.Clear();
+        TopItems.Clear();
+        Tabs.Clear();
+        items.Clear();
+        MenuTab? tab = null;
         foreach (MenuEntry entry in schema.Menu)
         {
+            if (entry.Type == "tab")
+            {
+                tab = new MenuTab(entry.Label);
+                Tabs.Add(tab);
+                continue;
+            }
+
             SettingItem? item = entry.Type switch
             {
                 "section" => new SectionItem(entry),
+                "line" => new LineItem(entry),
                 "checkbox" => new CheckItem(this, entry),
                 "choice" => new ChoiceItem(this, entry),
                 "slider" => new SliderItem(this, entry),
@@ -81,12 +97,13 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
                     item.Tip ??= option.Help;
                 }
 
-                if (item.Parent is { } parent && Items.FirstOrDefault(i => i.Key == parent) is { } up)
+                if (item.Parent is { } parent && items.FirstOrDefault(i => i.Key == parent) is { } up)
                 {
                     item.Depth = up.Depth + 1;
                 }
 
-                Items.Add(item);
+                items.Add(item);
+                (tab?.Items ?? TopItems).Add(item);
             }
         }
 
@@ -114,8 +131,8 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             return;
         }
 
-        bool haveDecensor = decensor.IsInstalled;
-        foreach (SettingItem item in Items)
+        haveDecensor = decensor.IsInstalled;
+        foreach (SettingItem item in items)
         {
             if (item.Key is not { } key || !schema.ByKey.TryGetValue(key, out SettingOption? option))
             {
@@ -127,7 +144,12 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
                 ? ok
                 : option.Default;
             item.Show(value);
-            item.IsAvailable = item.Needs != "decensor" || haveDecensor;
+            if (item is SliderItem { MuteKey: { } muteKey } slider && schema.ByKey.TryGetValue(muteKey, out SettingOption? mute))
+            {
+                slider.ShowMute(file.TryGetValue(muteKey, out string? m) && schema.Normalize(mute, m) is { } okMute
+                    ? okMute
+                    : mute.Default);
+            }
         }
 
         ShowChildren();
@@ -136,12 +158,21 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     /// <summary>
     /// As in F2, a row under a checkbox (the Pop-in Fix's parts, the particle density under one of
     /// them) shows only while that checkbox is on and shown itself; parents come first in the menu.
+    /// A row that needs something is greyed out without it: the decensor patch, or a checkbox on
+    /// (Poo Fix needs Underwater Shimmer, on another tab).
     /// </summary>
     private void ShowChildren()
     {
-        foreach (SettingItem item in Items)
+        foreach (SettingItem item in items)
         {
-            if (item.Parent is { } parent && Items.OfType<CheckItem>().FirstOrDefault(c => c.Key == parent) is { } check)
+            item.IsAvailable = item.Needs switch
+            {
+                null => true,
+                "decensor" => haveDecensor,
+                string needs => items.OfType<CheckItem>().FirstOrDefault(c => c.Key == needs)?.IsOn ?? true,
+            };
+
+            if (item.Parent is { } parent && items.OfType<CheckItem>().FirstOrDefault(c => c.Key == parent) is { } check)
             {
                 item.IsShown = check.IsOn && check.IsShown;
             }
@@ -195,12 +226,18 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             return;
         }
 
-        foreach (SettingItem item in Items)
+        foreach (SettingItem item in items)
         {
             if (item.Key is { } key && schema.ByKey.TryGetValue(key, out SettingOption? option))
             {
                 item.Show(option.Default);
                 pending[key] = option.Default;
+            }
+
+            if (item is SliderItem { MuteKey: { } muteKey } slider && schema.ByKey.TryGetValue(muteKey, out SettingOption? mute))
+            {
+                slider.ShowMute(mute.Default);
+                pending[muteKey] = mute.Default;
             }
         }
 

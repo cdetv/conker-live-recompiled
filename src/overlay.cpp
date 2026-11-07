@@ -70,9 +70,9 @@
  * conker_SetGlow, scales the game's own glow from its next frame, and
  * cutscene blur, conker_SetCutsceneBlur, likewise; shadow quality,
  * conker_SetShadowRes in shadows.c, from each shadow's next draw; the
- * frame rate, the dip fix, grass detail, screen haze, vignette and screen
- * drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
- * conker_SetScreenHaze, conker_SetVignette, conker_SetScreenDrops,
+ * frame rate, the dip fix, grass detail, fog, screen haze, vignette and
+ * screen drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
+ * conker_SetFog, conker_SetUnderwaterFog, conker_SetScreenHaze, conker_SetVignette, conker_SetScreenDrops,
  * conker_SetUnderwaterOverlay, conker_SetPooFix and
  * conker_SetMainMenuSpeed, conker_SetSubmenuSpeed, conker_SetCutsceneSkip
  * and conker_SetSkipHold
@@ -107,6 +107,7 @@
 #include "controls.h"
 #include "photo_mode.h"
 #include "decensor.h"
+#include "precompile.h"
 
 extern "C" {
 void xbox_KbmSetActive(int on);
@@ -122,6 +123,7 @@ int xbox_FramebufferWindowGpuViewRect(int *x, int *y, int *w, int *h);
 void xbox_InputSetBlocked(int on);
 int xbox_InputFirstHostPad(void);
 DWORD xbox_InputHostPadRead(DWORD slot, XINPUT_STATE *st);
+#define XBOX_INPUT_HOST_PADS 8      /* xinput_xbox.h: 4 XInput, 4 PlayStation */
 void xbox_InputSetBackgroundPads(int on);
 void xbox_ApuSetPaused(int on);
 int xbox_SetRenderRes(unsigned w, unsigned h);
@@ -135,6 +137,12 @@ int xbox_SetUpscaler(int mode);
 int xbox_SetVsync(int mode);
 int xbox_SetCrt(int mode, float strength);
 void conker_SetGlow(float pct);
+void conker_SetSoundChannel(int ch, float pct, int mute);
+void conker_SetSoundSolo(int ch);
+int conker_SoundSolo(void);
+void conker_SetMasterVolume(float pct);
+void conker_SetMasterMute(int on);
+void conker_SetCutsceneVolume(float pct);
 void conker_SetCutsceneBlur(int mode);
 void conker_SetShadowRes(unsigned factor);
 void conker_SetShadowSoftness(float pct);
@@ -148,9 +156,18 @@ void conker_SetCutsceneSkip(int on);
 void conker_SetSkipHold(int on);
 float conker_SkipRing(void);
 float conker_SkipCover(void);
+float conker_LoadCover(void);
+int conker_MainMenuBoard(void);
+void conker_SetLoadingScreen(int on);
+void conker_SetFastLoads(int on);
+int xbox_FramebufferWindowIsFullscreen(void);
+int xbox_FramebufferWindowPlacement(int *x, int *y, int *w, int *h,
+                                    int *maximized);
 void conker_SetGrassFull(int on);
 void conker_SetPopinPart(int part, int on);
 void conker_SetParticleDensity(float percent);
+void conker_SetFog(int on);
+void conker_SetUnderwaterFog(int on);
 void conker_SetScreenHaze(int on);
 void conker_SetVignette(int on);
 void conker_SetScreenDrops(int on);
@@ -164,11 +181,15 @@ void overlay_init(void);
 /* ---- shared between the window thread and the executor -------------------- */
 
 static volatile LONG s_gpu_seen;    /* the overlay hook has run: F2 can work */
+static volatile LONG s_place_dirty; /* the game window was moved or resized */
 /* Which menu: none, F2's settings, F3's controls or photo mode's panel. */
-enum { MENU_NONE, MENU_SETTINGS, MENU_CONTROLS, MENU_PHOTO };
+/* MENU_QUIT: only the quit question, from B / Esc on the main menu's
+ * boards (to-do 28). */
+enum { MENU_NONE, MENU_SETTINGS, MENU_CONTROLS, MENU_PHOTO, MENU_QUIT };
 static volatile LONG s_want_open;   /* F2/F3 state; the executor follows it */
 static volatile LONG s_want_pause;  /* the pause key's state (P; F4 before
                                      * photo mode), likewise */
+static volatile LONG s_pause_asked; /* GetTickCount when it was asked */
 static volatile LONG s_want_fps;    /* F1 state (0-2, fps_counter), likewise */
 static volatile LONG s_keys_to_game; /* a menu is up without the focus: keys
                                       * pass on to the game (executor sets) */
@@ -215,6 +236,40 @@ static void to_back_buffer(LPARAM l, float *x, float *y)
     *y = (my - vy) * (float)s_bb_h / (float)vh;
 }
 
+/* ---- the pause key -------------------------------------------------------- */
+
+/* To-do 117 (user 2026-11-06): the pause key freezes the game as photo
+ * mode does (photo_mode.c enter_pause: the game's own pause flag and sound
+ * pause, nothing to catch up on afterwards), only where photo mode can
+ * freeze. The old pause held the flip: the game stopped at its next frame,
+ * then caught up on up to 1 s of time when it resumed, a jump of a few
+ * frames, and a cutscene's sound fell behind its pictures. old_pause (F2
+ * Debug, --debug only) brings it back: it pauses everywhere. */
+static bool old_pause_on(void)
+{
+    return settings_debug() && strcmp(settings_get("old_pause"), "0") != 0;
+}
+
+static void want_pause(bool on)
+{
+    if (on)
+        InterlockedExchange(&s_pause_asked, (LONG)GetTickCount());
+    InterlockedExchange(&s_want_pause, on ? 1 : 0);
+}
+
+extern "C" int overlay_pause_wanted(unsigned *age_ms)
+{
+    if (!s_want_pause || old_pause_on())
+        return 0;
+    *age_ms = (unsigned)(GetTickCount() - (DWORD)s_pause_asked);
+    return 1;
+}
+
+extern "C" void overlay_pause_refused(void)
+{
+    InterlockedExchange(&s_want_pause, 0);
+}
+
 /* ---- window thread ---------------------------------------------------------- */
 
 static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
@@ -223,6 +278,29 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
     float x = 0, y = 0;
 
     s_hwnd = (HWND)hwnd;   /* for Close game */
+    /* --precompile-shaders (precompile.c): no menus and no keys for the
+     * game; Esc stops the pass, as closing the window does (the result
+     * file says so). F11, Alt+Enter and Alt+F4 stay the window's. */
+    if (precompile_on()) {
+        *result = 0;
+        if (m == WM_CLOSE)
+            precompile_stop();
+        if (m == WM_KEYDOWN && w == VK_ESCAPE) {
+            precompile_stop();
+            PostMessageA((HWND)hwnd, WM_CLOSE, 0, 0);
+            return 1;
+        }
+        if ((m == WM_KEYDOWN || m == WM_KEYUP || m == WM_CHAR)
+            && w != VK_F11)
+            return 1;
+        return 0;
+    }
+    /* To-do 29: the window moved or resized (or maximized) by the player,
+     * not full screen's own changes; saved at the next frame. */
+    if (m == WM_EXITSIZEMOVE
+        || (m == WM_SIZE && (w == SIZE_MAXIMIZED || w == SIZE_RESTORED)
+            && !xbox_FramebufferWindowIsFullscreen()))
+        InterlockedExchange(&s_place_dirty, 1);
     if (!s_gpu_seen)
         return 0;
     *result = 0;
@@ -242,10 +320,18 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
             || (int)w == controls_photo_toggle_key())) {
         if (!(l & (1L << 30))) {
             if ((int)w == controls_pause_key())
-                InterlockedXor(&s_want_pause, 1);
+                want_pause(s_want_pause == 0);
             else
                 photo_request_toggle();
         }
+        return 1;
+    }
+    /* Esc on the main menu's boards: the quit question (to-do 28). The
+     * game never sees this Esc (there it would be B, which does nothing). */
+    if (m == WM_KEYDOWN && w == VK_ESCAPE && !s_want_open && !s_want_pause
+        && !photo_active() && conker_MainMenuBoard()) {
+        if (!(l & (1L << 30)))
+            InterlockedCompareExchange(&s_want_open, MENU_QUIT, MENU_NONE);
         return 1;
     }
     /* Off, fps, fps and frame times, off again. */
@@ -255,7 +341,7 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         return 1;
     }
     /* Photo mode's zoom: the wheel kept from the game's keys. */
-    if (m == WM_MOUSEWHEEL && !s_want_open && photo_frozen()) {
+    if (m == WM_MOUSEWHEEL && !s_want_open && photo_active()) {
         photo_wheel(GET_WHEEL_DELTA_WPARAM(w));
         return 1;
     }
@@ -327,12 +413,15 @@ static bool s_item_active;    /* a slider was held or typed in last frame:
 static bool s_ask_quit;       /* "Do you want to close the game?" is up */
 static bool s_focus;          /* give the menu the focus next frame */
 static WORD s_pad_prev;       /* pad buttons last frame, for presses */
+static WORD s_pad_latch;      /* held at opening, kept from ImGui until let go */
+static int s_tab_step;        /* F2's tabs: LB (-1) or RB (+1) this frame */
+static int s_tab_cur;         /* the F2 tab shown */
 static LARGE_INTEGER s_last_frame;
 static char s_error[160];     /* last save failure, shown in the menu */
 static ImVec2 s_win_pos, s_win_size;   /* the menu's window last frame */
 static bool s_win_dragged;    /* moved or resized with the mouse down */
 static unsigned s_style_h;    /* picture height the style was made for */
-static bool s_replace[4];     /* put a menu window back from settings.ini */
+static bool s_replace[5];     /* put a menu window back from settings.ini */
 static bool s_held;           /* the last call held the flip: this one
                                * presents the same frame again */
 static int s_fps;             /* F1: 0 off, 1 fps, 2 fps and frame times */
@@ -370,9 +459,14 @@ static ImGuiKey key_from_vk(WPARAM vk)
 
 /* The first connected pad, as the toolkit picks player 1: an Xbox pad
  * (XInput) or a PlayStation pad (SDL3), in XInput's layout either way. */
+/* Slot 1's controller only (user 2026-11-07: no other controller may reach
+ * the menus, so none can quit the game through them): the host pad behind
+ * controller port 0, whatever F3 Slots gave it. Before, the first connected
+ * host pad. False with no controller on slot 1 (the menus then take the
+ * keyboard and mouse only). */
 static bool read_pad(XINPUT_STATE *st)
 {
-    int pad = xbox_InputFirstHostPad();
+    int pad = controls_pad_of_port(0);
     if (pad >= 0 && xbox_InputHostPadRead((DWORD)pad, st) == ERROR_SUCCESS)
         return true;
     memset(st, 0, sizeof(*st));
@@ -432,20 +526,22 @@ static void open_menu(void)
     XINPUT_STATE pad;
     read_pad(&pad);
     s_pad_prev = pad.Gamepad.wButtons;   /* a held button is not a press */
+    s_pad_latch = pad.Gamepad.wButtons;  /* nor a key down for ImGui */
     xbox_InputSetBlocked(1);
     s_pad_menu = true;
     ImGui::GetIO().ClearInputKeys();
     ImGui::GetIO().ClearInputMouse();
     s_error[0] = '\0';
     s_focus = true;
-    s_ask_quit = false;
     s_open = true;
     s_menu = (int)s_want_open;
+    s_ask_quit = s_menu == MENU_QUIT;
     s_capture_idx = -1;
     s_ask_reset = -1;
     fprintf(stderr, "[OVERLAY] opened%s\n",
             s_menu == MENU_CONTROLS ? " (controls)"
-            : s_menu == MENU_PHOTO ? " (photo panel)" : "");
+            : s_menu == MENU_PHOTO ? " (photo panel)"
+            : s_menu == MENU_QUIT ? " (quit question)" : "");
 }
 
 /* F3 with F2's menu open, or the other way round: the other menu, as if
@@ -455,7 +551,7 @@ static void switch_menu(void)
     s_menu = (int)s_want_open;
     s_error[0] = '\0';
     s_focus = true;
-    s_ask_quit = false;
+    s_ask_quit = s_menu == MENU_QUIT;
     s_capture_idx = -1;
     s_ask_reset = -1;
     fprintf(stderr, "[OVERLAY] switched to the %s menu\n",
@@ -515,7 +611,9 @@ extern "C" void overlay_photo_shot(void)
  * can change during the pause). */
 static void follow_pause(void)
 {
-    bool paused = s_want_pause != 0;
+    /* The flip is held only for the old pause (debug); the new one is a
+     * freeze of the game thread's (photo_frozen). */
+    bool paused = s_want_pause != 0 && old_pause_on();
     bool hold_apu = (paused || photo_frozen())
                     && strcmp(settings_get("pause_silence"), "0") != 0;
 
@@ -698,6 +796,38 @@ static void drain_events(bool *close)
     }
 }
 
+/* The game window's own size and place to settings.ini (window_rect, to-do
+ * 29) once the player has moved or resized it: only a placement that
+ * differs from the one the game started with (or last saved), so a window
+ * nobody touched leaves the line empty. Executor thread, each present. */
+static void remember_game_window(void)
+{
+    static char last[64];
+    static bool have_last;
+    int x, y, w, h, mx;
+    char v[64];
+
+    if (!have_last) {
+        if (!xbox_FramebufferWindowPlacement(&x, &y, &w, &h, &mx))
+            return;
+        snprintf(last, sizeof(last), "%d,%d,%d,%d%s", x, y, w, h,
+                 mx ? ",max" : "");
+        have_last = true;
+        InterlockedExchange(&s_place_dirty, 0);
+        return;
+    }
+    if (!InterlockedExchange(&s_place_dirty, 0))
+        return;
+    if (!xbox_FramebufferWindowPlacement(&x, &y, &w, &h, &mx))
+        return;
+    snprintf(v, sizeof(v), "%d,%d,%d,%d%s", x, y, w, h, mx ? ",max" : "");
+    if (!strcmp(v, last))
+        return;
+    strcpy_s(last, sizeof(last), v);
+    save("window_rect", v);
+    fprintf(stderr, "[OVERLAY] window_rect = %s\n", v);
+}
+
 /* Back + LB (Back + Black on an Xbox pad) with no menu up opens F2's menu
  * as the F2 key does (user 2026-10-29); Back then closes it (feed_pad).
  * Executor thread, each present. With no pad, looked for once a second:
@@ -724,6 +854,14 @@ static void pad_opens_menu(void)
         InterlockedCompareExchange(&s_want_open, MENU_SETTINGS, MENU_NONE);
         fprintf(stderr, "[OVERLAY] Back + LB: settings menu\n");
     }
+    /* B on the main menu's boards: the quit question (to-do 28). Slot 1's
+     * controller only (read_pad; user 2026-11-07); the keyboard has Esc. */
+    else if (!s_want_open && (b & XINPUT_GAMEPAD_B)
+             && !(prev & XINPUT_GAMEPAD_B) && !s_paused && !photo_active()
+             && conker_MainMenuBoard()) {
+        InterlockedCompareExchange(&s_want_open, MENU_QUIT, MENU_NONE);
+        fprintf(stderr, "[OVERLAY] B on the main menu: quit question\n");
+    }
     prev = b;
 }
 
@@ -742,6 +880,12 @@ static void feed_pad(bool *close)
     else
         io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
     s_pad_prev = st.Gamepad.wButtons;
+    /* A button held when the menu opened reaches ImGui only once let go
+     * and pressed again: ImGui took the held B that opened the quit
+     * question as a press of its No, and the question closed at once
+     * (user's DualShock 4, 2026-11-07). */
+    s_pad_latch &= st.Gamepad.wButtons;
+    st.Gamepad.wButtons &= (WORD)~s_pad_latch;
     if (!s_pad_menu) {
         memset(&st, 0, sizeof(st));
         pressed = 0;
@@ -752,6 +896,12 @@ static void feed_pad(bool *close)
         *close = true;
     if ((pressed & XINPUT_GAMEPAD_B) && !s_popup_open && !s_item_active)
         *close = true;
+    /* LB / RB step through F2's tabs (to-do 11); not while a list, a
+     * question or a held slider has the pad. */
+    s_tab_step = 0;
+    if (!s_popup_open && !s_item_active && !s_ask_quit)
+        s_tab_step = (pressed & XINPUT_GAMEPAD_RIGHT_SHOULDER) ? 1
+                   : (pressed & XINPUT_GAMEPAD_LEFT_SHOULDER) ? -1 : 0;
 
 #define BTN(key, bit) io.AddKeyEvent(key, (g.wButtons & (bit)) != 0)
 #define ANALOG(key, v, lo, hi) do { \
@@ -870,6 +1020,14 @@ static void section(const char *label)
         fputs(" }", s_dump);
 }
 
+/* A plain line between groups of options (no heading). */
+static void line(void)
+{
+    ImGui::Separator();
+    if (dump_item("line", "", NULL))
+        fputs(" }", s_dump);
+}
+
 /* Options greyed out unless what they need is there; the dump names it
  * (the launcher checks for it itself). */
 static void begin_needs(const char *what, bool missing)
@@ -912,6 +1070,12 @@ static void checkbox(const char *label, const char *key, bool applies_now,
         save(key, on ? "1" : "0");
         if (!strcmp(key, "slowdown_fix") && !settings_env_override(key))
             conker_SetDipFix(on);
+        if (!strcmp(key, "loading_screen") && !settings_env_override(key))
+            conker_SetLoadingScreen(on);
+        if (!strcmp(key, "fast_loads") && !settings_env_override(key))
+            conker_SetFastLoads(on);
+        if (!strncmp(key, "rumble", 6))
+            controls_apply_pad_feel(key[6] - '1', -1.0f, -1.0f);
         if (!strcmp(key, "main_menu_speed") && !settings_env_override(key))
             conker_SetMainMenuSpeed(on);
         if (!strcmp(key, "submenu_speed") && !settings_env_override(key))
@@ -928,6 +1092,10 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetPopinPart(!strcmp(key, "popin_grass") ? 0
                                 : !strcmp(key, "popin_characters") ? 1
                                 : !strcmp(key, "popin_fur") ? 2 : 3, on);
+        if (!strcmp(key, "fog") && !settings_env_override(key))
+            conker_SetFog(on);
+        if (!strcmp(key, "underwater_fog") && !settings_env_override(key))
+            conker_SetUnderwaterFog(on);
         if (!strcmp(key, "screen_haze") && !settings_env_override(key))
             conker_SetScreenHaze(on);
         if (!strcmp(key, "vignette") && !settings_env_override(key))
@@ -1172,7 +1340,38 @@ static Slide s_slides[] = {
     { "mp_mouse_y", 100.0f, false },
     { "particle_density", 15.0f, false },
     { "shadow_softness", 50.0f, false },
+    { "rumble_strength1", 100.0f, false },
+    { "rumble_strength2", 100.0f, false },
+    { "rumble_strength3", 100.0f, false },
+    { "rumble_strength4", 100.0f, false },
+    { "stick_dead_zone1", 10.0f, false },
+    { "stick_dead_zone2", 10.0f, false },
+    { "stick_dead_zone3", 10.0f, false },
+    { "stick_dead_zone4", 10.0f, false },
+    /* Sound tab (to-do 13); the channels in conker_SetSoundChannel's order. */
+    { "master_volume", 100.0f, false },
+    { "music_volume", 100.0f, false },
+    { "effects_volume", 100.0f, false },
+    { "dialogue_volume", 100.0f, false },
+    { "other_volume", 100.0f, false },
+    { "cutscene_volume", 100.0f, false },
 };
+
+/* The sound channels' settings keys, in conker_SetSoundChannel's order. */
+static const char *const s_sound_channels[] = {
+    "music", "effects", "dialogue", "other",
+};
+
+/* "music_volume" / "music_mute" -> 0 (the channel), else -1. */
+static int sound_channel_of(const char *key)
+{
+    for (int i = 0; i < 4; i++) {
+        size_t n = strlen(s_sound_channels[i]);
+        if (!strncmp(key, s_sound_channels[i], n) && key[n] == '_')
+            return i;
+    }
+    return -1;
+}
 #define NUM_SLIDES ((int)(sizeof(s_slides) / sizeof(s_slides[0])))
 
 static Slide *slide_for(const char *key)
@@ -1228,14 +1427,45 @@ static void apply_slider(const char *key, bool saved)
             conker_SetShadowSoftness(slide_value(slide_for(key)));
         return;
     }
+    /* Per slot (to-do 29): the live value while it moves. */
+    if (!strncmp(key, "rumble_strength", 15)) {
+        controls_apply_pad_feel(key[15] - '1', slide_value(slide_for(key)),
+                                -1.0f);
+        return;
+    }
+    if (!strncmp(key, "stick_dead_zone", 15)) {
+        controls_apply_pad_feel(key[15] - '1', -1.0f,
+                                slide_value(slide_for(key)));
+        return;
+    }
+    /* Sound (to-do 13): live while it moves. */
+    if (!strcmp(key, "master_volume")) {
+        if (!settings_env_override(key))
+            conker_SetMasterVolume(slide_value(slide_for(key)));
+        return;
+    }
+    if (!strcmp(key, "cutscene_volume")) {
+        if (!settings_env_override(key))
+            conker_SetCutsceneVolume(slide_value(slide_for(key)));
+        return;
+    }
+    if (sound_channel_of(key) >= 0) {
+        if (!settings_env_override(key))
+            conker_SetSoundChannel(sound_channel_of(key),
+                                   slide_value(slide_for(key)), -1);
+        return;
+    }
     apply_picture();
 }
 
 /* The name above; the slider the window's full width but for its reset
  * icon (back to neutral, the original) at the end of the line. fmt shows
- * the value and rounds it as it shows it; tip is the icon's. */
+ * the value and rounds it as it shows it; tip is the icon's. mute: a sound
+ * channel's mute key, a Mute box after the name (and a Solo box for testing
+ * with --debug, solo_ch the channel; F2 only, not saved). */
 static void slider(const char *label, const char *key, float lo, float hi,
-                   const char *neutral, const char *fmt, const char *tip)
+                   const char *neutral, const char *fmt, const char *tip,
+                   const char *mute = NULL, int solo_ch = -1)
 {
     Slide *s = slide_for(key);
     float v = slide_value(s);
@@ -1248,16 +1478,79 @@ static void slider(const char *label, const char *key, float lo, float hi,
         char unit[16] = "";
         if (u && !strncmp(u + 1, " %%", 3))
             strcpy_s(unit, sizeof(unit), " %");
+        else if (u && !strncmp(u + 1, " dB", 3))
+            strcpy_s(unit, sizeof(unit), " dB");
         fprintf(s_dump, ", \"min\": %g, \"max\": %g, \"neutral\": ", lo, hi);
         settings_json_string(s_dump, neutral);
         fprintf(s_dump, ", \"decimals\": %d, \"unit\": ", f ? atoi(f + 1) : 0);
         settings_json_string(s_dump, unit);
         fputs(", \"reset_tip\": ", s_dump);
         settings_json_string(s_dump, tip);
+        if (mute) {
+            fputs(", \"mute\": ", s_dump);
+            settings_json_string(s_dump, mute);
+        }
         fputs(" }", s_dump);
     }
     snprintf(id, sizeof(id), "##%s", key);
+    /* User 2026-11-07: the Mute boxes in one column, each right above its
+     * reset icon, the word before the box (Solo, --debug, before that). A
+     * click on a word ticks its box too. */
+    float left = ImGui::GetCursorPosX();
+    float right = left + ImGui::GetContentRegionAvail().x;
+    if (mute)
+        ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
+    if (mute) {
+        bool on = strcmp(settings_get(mute), "0") != 0;
+        bool solo_shown = settings_debug() && solo_ch >= 0;
+        float fh = ImGui::GetFrameHeight();
+        float in = ImGui::GetStyle().ItemInnerSpacing.x;
+        float sp = ImGui::GetFontSize();
+        float mute_box = right - fh;
+        float mute_txt = mute_box - in - ImGui::CalcTextSize("Mute").x;
+        float solo_box = mute_txt - sp - fh;
+        float solo_txt = solo_box - in - ImGui::CalcTextSize("Solo").x;
+        float first = solo_shown ? solo_txt : mute_txt;
+        float past = left + ImGui::CalcTextSize(label).x + sp - first;
+        bool flip = false;
+        if (past > 0.0f) {          /* a long name: after it instead */
+            mute_box += past; mute_txt += past;
+            solo_box += past; solo_txt += past;
+        }
+        if (solo_shown) {
+            bool solo = conker_SoundSolo() == solo_ch;
+            ImGui::SameLine(solo_txt);
+            ImGui::TextUnformatted("Solo");
+            flip = ImGui::IsItemClicked();
+            ImGui::SameLine(solo_box);
+            snprintf(id, sizeof(id), "##solo_%s", key);
+            if (ImGui::Checkbox(id, &solo) || flip)
+                conker_SetSoundSolo(flip ? (solo ? -1 : solo_ch)
+                                         : (solo ? solo_ch : -1));
+            ImGui::SetItemTooltip("Debug: only this channel heard (not "
+                                  "saved), to find which sounds are which");
+        }
+        ImGui::SameLine(mute_txt);
+        ImGui::TextUnformatted("Mute");
+        flip = ImGui::IsItemClicked();
+        ImGui::SameLine(mute_box);
+        snprintf(id, sizeof(id), "##%s", mute);
+        if (ImGui::Checkbox(id, &on) || flip) {
+            if (flip)
+                on = !on;
+            save(mute, on ? "1" : "0");
+            if (!settings_env_override(mute)) {
+                if (!strcmp(mute, "master_mute"))
+                    conker_SetMasterMute(on);
+                else
+                    conker_SetSoundChannel(sound_channel_of(mute), -1.0f,
+                                           on);
+            }
+        }
+        ImGui::SetItemTooltip("Mute %s", label);
+        snprintf(id, sizeof(id), "##%s", key);
+    }
     ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + gap));
     if (ImGui::SliderFloat(id, &v, lo, hi, fmt,
                            ImGuiSliderFlags_AlwaysClamp)) {
@@ -1409,7 +1702,11 @@ static void place_window(int which, const char *key, unsigned w, unsigned h,
     }
 }
 
-static void build_menu(unsigned w, unsigned h, bool *close)
+/* F2's tabs (to-do 11; layout user 2026-11-06): Display, Picture, Sound,
+ * Fixes (what changes the game itself: the decensor patch, cutscene skips,
+ * pop-in, menu speeds, Poo Fix). w and h: the picture's size; close: set
+ * to close the menu. */
+static void display_tab(unsigned w, unsigned h, bool *close)
 {
     /* The picture takes the resolution's shape: there is no separate
      * widescreen option. */
@@ -1433,12 +1730,17 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         "Anisotropic 2x", "Anisotropic 4x", "Anisotropic 8x",
         "Anisotropic 16x (sharpest steady)",
     };
+    /* As multiples (user 2026-11-07); settings.ini keeps the percent.
+     * 5x-10x only with --debug (to-do 30). */
     static const char *const scale_values[] = {
-        "50", "67", "75", "100", "125", "150", "200",
+        "50", "67", "75", "100", "125", "150", "200", "250", "300", "400",
+        "500", "600", "700", "800", "900", "1000",
     };
     static const char *const scale_names[] = {
-        "50 % (fastest, softest)", "67 %", "75 %", "100 % (default)",
-        "125 %", "150 %", "200 % (sharpest, slowest)",
+        "0.5x (fastest, softest)", "0.67x", "0.75x", "1x (default)",
+        "1.25x", "1.5x", "2x", "2.5x", "3x", "4x (sharpest, slowest)",
+        "5x (debug)", "6x (debug)", "7x (debug)", "8x (debug)", "9x (debug)",
+        "10x (debug)",
     };
     static const char *const mode_values[] = {
         "windowed", "borderless", "fullscreen",
@@ -1465,6 +1767,57 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     static const char *const up_names[] = {
         "Bilinear (plain, soft)", "AMD FSR 1 (sharper edges)",
     };
+    /* RECOMP_LANGUAGE: the toolkit's answer to XGetLanguage, read once. */
+    static const char *const lang_values[] = { "english", "french", "german",
+                                               "italian", "spanish",
+                                               "japanese" };
+    static const char *const lang_names[] = { "English", "French", "German",
+                                              "Italian", "Spanish",
+                                              "Japanese" };
+    (void)w; (void)h; (void)close;
+
+    choice("Display mode", "display_mode", mode_values, mode_names,
+           (int)(sizeof(mode_values) / sizeof(mode_values[0])), true);
+    choice("Render resolution", "render_resolution", res_values, res_names,
+           (int)(sizeof(res_values) / sizeof(res_values[0])), true);
+    choice("Render scale", "render_scale", scale_values, scale_names,
+           settings_debug() ? 16 : 10, true);
+    {
+        /* The size the game is drawn at, and when the toolkit capped it
+         * (texture size, video memory), the multiple that is. */
+        unsigned dw, dh;
+        int pct = xbox_RenderScaleSize(&dw, &dh);
+        char buf[160];
+        if (pct < atoi(settings_get("render_scale")))
+            snprintf(buf, sizeof(buf), "    Drawn at %ux%u: capped at %.2gx,"
+                     " the largest the renderer and this graphics card take"
+                     " here", dw, dh, pct / 100.0);
+        else
+            snprintf(buf, sizeof(buf), "    Drawn at %ux%u", dw, dh);
+        note(buf);
+    }
+    choice("Upscaler (render scale below 1x)", "upscaler", up_values,
+           up_names, (int)(sizeof(up_values) / sizeof(up_values[0])), true);
+    choice("Texture filtering", "texture_filter", filter_values, filter_names,
+           (int)(sizeof(filter_values) / sizeof(filter_values[0])), true);
+    choice("Frame rate", "frame_rate", fps_values, fps_names,
+           settings_debug() ? 6 : 4, true);
+    /* The dip fix at 30 is on by default and a debug choice (user
+     * 2026-10-22); 60 and above always have it. */
+    if (settings_debug() && !strcmp(settings_get("frame_rate"), "30")) {
+        checkbox("Keep speed in slowdowns (debug)", "slowdown_fix", true);
+        note("    Off = original (runs fast when the frame rate dips)");
+    }
+    choice("VSync", "vsync", vsync_values, vsync_names,
+           (int)(sizeof(vsync_values) / sizeof(vsync_values[0])), true);
+    /* Was "Text and menus" under its own Language heading (to-do 11). */
+    choice("Text language", "language", lang_values, lang_names,
+           (int)(sizeof(lang_values) / sizeof(lang_values[0])), false);
+    note("    Voices are English in every language");
+}
+
+static void picture_tab(unsigned w, unsigned h, bool *close)
+{
     static const char *const aa_values[] = { "off", "fxaa", "smaa" };
     static const char *const aa_names[] = {
         "Off (original)", "FXAA (quick, slightly soft)",
@@ -1489,6 +1842,68 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         "Off (always sharp)", "Original (blocky at high resolutions)",
         "Updated (original look, smooth)", "Cinematic (stronger, bokeh)",
     };
+    (void)w; (void)close;
+
+    choice("Anti-aliasing", "antialiasing", aa_values, aa_names,
+           (int)(sizeof(aa_values) / sizeof(aa_values[0])), true);
+    choice("Shadows", "shadow_resolution", shadow_values, shadow_names,
+           (int)(sizeof(shadow_values) / sizeof(shadow_values[0])), true);
+    /* To-do 105: the game's own shadows at original, nothing to soften. */
+    ImGui::BeginDisabled(!_stricmp(settings_get("shadow_resolution"),
+                                   "original"));
+    slider("Shadow softness", "shadow_softness", 0.0f, 100.0f, "0",
+           "%.0f %%", "Back to off (0 %: as sharp as Shadows draws them)");
+    ImGui::EndDisabled();
+    checkbox("Smooth world shadows", "smooth_world_shadows", true,
+             "The shadows baked into the levels (fences, plants, buildings) "
+             "read smoothly instead of as blocky steps. Off = as the "
+             "original");
+    {
+        static const char *const orig = "Back to the original (1.00)";
+        slider("Gamma", "gamma", 0.5f, 1.5f, "1", "%.2f", orig);
+        slider("Contrast", "contrast", 0.5f, 1.5f, "1", "%.2f", orig);
+        slider("Saturation", "saturation", 0.0f, 2.0f, "1", "%.2f", orig);
+        slider("Sharpening", "sharpen", 0.0f, 100.0f, "0", "%.0f %%",
+               "Back to off (0 %)");
+        slider("Glow (the game's own)", "glow", 0.0f, 100.0f, "100",
+               "%.0f %%", "Back to the original (100 %)");
+    }
+    checkbox("Fog", "fog", true,
+             "The distance fog that fades far scenery into the level's "
+             "colour. Off = far scenery as clear as near (the level's far "
+             "end may show). Under water, Underwater Fog decides");
+    checkbox("Underwater Fog", "underwater_fog", true,
+             "The murky water colour while the camera is under water. Off "
+             "= clear water");
+    checkbox("Haze", "screen_haze", true,
+             "The mist or colour wash in some levels. Off = a clear view "
+             "(e.g. no green gas in Chemical Warfare)");
+    checkbox("Vignette", "vignette", true,
+             "The dark corners round the picture in some levels. Off = "
+             "the picture as bright at the edges as in the middle");
+    checkbox("Screen drops", "screen_drops", true,
+             "Water and blood drops on the screen and the streaks they "
+             "leave. Off = a clean screen");
+    checkbox("Underwater Shimmer", "underwater_overlay", true,
+             "The shimmering haze round Conker under water, which shows as "
+             "a band at eye level. Off = a clear view under water");
+    choice("Cutscene blur", "cutscene_blur", dof_values, dof_names,
+           (int)(sizeof(dof_values) / sizeof(dof_values[0])), true);
+    choice("CRT / scanlines", "crt", crt_values, crt_names,
+           (int)(sizeof(crt_values) / sizeof(crt_values[0])), true);
+    slider("CRT strength", "crt_strength", 0.0f, 100.0f, "50", "%.0f %%",
+           "Back to the default (50 %)");
+    if (_stricmp(settings_get("crt"), "off") && h < 960) {
+        /* The toolkit fades them out below 2 pixels per line. */
+        char buf[128];
+        snprintf(buf, sizeof(buf), "    The picture is %u pixels tall: "
+                 "scanlines show fully from 960", h);
+        note(buf);
+    }
+}
+
+static void sound_tab(unsigned w, unsigned h, bool *close)
+{
     static const char *const mix_values[] = {
         "xemu", "speakers", "evenodd", "front",
     };
@@ -1496,48 +1911,80 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         "xemu (default)", "speakers (wider stereo)", "evenodd (debug)",
         "front (debug)",
     };
+    (void)w; (void)h; (void)close;
 
-    /* 24 wide: "Ambient Particles (experimental)", indented, is the widest
-     * line (clipped at 22, 2026-10-31). */
-    place_window(MENU_SETTINGS, "menu_window", w, h, 24.0f, 0.0f);
-    ImGui::Begin("Settings", NULL,
-                 ImGuiWindowFlags_NoCollapse
-                 | ImGuiWindowFlags_NoSavedSettings);
+    /* To-do 13 (user 2026-11-07): master, a mute per channel, Solo only
+     * with --debug, a cutscene volume for everything a cutscene plays. */
     {
-        bool paused = s_paused;
-        char label[64];
-        snprintf(label, sizeof(label), "Pause the game (%s)",
-                 controls_key_label(controls_pause_key()));
-        if (ImGui::Checkbox(label, &paused))
-            InterlockedExchange(&s_want_pause, paused ? 1 : 0);
+        static const char *const full = "Back to full (100 %)";
+        slider("Master volume", "master_volume", 0.0f, 100.0f, "100",
+               "%.0f %%", full, "master_mute");
+        slider("Music", "music_volume", 0.0f, 100.0f, "100", "%.0f %%", full,
+               "music_mute", 0);
+        slider("Effects", "effects_volume", 0.0f, 100.0f, "100", "%.0f %%",
+               full, "effects_mute", 1);
+        slider("Dialogue", "dialogue_volume", 0.0f, 100.0f, "100", "%.0f %%",
+               full, "dialogue_mute", 2);
+        slider("Other (ambience, menu sounds)", "other_volume", 0.0f, 100.0f,
+               "100", "%.0f %%", full, "other_mute", 3);
+        /* User 2026-11-07: percent, the original in the middle. */
+        /* No note under it (user 2026-11-07); settings.ini explains it. */
+        slider("Cutscene volume", "cutscene_volume", 0.0f, 200.0f, "100",
+               "%.0f %%", "Back to the original (100 %)");
     }
-    if (!s_pad_menu)
-        note("Controller: the game. Click this menu (or F2 twice) to use it.");
+    /* evenodd and front are for testing: listed only with --debug. */
+    choice("Mix", "mix", mix_values, mix_names, settings_debug() ? 4 : 2,
+           false);
+    checkbox("3D sound (HRTF)", "hrtf", false);
+    checkbox("Silence sound while paused", "pause_silence", true);
+}
 
-    section("Display");
-    choice("Display mode", "display_mode", mode_values, mode_names,
-           (int)(sizeof(mode_values) / sizeof(mode_values[0])), true);
-    choice("Render resolution", "render_resolution", res_values, res_names,
-           (int)(sizeof(res_values) / sizeof(res_values[0])), true);
-    choice("Render scale", "render_scale", scale_values, scale_names,
-           (int)(sizeof(scale_values) / sizeof(scale_values[0])), true);
-    {
-        /* The size the game is drawn at, and when the toolkit capped it,
-         * the percent that is. */
-        unsigned dw, dh;
-        int pct = xbox_RenderScaleSize(&dw, &dh);
-        char buf[128];
-        if (pct < atoi(settings_get("render_scale")))
-            snprintf(buf, sizeof(buf), "    Drawn at %ux%u: capped at %d %%,"
-                     " the largest the renderer takes here", dw, dh, pct);
-        else
-            snprintf(buf, sizeof(buf), "    Drawn at %ux%u", dw, dh);
-        note(buf);
+/* In the user's order (2026-11-06); a plain line ends the Cutscenes group,
+ * so the options after it do not read as part of it. */
+static void fixes_tab(unsigned w, unsigned h, bool *close)
+{
+    (void)w; (void)h;
+
+    /* The decensor patch (decensor.c): greyed out without it. */
+    section("Uncensored");
+    bool have_audio = decensor_available(0) != 0;
+    bool have_text = decensor_available(1) != 0;
+    begin_needs("decensor", !have_audio);
+    checkbox("Uncensored audio", "uncensored_audio", false,
+             "Cutscene voices and songs without the bleeps (decensor "
+             "patch). Changes when the game is started again");
+    end_needs();
+    begin_needs("decensor", !have_text);
+    checkbox("Uncensored text", "uncensored_text", true,
+             "Subtitles and other text without the censoring (decensor "
+             "patch). Changes from the next level that loads");
+    end_needs();
+    if (!have_audio && !have_text)
+        note("    Needs the decensor patch in a \"decensor\" folder next to "
+             "the game (or paths.decensor_dir in settings.ini)");
+
+    /* To-do 16 (user 2026-11-04): Hold to Skip shown while the first is
+     * on; the dump always lists it, under its parent. */
+    section("Cutscenes");
+    checkbox("Skippable Cutscenes", "skippable_cutscenes", true,
+             "Every story cutscene can be skipped, also the ones the game "
+             "does not let you skip; a scene in parts skips one part at a "
+             "time");
+    if (s_dump || strcmp(settings_get("skippable_cutscenes"), "0")) {
+        ImGui::Indent();
+        s_dump_parent = "skippable_cutscenes";
+        checkbox("Hold to Skip", "hold_to_skip", true,
+                 "Scenes the game does not let you skip need the skip button "
+                 "held for 3 seconds (off: a press skips them)");
+        /* User 2026-11-04: a debug choice. */
+        if (settings_debug())
+            checkbox("Tail-shaped ring (debug)", "skip_ring_tail", true,
+                     "The hold-to-skip ring drawn as Conker's curled-up tail");
+        s_dump_parent = NULL;
+        ImGui::Unindent();
     }
-    choice("Upscaler (render scale below 100 %)", "upscaler", up_values,
-           up_names, (int)(sizeof(up_values) / sizeof(up_values[0])), true);
-    choice("Texture filtering", "texture_filter", filter_values, filter_names,
-           (int)(sizeof(filter_values) / sizeof(filter_values[0])), true);
+
+    line();
     checkbox("Pop-in Fix", "grass_full_detail", true,
              "Eliminates pop-in for elements such as grass, fur, and distant "
              "characters");
@@ -1567,14 +2014,6 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         s_dump_parent = NULL;
         ImGui::Unindent();
     }
-    choice("Frame rate", "frame_rate", fps_values, fps_names,
-           settings_debug() ? 6 : 4, true);
-    /* The dip fix at 30 is on by default and a debug choice (user
-     * 2026-10-22); 60 and above always have it. */
-    if (settings_debug() && !strcmp(settings_get("frame_rate"), "30")) {
-        checkbox("Keep speed in slowdowns (debug)", "slowdown_fix", true);
-        note("    Off = original (runs fast when the frame rate dips)");
-    }
     checkbox("Main Menu Speed", "main_menu_speed", true,
              "Above 60 fps the main menu turns between its boards and zooms "
              "into them at the original speed (off: faster, twice as fast at "
@@ -1582,138 +2021,41 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     checkbox("Sub-menu Speed", "submenu_speed", true,
              "Above 60 fps game select and the chapter list fade at the "
              "original speed (off: faster, twice as fast at 120)");
+    /* To-do 26 (Fixes tab: user 2026-11-07): the game's own loading
+     * screen, which the port drew but never showed. */
+    checkbox("Loading Screen", "loading_screen", true,
+             "The game's loading screen while a level loads (off: black, "
+             "then the level fades in). From the next load");
+    /* To-do 118: the loads' wait for the old music's fade-out (off by
+     * default, user 2026-11-07). */
+    checkbox("Fast Load (experimental)", "fast_loads", true,
+             "Loads don't wait for the old music to fade out, so a load from "
+             "the main menu takes about half a second instead of 3 or more; "
+             "the music stops at once when a load starts (off: the original "
+             "wait). From the next load");
+    /* It tints the Underwater Shimmer (Picture tab): greyed out while that
+     * is off (it was shown under it before the tabs, user 2026-11-03). */
+    begin_needs("underwater_overlay",
+                !strcmp(settings_get("underwater_overlay"), "0"));
+    checkbox("Poo Fix", "poo_fix", true,
+             "Under the poo after the Bull fight, the haze is brown to "
+             "match instead of a blue band. Off = the original. Normal "
+             "water is never changed. Needs Underwater Shimmer (Picture) on");
+    end_needs();
     /* On by default, a debug choice (user 2026-11-04). */
     if (settings_debug())
         checkbox("Physics at 30 Hz (debug)", "physics_30hz", true,
                  "Above 30 fps tails, ragdolls and cloth move at the original "
                  "speed (off: faster, 4x as fast at 120)");
-    choice("VSync", "vsync", vsync_values, vsync_names,
-           (int)(sizeof(vsync_values) / sizeof(vsync_values[0])), true);
-
-    /* To-do 16 (user 2026-11-04): Hold to Skip shown while the first is
-     * on; the dump always lists it, under its parent. */
-    section("Cutscenes");
-    checkbox("Skippable Cutscenes", "skippable_cutscenes", true,
-             "Every story cutscene can be skipped, also the ones the game "
-             "does not let you skip; a scene in parts skips one part at a "
-             "time");
-    if (s_dump || strcmp(settings_get("skippable_cutscenes"), "0")) {
-        ImGui::Indent();
-        s_dump_parent = "skippable_cutscenes";
-        checkbox("Hold to Skip", "hold_to_skip", true,
-                 "Scenes the game does not let you skip need the skip button "
-                 "held for 3 seconds (off: a press skips them)");
-        /* User 2026-11-04: a debug choice. */
-        if (settings_debug())
-            checkbox("Tail-shaped ring (debug)", "skip_ring_tail", true,
-                     "The hold-to-skip ring drawn as Conker's curled-up tail");
-        s_dump_parent = NULL;
-        ImGui::Unindent();
-    }
-
-    section("Picture");
-    choice("Anti-aliasing", "antialiasing", aa_values, aa_names,
-           (int)(sizeof(aa_values) / sizeof(aa_values[0])), true);
-    choice("Shadows", "shadow_resolution", shadow_values, shadow_names,
-           (int)(sizeof(shadow_values) / sizeof(shadow_values[0])), true);
-    /* To-do 105: the game's own shadows at original, nothing to soften. */
-    ImGui::BeginDisabled(!_stricmp(settings_get("shadow_resolution"),
-                                   "original"));
-    slider("Shadow softness", "shadow_softness", 0.0f, 100.0f, "0",
-           "%.0f %%", "Back to off (0 %: as sharp as Shadows draws them)");
-    ImGui::EndDisabled();
-    checkbox("Smooth world shadows", "smooth_world_shadows", true,
-             "The shadows baked into the levels (fences, plants, buildings) "
-             "read smoothly instead of as blocky steps. Off = as the "
-             "original");
-    {
-        static const char *const orig = "Back to the original (1.00)";
-        slider("Gamma", "gamma", 0.5f, 1.5f, "1", "%.2f", orig);
-        slider("Contrast", "contrast", 0.5f, 1.5f, "1", "%.2f", orig);
-        slider("Saturation", "saturation", 0.0f, 2.0f, "1", "%.2f", orig);
-        slider("Sharpening", "sharpen", 0.0f, 100.0f, "0", "%.0f %%",
-               "Back to off (0 %)");
-        slider("Glow (the game's own)", "glow", 0.0f, 100.0f, "100",
-               "%.0f %%", "Back to the original (100 %)");
-    }
-    checkbox("Haze", "screen_haze", true,
-             "The mist or colour wash in some levels. Off = a clear view "
-             "(e.g. no green gas in Chemical Warfare)");
-    checkbox("Vignette", "vignette", true,
-             "The dark corners round the picture in some levels. Off = "
-             "the picture as bright at the edges as in the middle");
-    checkbox("Screen drops", "screen_drops", true,
-             "Water and blood drops on the screen and the streaks they "
-             "leave. Off = a clean screen");
-    checkbox("Underwater Overlay", "underwater_overlay", true,
-             "The shimmering haze round Conker under water, which shows as "
-             "a band at eye level. Off = a clear view under water");
-    /* Shown while the overlay is on, as the pop-in parts (user
-     * 2026-11-03). */
-    if (s_dump || strcmp(settings_get("underwater_overlay"), "0")) {
-        ImGui::Indent();
-        s_dump_parent = "underwater_overlay";
-        checkbox("Poo Fix", "poo_fix", true,
-                 "Under the poo after the Bull fight, the haze is brown to "
-                 "match instead of a blue band. Off = the original. Normal "
-                 "water is never changed");
-        s_dump_parent = NULL;
-        ImGui::Unindent();
-    }
-    choice("Cutscene blur", "cutscene_blur", dof_values, dof_names,
-           (int)(sizeof(dof_values) / sizeof(dof_values[0])), true);
-    choice("CRT / scanlines", "crt", crt_values, crt_names,
-           (int)(sizeof(crt_values) / sizeof(crt_values[0])), true);
-    slider("CRT strength", "crt_strength", 0.0f, 100.0f, "50", "%.0f %%",
-           "Back to the default (50 %)");
-    if (_stricmp(settings_get("crt"), "off") && h < 960) {
-        /* The toolkit fades them out below 2 pixels per line. */
-        char buf[128];
-        snprintf(buf, sizeof(buf), "    The picture is %u pixels tall: "
-                 "scanlines show fully from 960", h);
-        note(buf);
-    }
-
-    section("Sound");
-    /* evenodd and front are for testing: listed only with --debug. */
-    choice("Mix", "mix", mix_values, mix_names, settings_debug() ? 4 : 2,
-           false);
-    checkbox("3D sound (HRTF)", "hrtf", false);
-    checkbox("Silence sound while paused", "pause_silence", true);
-
-    /* RECOMP_LANGUAGE: the toolkit's answer to XGetLanguage, read once. */
-    section("Language");
-    static const char *const lang_values[] = { "english", "french", "german",
-                                               "italian", "spanish",
-                                               "japanese" };
-    static const char *const lang_names[] = { "English", "French", "German",
-                                              "Italian", "Spanish",
-                                              "Japanese" };
-    choice("Text and menus", "language", lang_values, lang_names,
-           (int)(sizeof(lang_values) / sizeof(lang_values[0])), false);
-    note("    Voices are English in every language");
-
-    /* The decensor patch (decensor.c): greyed out without it. */
-    section("Uncensored");
-    bool have_audio = decensor_available(0) != 0;
-    bool have_text = decensor_available(1) != 0;
-    begin_needs("decensor", !have_audio);
-    checkbox("Uncensored audio", "uncensored_audio", false,
-             "Cutscene voices and songs without the bleeps (decensor "
-             "patch). Changes when the game is started again");
-    end_needs();
-    begin_needs("decensor", !have_text);
-    checkbox("Uncensored text", "uncensored_text", true,
-             "Subtitles and other text without the censoring (decensor "
-             "patch). Changes from the next level that loads");
-    end_needs();
-    if (!have_audio && !have_text)
-        note("    Needs the decensor patch in a \"decensor\" folder next to "
-             "the game (or paths.decensor_dir in settings.ini)");
 
     if (settings_debug()) {
         section("Debug");
         note("Started with --debug: debug choices are shown.");
+        /* To-do 117: the pause key as before 0.2.3 (old_pause_on). */
+        checkbox("Old P pause: holds the picture (debug)", "old_pause", true,
+                 "P stops the game at its next frame, everywhere; on resume it "
+                 "catches up on the time (a jump), and cutscene sound falls "
+                 "behind. Off: P freezes the game as photo mode does");
         /* The game's own soak test (recomp_manual.c, conker_StartSoak). */
         int soak = conker_SoakState();
         if (soak == 2) {
@@ -1728,6 +2070,102 @@ static void build_menu(unsigned w, unsigned h, bool *close)
             note(soak == 1 ? "    Every map in turn, then the chapters, over and over"
                            : "    Only from the main menu");
         }
+    }
+}
+
+struct MenuTab {
+    const char *name;
+    void (*body)(unsigned w, unsigned h, bool *close);
+};
+static const MenuTab s_menu_tabs[] = {
+    { "Display", display_tab },
+    { "Picture", picture_tab },
+    { "Sound", sound_tab },
+    { "Fixes", fixes_tab },
+};
+static const int MENU_TABS = (int)(sizeof(s_menu_tabs) / sizeof(s_menu_tabs[0]));
+
+/* A row of tabs that goes on in a second row (and more) when the window is
+ * too narrow for all of them (user 2026-11-06; ImGui's own tab bar only
+ * squeezes or scrolls them). Buttons in the tab colours, the shown one
+ * lit, a line under the rows. Returns the tab chosen; focus: the shown
+ * tab takes the keyboard / pad focus (after LB / RB, so down goes into
+ * it). */
+template <typename Tab>
+static int wrapped_tabs(const char *id, const Tab *tabs, int n, int cur,
+                        bool focus)
+{
+    const ImGuiStyle &st = ImGui::GetStyle();
+    float avail = ImGui::GetContentRegionAvail().x;
+    float gap = st.ItemInnerSpacing.x;
+    float x = 0.0f;
+    int chosen = cur;
+
+    ImGui::PushID(id);
+    for (int i = 0; i < n; i++) {
+        float tw = ImGui::CalcTextSize(tabs[i].name).x + st.FramePadding.x * 2.0f;
+        if (i > 0 && x + gap + tw <= avail) {
+            ImGui::SameLine(0.0f, gap);
+            x += gap + tw;
+        } else {
+            x = tw;
+        }
+        bool lit = i == cur;
+        ImGui::PushStyleColor(ImGuiCol_Button,
+                              st.Colors[lit ? ImGuiCol_TabSelected : ImGuiCol_Tab]);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                              st.Colors[lit ? ImGuiCol_TabSelected : ImGuiCol_TabHovered]);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                              st.Colors[ImGuiCol_TabSelected]);
+        if (ImGui::Button(tabs[i].name))
+            chosen = i;
+        if (lit && focus)
+            ImGui::SetKeyboardFocusHere(-1);   /* (presses it: no change) */
+        ImGui::PopStyleColor(3);
+    }
+    ImGui::PopID();
+    ImGui::PushStyleColor(ImGuiCol_Separator, st.Colors[ImGuiCol_TabSelected]);
+    ImGui::Separator();
+    ImGui::PopStyleColor();
+    return chosen;
+}
+
+static void build_menu(unsigned w, unsigned h, bool *close)
+{
+    /* 24 wide: "Ambient Particles (experimental)", indented, is the widest
+     * line (clipped at 22, 2026-10-31). */
+    place_window(MENU_SETTINGS, "menu_window", w, h, 24.0f, 0.0f);
+    ImGui::Begin("Settings", NULL,
+                 ImGuiWindowFlags_NoCollapse
+                 | ImGuiWindowFlags_NoSavedSettings);
+    {
+        bool paused = s_want_pause != 0;
+        char label[64];
+        snprintf(label, sizeof(label), "Pause the game (%s)",
+                 controls_key_label(controls_pause_key()));
+        if (ImGui::Checkbox(label, &paused))
+            want_pause(paused);
+    }
+    if (!s_pad_menu)
+        note("Controller: the game. Click this menu (or F2 twice) to use it.");
+
+    /* The dump goes through every tab; the menu shows the chosen one (the
+     * same one again at the next opening). LB / RB on the pad step
+     * through them (feed_pad). */
+    if (s_dump) {
+        for (const MenuTab &t : s_menu_tabs) {
+            if (dump_item("tab", t.name, NULL))
+                fputs(" }", s_dump);
+            t.body(w, h, close);
+        }
+    } else {
+        bool stepped = s_tab_step != 0;
+        if (stepped)
+            s_tab_cur = (s_tab_cur + s_tab_step + MENU_TABS) % MENU_TABS;
+        s_tab_step = 0;
+        s_tab_cur = wrapped_tabs("##settings_tabs", s_menu_tabs, MENU_TABS,
+                                 s_tab_cur, stepped);
+        s_menu_tabs[s_tab_cur].body(w, h, close);
     }
 
     ImGui::SeparatorText("Controls");  /* a button, nothing to dump */
@@ -2349,6 +2787,40 @@ static void ports_tab(void)
              "Controllers keep playing the game while another window is in "
              "front. Off: they do nothing until the game window is in front "
              "again (the keyboard always waits).");
+    /* To-do 29 (per slot, user 2026-11-07): the toolkit scales the game's
+     * motor speeds and reshapes the sticks (xinput_device.c); shown for
+     * the slots with a controller, all four in the dump. */
+    section("Rumble and sticks");
+    info("Each slot's controller: rumble (when the game's own Vibration "
+         "option is on too), how strong it is, and how far a stick tilts "
+         "before it moves anything (default 10 %; 14 % is the game's own, "
+         "lower responds sooner, higher helps a stick that drifts).");
+    for (int p = 0; p < 4; p++) {
+        char rk[16], sk[24], dk[24], lr[40], ls[48], ld[48];
+        snprintf(key, sizeof(key), "controller_slot%d", p + 1);
+        if (!s_dump && !strcmp(settings_get(key), "none"))
+            continue;
+        snprintf(rk, sizeof(rk), "rumble%d", p + 1);
+        snprintf(sk, sizeof(sk), "rumble_strength%d", p + 1);
+        snprintf(dk, sizeof(dk), "stick_dead_zone%d", p + 1);
+        snprintf(lr, sizeof(lr), "Slot %d rumble", p + 1);
+        snprintf(ls, sizeof(ls), "Slot %d rumble strength", p + 1);
+        snprintf(ld, sizeof(ld), "Slot %d stick dead zone", p + 1);
+        checkbox(lr, rk, true, "This slot's controller rumbles (off: never)");
+        /* The strength shown while rumble is on (as the Pop-in Fix's
+         * parts); the dump lists it under its parent. */
+        if (s_dump || strcmp(settings_get(rk), "0")) {
+            ImGui::Indent();
+            s_dump_parent = rk;
+            slider(ls, sk, 0.0f, 200.0f, "100", "%.0f %%",
+                   "Back to the default (100 %: as the game asks)");
+            s_dump_parent = NULL;
+            ImGui::Unindent();
+        }
+        /* Resets to the default 10 (user 2026-11-07), not the game's 14. */
+        slider(ld, dk, 0.0f, 40.0f, "10", "%.0f %%",
+               "Back to the default (10 %)");
+    }
 }
 
 static void story_tab(void)
@@ -3214,6 +3686,98 @@ static void skip_ring(unsigned w, unsigned h, float p)
     ring_band(dl, c, r, th, p, tail, 1.0f, -1.0f, 0.0f, 255, 255);
 }
 
+/* --precompile-shaders: B on any controller stops the pass as Esc does
+ * (user 2026-11-07: any controller here only; the menus and the quit
+ * question stay slot 1's). A B already held when a controller is first
+ * seen does not count. Executor thread, once a present. */
+static void precompile_pad_stop(void)
+{
+    static WORD prev[XBOX_INPUT_HOST_PADS];
+    static bool seen[XBOX_INPUT_HOST_PADS], stopped;
+    XINPUT_STATE st;
+    DWORD slot;
+
+    if (stopped)
+        return;
+    for (slot = 0; slot < XBOX_INPUT_HOST_PADS; slot++) {
+        WORD b;
+        if (xbox_InputHostPadRead(slot, &st) != ERROR_SUCCESS) {
+            seen[slot] = false;
+            continue;
+        }
+        b = st.Gamepad.wButtons;
+        if (seen[slot] && (b & XINPUT_GAMEPAD_B) && !(prev[slot] & XINPUT_GAMEPAD_B)) {
+            stopped = true;
+            fprintf(stderr, "[PRECOMPILE] B on controller %lu: stopped\n",
+                    (unsigned long)slot + 1);
+            precompile_stop();
+            if (s_hwnd)
+                PostMessageA(s_hwnd, WM_CLOSE, 0, 0);
+            return;
+        }
+        seen[slot] = true;
+        prev[slot] = b;
+    }
+}
+
+/* --precompile-shaders (precompile.c): black over the game (the levels and
+ * chapters it runs are not shown: no spoilers) and the pass's progress. */
+static void precompile_screen(unsigned w, unsigned h)
+{
+    PrecompileStatus st;
+    char line[160];
+
+    precompile_status(&st);
+    ImGui::GetBackgroundDrawList()->AddRectFilled(
+        ImVec2(0.0f, 0.0f), ImVec2((float)w, (float)h), IM_COL32(0, 0, 0, 255));
+    ImGui::SetNextWindowPos(ImVec2(w * 0.5f, h * 0.5f), ImGuiCond_Always,
+                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(w * 0.7f, 0.0f), ImGuiCond_Always);
+    ImGui::Begin("##precompile", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs
+                 | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings
+                 | ImGuiWindowFlags_NoBackground);
+    ImGui::TextWrapped("%s", st.resumed ? "Precompiling shaders (continuing "
+                                          "where the last run stopped)"
+                                        : "Precompiling shaders");
+    ImGui::Spacing();
+    ImGui::ProgressBar(st.progress, ImVec2(-1.0f, 0.0f));
+    ImGui::Spacing();
+    switch (st.stage) {
+    case PRECOMPILE_BOOT:
+        snprintf(line, sizeof line, st.resumed
+                 ? "Starting the game, then skipping to where it stopped..."
+                 : "Starting the game...");
+        break;
+    case PRECOMPILE_LEVELS:
+        snprintf(line, sizeof line, "Levels: %d of %d", st.levels,
+                 st.levels_total);
+        break;
+    case PRECOMPILE_CHAPTERS:
+        snprintf(line, sizeof line, "Chapters: %d of %d (part %d of %d)%s",
+                 st.chapter, st.chapters, st.task, st.tasks,
+                 st.skipping ? ", skipping to where it stopped" : "");
+        break;
+    default:
+        snprintf(line, sizeof line, "Finishing the last shaders...");
+        break;
+    }
+    ImGui::TextUnformatted(line);
+    snprintf(line, sizeof line, "Shaders compiled: %u    Time: %u:%02u",
+             st.shaders, st.seconds / 60u, st.seconds % 60u);
+    ImGui::TextUnformatted(line);
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::TextWrapped("The game runs every level and chapter behind this "
+                       "screen with the sound off, so their shaders are ready "
+                       "before you play. The game closes by itself when it is "
+                       "done. Esc or B on a controller stops it; what is "
+                       "compiled so far is kept, and the next run continues "
+                       "from there.");
+    ImGui::PopStyleColor();
+    ImGui::End();
+}
+
 /* The menu, the pause label and the FPS counter, whichever are on. Nonzero
  * holds the flip: the game stays paused at this frame (F4). */
 static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
@@ -3247,16 +3811,25 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     if (s_shot_want && InterlockedExchange(&s_shot_want, 0))
         take_shot(dev, ctx, rtv);
     /* The photo panel goes with photo mode. */
-    if (s_want_open == MENU_PHOTO && !photo_frozen())
+    if (s_want_open == MENU_PHOTO && !photo_active())
         InterlockedCompareExchange(&s_want_open, MENU_NONE, MENU_PHOTO);
     if (!s_want_open && s_open)
         close_menu();
-    if (!s_want_open)
+    /* A pre-compile pass: its screen only, nothing remembered. */
+    const bool precompiling = precompile_on() != 0;
+    if (!s_want_open && !precompiling)
         pad_opens_menu();
+    if (!precompiling)
+        remember_game_window();
     ring = conker_SkipRing();
     cover = conker_SkipCover();
+    {
+        float load = conker_LoadCover();    /* loading_screen = off */
+        if (load > cover)
+            cover = load;
+    }
     if (!s_want_open && !s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
-        && cover <= 0.0f)
+        && cover <= 0.0f && !precompiling)
         return 0;
     if (!s_ready) {
         if (!init_imgui(dev, ctx, h)) {
@@ -3321,17 +3894,28 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
             IM_COL32(0, 0, 0, (int)(cover * 255.0f)));
     if (ring > 0.0f)
         skip_ring(w, h, ring);
+    if (precompiling) {
+        precompile_pad_stop();
+        precompile_screen(w, h);
+    }
     if (s_open && s_menu == MENU_PHOTO)
         build_photo(w, h, &close);
-    else if (s_open)
+    else if (s_open && s_menu == MENU_QUIT) {
+        /* The question alone; its No (or Esc / B) closes it all. */
+        ask_quit();
+        if (!s_ask_quit)
+            close = true;
+    } else if (s_open)
         s_menu == MENU_CONTROLS ? build_controls(w, h, &close)
                                 : build_menu(w, h, &close);
     else if (s_paused || photo_frozen())
-        pause_label(h, photo_frozen() != 0);
+        pause_label(h, photo_active() != 0);
     /* A click outside the menu takes its focus (ImGui's own rule), and the
-     * pad goes with it. */
+     * pad goes with it. The quit question alone keeps the pad: it wants an
+     * answer (its modal is not "focused" on its first frame). */
     if (s_open)
-        pad_to_menu(ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow));
+        pad_to_menu(s_menu == MENU_QUIT
+                    || ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow));
     ImGui::Render();
 
     /* The back end does not touch the render targets; we put back ours. */

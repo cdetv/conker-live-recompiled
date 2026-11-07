@@ -16,8 +16,12 @@ extern "C" {
 void photo_frame_begin(void);
 void photo_render_begin(void);
 void photo_frame_end(void);
-/* Nonzero while the world is frozen for photo mode (any thread). */
+/* Nonzero while the world is frozen, for photo mode or by the pause key
+ * (any thread); photo_active: photo mode itself (its camera, keys, panel);
+ * photo_paused: the pause key's freeze (to-do 117). */
 int photo_frozen(void);
+int photo_active(void);
+int photo_paused(void);
 /* Nonzero while photo mode's keys are in use: frozen, or just left with a
  * key the game would take (Esc, its pause) still held. */
 int photo_keys_wanted(void);
@@ -77,6 +81,11 @@ void conker_AspectRefresh(unsigned cam);
  * game). */
 int overlay_menu_open(void);
 int overlay_pad_menu(void);
+/* The pause key (P, the F2 checkbox), for the game thread: nonzero while a
+ * pause is wanted (not the debug choice old_pause, which holds the flip
+ * instead), *age_ms since it was asked; refused clears it (not here). */
+int overlay_pause_wanted(unsigned *age_ms);
+void overlay_pause_refused(void);
 /* Game thread: open the photo panel; take a photo at the next present
  * (the picture as shown, before any of the overlay's text). */
 void overlay_photo_panel(void);

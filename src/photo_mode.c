@@ -57,6 +57,13 @@
  *
  * Debug trigger RECOMP_PHOTO_FILE=<path>: about twice a second the game
  * thread looks for the file; there = photo mode on, gone = off.
+ *
+ * The pause key (P, to-do 117, user 2026-11-06) is the same freeze without
+ * photo mode's camera, keys, HUD hiding and panel (s_pause; photo_active
+ * is photo mode itself, photo_frozen either): the game's view and HUD, its
+ * sound paused, no input to it. Asked through overlay_pause_wanted; where
+ * photo mode cannot freeze it is refused and does nothing. The photo key
+ * while paused turns the pause into photo mode.
  */
 #include <windows.h>
 #include <xinput.h>
@@ -118,6 +125,7 @@ extern void sub_002C5070(void);
 #define DOF_FOCUS   200.0f
 
 static volatile LONG s_frozen;  /* written by the game thread */
+static volatile LONG s_pause;   /* frozen by the pause key, not photo mode */
 static int s_settle;            /* left by a key still held: its set stays */
 static volatile LONG s_toggle;  /* asked by the window thread */
 static int s_flag_set;          /* the pause flag is ours until frame end */
@@ -144,6 +152,16 @@ int photo_frozen(void)
     return (int)s_frozen;
 }
 
+int photo_active(void)
+{
+    return s_frozen && !s_pause;
+}
+
+int photo_paused(void)
+{
+    return s_frozen && s_pause;
+}
+
 int photo_keys_wanted(void)
 {
     return s_frozen || s_settle;
@@ -167,14 +185,15 @@ void photo_wheel(int delta)
     }
 }
 
+/* The pause key's freeze keeps the HUD as the game draws it. */
 int photo_hud_shown(void)
 {
-    return s_frozen && s_opt.hud;
+    return s_frozen && (s_pause || s_opt.hud);
 }
 
 int photo_hud_hidden(void)
 {
-    return s_frozen && !s_opt.hud;
+    return s_frozen && !s_pause && !s_opt.hud;
 }
 
 int photo_hides_char_id(unsigned id)
@@ -369,6 +388,7 @@ static void build_projection(uint32_t cam);
 
 static void enter(void)
 {
+    InterlockedExchange(&s_pause, 0);   /* also from the pause key's freeze */
     InterlockedExchange(&s_frozen, 1);
     s_have_base = 0;
     s_opt.hud = s_opt.hide_conker = 0;
@@ -390,9 +410,26 @@ static void enter(void)
     fprintf(stderr, "[PHOTO] on (level 0x%02X)\n", MEM8(0x007FA1F8u));
 }
 
+/* The pause key (P; to-do 117): the same freeze, the game's own camera,
+ * HUD and pause of its sounds, and none of photo mode's keys; the game
+ * gets no input (the empty photo profile, the pad blocked). */
+static void enter_pause(void)
+{
+    InterlockedExchange(&s_pause, 1);
+    s_have_base = 0;
+    s_opt.hud = s_opt.hide_conker = s_opt.dof = 0;
+    InterlockedExchange(&s_cut_blur, -1);
+    s_step_asked = s_stepping = 0;
+    InterlockedExchange(&s_frozen, 1);
+    xbox_InputSetBlocked(1);
+    fprintf(stderr, "[PAUSE] on (level 0x%02X)\n", MEM8(0x007FA1F8u));
+}
+
 static void leave(void)
 {
+    int was_pause = (int)s_pause;
     InterlockedExchange(&s_frozen, 0);
+    InterlockedExchange(&s_pause, 0);
     InterlockedExchange(&s_cut_blur, -1);     /* the F2 setting again */
     /* The game's field of view back (it may not set it every frame). */
     if (s_have_base && s_cam && MEMF(s_cam + 0x104u) != s_opt.fov_game) {
@@ -401,7 +438,13 @@ static void leave(void)
     }
     s_have_base = 0;
     xbox_InputSetBlocked(overlay_pad_menu());
-    fprintf(stderr, "[PHOTO] off\n");
+    fprintf(stderr, was_pause ? "[PAUSE] off\n" : "[PHOTO] off\n");
+}
+
+static const char *not_here_why(void)
+{
+    return MEM32(0x0084A144u) ? "split screen"
+         : MEM8(0x007FA274u) ? "paused" : "multiplayer or a menu";
 }
 
 /* ---- each frame ---------------------------------------------------------- */
@@ -584,6 +627,7 @@ void photo_frame_begin(void)
     WORD pressed, combo = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_RIGHT_SHOULDER;
     int want, file = debug_poll();
     int menu = overlay_menu_open();
+    unsigned age;
 
     if (s_settle && !held(PHOTO_LEAVE))
         s_settle = 0;
@@ -600,18 +644,46 @@ void photo_frame_begin(void)
         file_was = file;
     }
     if (want) {
-        if (s_frozen)
+        if (s_frozen && s_pause) {      /* paused by P: photo mode from here */
+            overlay_pause_refused();
+            enter();
+        } else if (s_frozen)
             leave();
         else if (can_enter())
             enter();
         else
             fprintf(stderr, "[PHOTO] not here (level 0x%02X, %s)\n",
-                    MEM8(0x007FA1F8u), MEM32(0x0084A144u) ? "split screen"
-                    : MEM8(0x007FA274u) ? "paused" : "multiplayer or a menu");
+                    MEM8(0x007FA1F8u), not_here_why());
         pressed = 0;
+    }
+    /* The pause key (overlay.cpp): asked while the game ran frames. A press
+     * during a load or a movie (no game frames) is too old by the next one
+     * and does nothing, as where photo mode cannot freeze (user
+     * 2026-11-06); in photo mode it does nothing either. */
+    if (overlay_pause_wanted(&age)) {
+        if (s_frozen && !s_pause) {
+            fprintf(stderr, "[PAUSE] not in photo mode\n");
+            overlay_pause_refused();
+        } else if (!s_frozen) {
+            if (age <= 1000u && can_enter()) {
+                enter_pause();
+            } else {
+                fprintf(stderr, "[PAUSE] not here (level 0x%02X, %s)\n",
+                        MEM8(0x007FA1F8u),
+                        age > 1000u ? "no game frames" : not_here_why());
+                overlay_pause_refused();
+            }
+        }
+    } else if (s_frozen && s_pause) {
+        leave();
     }
     if (!s_frozen)
         return;
+    if (s_pause) {                      /* no camera, keys or frame step */
+        QueryPerformanceCounter(&s_last);
+        hold_flag();
+        return;
+    }
     if (s_have_base && InterlockedExchange(&s_ask_reset, 0))
         reset_camera();
     if (s_have_base && InterlockedExchange(&s_ask_focus, 0))
@@ -751,7 +823,8 @@ void photo_render_begin(void)
     uint8_t cut;
     uint32_t chars, act;
 
-    if (!s_frozen || MEM32(0x0084A144u) != 0)  /* one viewport only */
+    /* One viewport only; the pause key's freeze keeps the game's view. */
+    if (!s_frozen || s_pause || MEM32(0x0084A144u) != 0)
         return;
     if (s_stepping) {                   /* the world has moved a frame */
         s_stepping = 0;

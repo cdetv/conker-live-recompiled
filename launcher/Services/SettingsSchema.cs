@@ -28,7 +28,7 @@ public sealed record MenuEntry(
     string? Button = null, bool ButtonShown = true, string? Section = null, string? Scheme = null,
     bool ClashesAll = false, string? Question = null, IReadOnlyList<string>? Keys = null,
     string? FixedKeys = null, int Count = 0, string? KeyboardKey = null, string? KeyboardOnKey = null,
-    string? Parent = null);
+    string? Parent = null, string? Mute = null);
 
 /// <summary>A key name settings.ini takes and what the F3 menu calls it ("space", "Space").</summary>
 public sealed record KeyName(string Name, string Label);
@@ -114,7 +114,8 @@ public sealed class SettingsSchema
         Button: Str(m, "button"), ButtonShown: Bool(m, "button_shown") ?? true, Section: Str(m, "section"),
         Scheme: Str(m, "scheme"), ClashesAll: Bool(m, "clashes_all") ?? false, Question: Str(m, "question"),
         Keys: List(m, "keys"), FixedKeys: Str(m, "keys"), Count: (int)Num(m, "count"),
-        KeyboardKey: Str(m, "keyboard_key"), KeyboardOnKey: Str(m, "keyboard_on_key"), Parent: Str(m, "parent"));
+        KeyboardKey: Str(m, "keyboard_key"), KeyboardOnKey: Str(m, "keyboard_on_key"), Parent: Str(m, "parent"),
+        Mute: Str(m, "mute"));
 
     /// <summary>
     /// A value as the game would store it, or null when the game would ignore it (and use the

@@ -41,7 +41,7 @@
     <Style Selector="TabItem:selected">
       <Setter Property="Foreground" Value="{StaticResource XboxGreenBrush}" />
     </Style>
-    <!-- The Controls tab's own tabs (F3's): smaller. -->
+    <!-- The Settings and Controls tabs' own tabs (F2's, F3's): smaller. -->
     <Style Selector="TabControl.inner TabItem">
       <Setter Property="FontSize" Value="15" />
       <Setter Property="Padding" Value="10,0" />

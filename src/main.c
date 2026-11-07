@@ -15,6 +15,11 @@
  *               %LOCALAPPDATA%\conker-lr-recomp (default_save_dir).
  *   --debug     the F2 menu also shows debug-only choices, and the title
  *               bar the frame rate.
+ *   --precompile-shaders
+ *               the launcher's "Precompile Shaders" (Files tab): runs every
+ *               level and chapter behind a progress screen so their shaders
+ *               go into the save folder's shader cache, then quits
+ *               (src/precompile.c).
  *
  *   conker.exe --dump-settings
  *
@@ -124,6 +129,7 @@ static char s_save_dir[MAX_PATH];
 #include "settings.h"
 #include "decensor.h"
 #include "save_names.h"
+#include "precompile.h"
 extern void overlay_init(void);
 extern void overlay_dump_settings(FILE *f);
 extern void overlay_list_pads(FILE *f);
@@ -363,10 +369,13 @@ static BOOL parse_args(int argc, char **argv)
             save_dir = argv[++i];
         } else if (strcmp(argv[i], "--debug") == 0) {
             settings_set_debug(1);
+        } else if (strcmp(argv[i], "--precompile-shaders") == 0) {
+            precompile_enable();
         } else {
             fprintf(stderr, "Unknown or incomplete argument: %s\n"
                     "Usage: conker [--game-dir <folder>] "
-                    "[--save-dir <folder>] [--debug]\n", argv[i]);
+                    "[--save-dir <folder>] [--debug] "
+                    "[--precompile-shaders]\n", argv[i]);
             return FALSE;
         }
     }
@@ -396,6 +405,8 @@ static BOOL parse_args(int argc, char **argv)
             fprintf(stderr, "[DEFAULTS] RECOMP_VSH_GPU_CACHE=%s: off\n", v);
             _putenv_s("RECOMP_VSH_GPU_CACHE", "");
         }
+        /* --precompile-shaders: its result file goes beside the cache. */
+        precompile_set_cache_dir(getenv("RECOMP_VSH_GPU_CACHE"));
     }
     {
         /* Replacement textures (the toolkit's tex_replace.h), PNGs named
@@ -712,7 +723,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     if (!parse_args(__argc, __argv))
         return 1;
     /* The window's title; --debug adds the toolkit's FPS and draw count. */
-    xbox_FramebufferWindowSetAppTitle(APP_TITLE, settings_debug());
+    xbox_FramebufferWindowSetAppTitle(precompile_on()
+                                      ? APP_TITLE L" - Precompiling Shaders"
+                                      : APP_TITLE, settings_debug());
     sprintf_s(xbe_path, MAX_PATH, "%s\\default.xbe", s_game_dir);
     printf("Game dir: %s\n", s_game_dir);
     printf("Save dir: %s\n", s_save_dir);
@@ -745,6 +758,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     {
         extern void lightmaps_init(void);
         lightmaps_init();
+    }
+    /* Sound channels (src/recomp_manual.c, to-do 13): the master volume
+     * before the first sound. */
+    {
+        extern void conker_SoundInit(void);
+        conker_SoundInit();
     }
     /* Keyboard and mouse (src/controls.c): settings.ini's keys to the
      * toolkit's pad, which then also holds the mouse in the window. */

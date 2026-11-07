@@ -38,7 +38,7 @@
 #include "controls.h"
 
 typedef enum { OPT_BOOL, OPT_CHOICE, OPT_RES, OPT_PATH, OPT_RECT, OPT_NUM,
-               OPT_KEY } OptKind;
+               OPT_KEY, OPT_WIN } OptKind;
 
 typedef struct {
     const char *section;
@@ -83,12 +83,15 @@ static const Option s_options[] = {
       "height at 4:3, the original shape; native = exactly your monitor's\n"
       "size; 640x480 = the original Xbox size; or any WxH such as 1920x1080." },
     { "display", "render_scale", OPT_CHOICE, "100", "100",
-      "RECOMP_RENDER_SCALE", "50 67 75 100 125 150 200",
+      "RECOMP_RENDER_SCALE",
+      "50 67 75 100 125 150 200 250 300 400 500 600 700 800 900 1000",
       "Draw the game bigger or smaller than the render resolution, in\n"
-      "percent: 100 = the same (default). Above 100 the game is drawn\n"
-      "bigger and shrunk to fit (supersampling): smoother edges and finer\n"
-      "detail, but slower. Below 100 it is drawn smaller and stretched by\n"
-      "the upscaler: faster, but softer. Very big sizes are capped." },
+      "percent (F2 shows it as a multiple: 200 = 2x): 100 = the same\n"
+      "(default), up to 400 (500-1000 are debug choices). Above 100 the game\n"
+      "is drawn bigger and shrunk to fit (supersampling): smoother edges and\n"
+      "finer detail, but slower. Below 100 it is drawn smaller and stretched\n"
+      "by the upscaler: faster, but softer. Sizes too big for the graphics\n"
+      "card's memory (or above 10240x7680) are capped." },
     { "display", "upscaler", OPT_CHOICE, "fsr", "bilinear",
       "RECOMP_UPSCALER", "bilinear fsr",
       "How a render scale below 100 is stretched to fit: bilinear\n"
@@ -184,6 +187,25 @@ static const Option s_options[] = {
       "tear) or vrr (G-Sync / FreeSync: for a monitor with it turned on, in\n"
       "full screen; the monitor waits for the game's frames). Applies at\n"
       "once." },
+    /* To-do 26 (2026-11-07). */
+    { "display", "loading_screen", OPT_BOOL, "1", "1", "RECOMP_LOADSCREEN",
+      NULL,
+      "The game's loading screen while a level loads: 1 = on (default),\n"
+      "0 = off (black, then the level fades in). From the next load." },
+    /* To-do 118 (2026-11-07; off by default: user). */
+    { "display", "fast_loads", OPT_BOOL, "0", "0", "RECOMP_FAST_LOADS",
+      NULL,
+      "Loads don't wait for the old music to fade out: 1 = on (the music\n"
+      "stops at once when a load starts, a load from the main menu takes\n"
+      "about half a second), 0 = off (default; the original: the music\n"
+      "fades out first, 3 seconds or more). From the next load." },
+    /* To-do 29 (2026-11-07): the game window's own size and place, kept
+     * by the overlay when it is moved or resized (not full screen's). */
+    { "display", "window_rect", OPT_WIN, "", "", "RECOMP_WINDOW_RECT", NULL,
+      "Where the game window was left and its size, for the next start\n"
+      "(left,top,width,height in pixels, and \",max\" when maximized; empty =\n"
+      "the default). The game saves it when you move or resize the window;\n"
+      "full screen keeps it for when you leave full screen." },
     /* To-do 16 (user 2026-11-04): both on by default. */
     { "cutscenes", "skippable_cutscenes", OPT_BOOL, "1", "1",
       "RECOMP_CUTSCENE_SKIP", NULL,
@@ -254,6 +276,15 @@ static const Option s_options[] = {
       "The game's own glow (halos round lamps, glowing text, the soft\n"
       "haze in some levels), 0 to 100 percent: 100 = original (default),\n"
       "0 = off.", 0.0f, 100.0f },
+    { "picture", "fog", OPT_BOOL, "1", "1", "RECOMP_FOG", NULL,
+      "The levels' distance fog (far scenery fading into the level's fog\n"
+      "colour): 1 = on as the original (default), 0 = off (far scenery as\n"
+      "clear as near; the level's far end may show)." },
+    { "picture", "underwater_fog", OPT_BOOL, "1", "1", "RECOMP_UNDERWATER_FOG",
+      NULL,
+      "The murky water colour while the camera is under water (the game's\n"
+      "fog under water): 1 = on as the original (default), 0 = off (clear\n"
+      "water). Separate from fog, which is the fog above water." },
     { "picture", "screen_haze", OPT_BOOL, "1", "1", "RECOMP_SCREEN_HAZE", NULL,
       "The game's screen haze in some levels (a mist or colour wash over\n"
       "the whole view, e.g. the green gas in Chemical Warfare): 1 = on as\n"
@@ -268,7 +299,8 @@ static const Option s_options[] = {
     { "picture", "underwater_overlay", OPT_BOOL, "1", "1",
       "RECOMP_UNDERWATER_OVERLAY", NULL,
       "The shimmering haze round Conker under water (it shows as a band\n"
-      "at eye level): 1 = on as the original (default), 0 = off." },
+      "at eye level; F2 \"Underwater Shimmer\"): 1 = on as the original\n"
+      "(default), 0 = off." },
     { "picture", "poo_fix", OPT_BOOL, "1", "1", "RECOMP_POO_FIX", NULL,
       "Under the poo after the Bull fight, that haze drawn brown to match\n"
       "the poo instead of the original's blue band: 1 = on (default),\n"
@@ -280,6 +312,43 @@ static const Option s_options[] = {
       "resolution), cinematic (stronger, like a film camera, with soft\n"
       "round highlights), original (the game's own as it was: blocky at\n"
       "high resolutions) or off." },
+    /* To-do 13 (user 2026-11-07): master, four channels with a mute each,
+     * a cutscene boost; the debug solo is RECOMP_AUDIO_SOLO / F2 only. */
+    { "audio", "master_volume", OPT_NUM, "100", "100", "RECOMP_MASTER_VOLUME",
+      NULL,
+      "Volume of everything, movies included, 0 to 100 percent (default\n"
+      "100). 50 is about half as loud (-12 dB); 0 is silent.",
+      0.0f, 100.0f },
+    { "audio", "master_mute", OPT_BOOL, "0", "0", "RECOMP_MASTER_MUTE", NULL,
+      "1 = all sound muted, 0 = heard (default)." },
+    { "audio", "music_volume", OPT_NUM, "100", "100", "RECOMP_MUSIC_VOLUME",
+      NULL,
+      "Volume of the music, 0 to 100 percent (default 100). The same for\n"
+      "effects (sound effects), dialogue (cutscene and in-game speech) and\n"
+      "other (ambience: wind, birds, water; and the menu sounds).",
+      0.0f, 100.0f },
+    { "audio", "music_mute", OPT_BOOL, "0", "0", "RECOMP_MUSIC_MUTE", NULL,
+      "1 = the music muted, 0 = heard (default); the same for each channel." },
+    { "audio", "effects_volume", OPT_NUM, "100", "100",
+      "RECOMP_EFFECTS_VOLUME", NULL, NULL, 0.0f, 100.0f },
+    { "audio", "effects_mute", OPT_BOOL, "0", "0", "RECOMP_EFFECTS_MUTE",
+      NULL, NULL },
+    { "audio", "dialogue_volume", OPT_NUM, "100", "100",
+      "RECOMP_DIALOGUE_VOLUME", NULL, NULL, 0.0f, 100.0f },
+    { "audio", "dialogue_mute", OPT_BOOL, "0", "0", "RECOMP_DIALOGUE_MUTE",
+      NULL, NULL },
+    { "audio", "other_volume", OPT_NUM, "100", "100", "RECOMP_OTHER_VOLUME",
+      NULL, NULL, 0.0f, 100.0f },
+    { "audio", "other_mute", OPT_BOOL, "0", "0", "RECOMP_OTHER_MUTE", NULL,
+      NULL },
+    /* User 2026-11-07: percent, the default in the middle. */
+    { "audio", "cutscene_volume", OPT_NUM, "100", "100",
+      "RECOMP_CUTSCENE_VOLUME", NULL,
+      "Volume of everything heard while a cutscene plays (speech, music,\n"
+      "effects), 0 to 200 percent: 100 = as the original (default), below\n"
+      "quieter (0 = silent), above louder (200 = four times, +12 dB; very\n"
+      "loud moments are turned down briefly instead of distorting).",
+      0.0f, 200.0f },
     { "audio", "mix", OPT_CHOICE, "xemu", "xemu", "RECOMP_APU_MIXDOWN",
       "xemu speakers evenodd front",
       "How sound is mixed to stereo: xemu (default; sounds like the xemu\n"
@@ -289,8 +358,16 @@ static const Option s_options[] = {
       "3D sound filtering (HRTF) for sounds placed around Conker:\n"
       "1 = on (default), 0 = off." },
     { "audio", "pause_silence", OPT_BOOL, "1", "1", NULL, NULL,
-      "While the game is paused with F4, the sound stops too and carries\n"
-      "on where it stopped: 1 = on (default), 0 = the sound keeps playing." },
+      "While the game is paused with P or in photo mode, the sound stops\n"
+      "too and carries on where it stopped: 1 = on (default), 0 = the sound\n"
+      "keeps playing." },
+    /* To-do 117 (user 2026-11-06): the pause key's old way, --debug only. */
+    { "audio", "old_pause", OPT_BOOL, "0", "0", NULL, NULL,
+      "Debug (--debug only): the pause key (P) as before 0.2.3: it stops\n"
+      "the game at its next frame, everywhere, and on resume the game\n"
+      "catches up on the time (a jump of a few frames; a cutscene's sound\n"
+      "falls behind its pictures): 1 = on, 0 = off (default; P freezes the\n"
+      "game as photo mode does, only where photo mode can)." },
     { "language", "language", OPT_CHOICE, "english", "english",
       "RECOMP_LANGUAGE", "english french german italian spanish japanese",
       "Language of the game's text, menus and subtitles: english (default),\n"
@@ -352,6 +429,38 @@ static const Option s_options[] = {
       "Controllers while another window is in front: 0 = they do nothing\n"
       "until the game window is in front again (default), 1 = they keep\n"
       "playing the game. The keyboard always waits. F3 > Slots." },
+    /* To-do 29 (2026-11-07; per slot, user 2026-11-07; dead zone default 10,
+     * user 2026-11-07): applied by controls_apply. */
+    { "controls", "rumble1", OPT_BOOL, "1", "1", NULL, NULL,
+      "Per slot (controller port) 1-4, F3 > Slots:\n"
+      "rumbleN: the controller rumbles, 1 = on (default; when the game's own\n"
+      "Vibration option is on too), 0 = off.\n"
+      "rumble_strengthN: how strong, 0 to 200 percent of what the game asks\n"
+      "for (default 100; above 100 is stronger, up to the motors' full speed).\n"
+      "stick_dead_zoneN: how far a stick must tilt before it moves anything,\n"
+      "0 to 40 percent of full tilt (default 10; 14 = the game's own: about\n"
+      "14 on the left stick, 15 on the right); lower = quicker to respond,\n"
+      "higher = for a worn stick that drifts. Controllers only (not the\n"
+      "keyboard)." },
+    { "controls", "rumble_strength1", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      0.0f, 200.0f },
+    { "controls", "stick_dead_zone1", OPT_NUM, "10", "10", NULL, NULL, NULL,
+      0.0f, 40.0f },
+    { "controls", "rumble2", OPT_BOOL, "1", "1", NULL, NULL, NULL },
+    { "controls", "rumble_strength2", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      0.0f, 200.0f },
+    { "controls", "stick_dead_zone2", OPT_NUM, "10", "10", NULL, NULL, NULL,
+      0.0f, 40.0f },
+    { "controls", "rumble3", OPT_BOOL, "1", "1", NULL, NULL, NULL },
+    { "controls", "rumble_strength3", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      0.0f, 200.0f },
+    { "controls", "stick_dead_zone3", OPT_NUM, "10", "10", NULL, NULL, NULL,
+      0.0f, 40.0f },
+    { "controls", "rumble4", OPT_BOOL, "1", "1", NULL, NULL, NULL },
+    { "controls", "rumble_strength4", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      0.0f, 200.0f },
+    { "controls", "stick_dead_zone4", OPT_NUM, "10", "10", NULL, NULL, NULL,
+      0.0f, 40.0f },
     { "controls", "controls_window", OPT_RECT, "", "", NULL, NULL,
       "Where the F3 controls menu sits and its size, like menu_window." },
     { "controls_story", "story_mouse_x", OPT_NUM, "100", "100", NULL, NULL,
@@ -662,6 +771,24 @@ static int normalize(const Option *o, const char *value, char *out,
             return 0;
         }
         sprintf_s(out, MAX_PATH, "%.3f,%.3f,%.3f,%.3f", x, y, w, h);
+        return 1;
+    }
+    case OPT_WIN: {
+        /* Empty, or a window's left,top,width,height in pixels [,max]. */
+        int x, y, w2, h2;
+        char mx[8] = "";
+        if (!*value)
+            break;
+        if (sscanf(value, "%d , %d , %d , %d , %7s", &x, &y, &w2, &h2, mx) < 4
+                || w2 < 100 || h2 < 100 || (mx[0] && _stricmp(mx, "max"))) {
+            fprintf(stderr, "[SETTINGS] %s: %s = %s ignored: want empty or "
+                    "left,top,width,height in pixels (like 100,80,1280,"
+                    "720), with \",max\" for maximized\n", where, o->key,
+                    value);
+            return 0;
+        }
+        sprintf_s(out, MAX_PATH, "%d,%d,%d,%d%s", x, y, w2, h2,
+                  mx[0] ? ",max" : "");
         return 1;
     }
     case OPT_NUM: {
@@ -995,6 +1122,7 @@ void settings_dump_options(FILE *f)
 {
     static const char *const kinds[] = {
         "bool", "choice", "resolution", "path", "rect", "number", "key",
+        "window",
     };
     const char *help = "";
     size_t i;

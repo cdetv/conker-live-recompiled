@@ -59,7 +59,9 @@ IN THE GAME
   F4            Photo mode (on a controller: Back + RB; Esc leaves)
   F11           Full screen on/off (also Alt+Enter)
   F1            Frame rate counter
-  P             Pause or resume the game
+  P             Pause or resume the game (gameplay and cutscenes)
+  Esc           On the main menu: close the game (asks first; on a
+                controller: B)
   Hold LT       Skip a cutscene (keyboard: hold Space, E or the left
                 mouse button)
 
@@ -101,9 +103,9 @@ KNOWN ISSUES
 - Xbox Live and System Link aren't available. Multiplayer against bots
   (Dumbots) works.
 - The first time an area is seen, a short pause can happen while the
-  graphics card prepares it; it is remembered for next time.
-- Sound can crackle for a moment when the game slows down.
-- The original loading screen doesn't show while a level loads.
+  graphics card prepares it; it is remembered for next time. "Precompile
+  Shaders" on the launcher's Files tab prepares the story's shaders
+  ahead (a few minutes, once).
 
 
 PROBLEMS?

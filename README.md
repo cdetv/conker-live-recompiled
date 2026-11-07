@@ -73,10 +73,10 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | | Xbox | Live & Recompiled |
 |---|---|---|
 | Resolution | 640×480 | Any resolution and shape (16:9, 21:9, 4:3, ...); by default your monitor's size, up to 1440p (or native, e.g. 4K) |
-| Render scale | — | 50–200 %: supersampling above 100 %, FSR 1 upscaling below |
+| Render scale | — | 0.5x–4x (10x in debug mode): supersampling above 1x, FSR 1 upscaling below |
 | Frame rate | 30 fps | **30, 60, 90 or 120 fps** with the game running at its correct speed (30 fps as the original) |
 | VSync | — | On, off, or G-Sync / FreeSync (VRR) |
-| Display mode | — | Windowed, borderless or exclusive full screen at your monitor's refresh rate |
+| Display mode | — | Windowed (its size and place remembered), borderless or exclusive full screen at your monitor's refresh rate |
 | Texture filtering | Original | Original, or anisotropic up to 16x |
 | Character shadows | Original | Up to 16x sharper, with adjustable softness |
 | World shadows | Blocky edges | Smooth |
@@ -85,6 +85,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | Pop-in | Grass, fur and distant characters thin out or vanish | **Pop-in Fix**: full detail at any distance; foliage, characters, fur and ambient particle (experimental) can each be turned on or off |
 | Cutscene blur (depth of field) | Original | Off, original, updated or cinematic |
 | Glow | Always on | Adjustable 0–100 % |
+| Fog | Always on | Distance fog and the murky underwater fog can each be turned off for a clear view |
 | Haze | Always on | Can be turned off for a clear view (e.g. the green gas in some levels) |
 | Vignette | Always on | Can be turned off |
 | Screen drops | Always on | Water and blood drops on the screen can be turned off |
@@ -94,15 +95,29 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 <table>
   <tr>
     <th width="50%">Xbox: 640×480</th>
-    <th width="50%">Live & Recompiled: 1920×1080, every setting maxed out</th>
+    <th width="50%">Live & Recompiled: 1920×1080, render scale 4x, anisotropic 16x, SMAA, shadows 16x (50 % softness), smooth world shadows</th>
   </tr>
   <tr>
     <td><img src="images/compare-resolution-menu-a.png" alt="The main menu at the Xbox's 640×480"></td>
-    <td><img src="images/compare-resolution-menu-b.png" alt="The main menu at 1920×1080 with every setting maxed out"></td>
+    <td><img src="images/compare-resolution-menu-b.png" alt="The main menu at 1920×1080 with render scale 4x"></td>
   </tr>
   <tr>
     <td><img src="images/compare-resolution-windy-a.png" alt="Windy at the Xbox's 640×480"></td>
-    <td><img src="images/compare-resolution-windy-b.png" alt="Windy at 1920×1080 with every setting maxed out"></td>
+    <td><img src="images/compare-resolution-windy-b.png" alt="Windy at 1920×1080 with render scale 4x and 16x shadows"></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th width="50%">Render scale 0.5x, Bilinear</th>
+    <th width="50%">Render scale 0.5x, AMD FSR 1</th>
+  </tr>
+  <tr>
+    <td><img src="images/compare-fsr-a.png" alt="1280×720 drawn at half size and stretched with bilinear filtering"></td>
+    <td><img src="images/compare-fsr-b.png" alt="1280×720 drawn at half size and upscaled with AMD FSR 1"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><i>Both at 1280×720, drawn at 640×360 and upscaled</i></td>
   </tr>
 </table>
 
@@ -136,9 +151,28 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   </tr>
 </table>
 
+<table>
+  <tr>
+    <th width="50%">Fog on (as on the Xbox)</th>
+    <th width="50%">Fog off</th>
+  </tr>
+  <tr>
+    <td><img src="images/compare-fog-a.png" alt="A rocky gorge with the far walls faded into green fog"></td>
+    <td><img src="images/compare-fog-b.png" alt="The same gorge with Fog off: the far walls clear"></td>
+  </tr>
+  <tr>
+    <th>Underwater Fog on (as on the Xbox)</th>
+    <th>Underwater Fog off</th>
+  </tr>
+  <tr>
+    <td><img src="images/compare-underwater-fog-a.png" alt="Conker swimming in murky green water"></td>
+    <td><img src="images/compare-underwater-fog-b.png" alt="The same moment with Underwater Fog off: clear water"></td>
+  </tr>
+</table>
+
 <p align="center">
   <img src="images/settings-menu.png" alt="The F2 settings menu over the game"><br>
-  <i>The F2 settings menu, with the game running under it</i>
+  <i>The F2 settings menu (Picture tab), with the game running under it</i>
 </p>
 
 ### Controls
@@ -150,7 +184,8 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   **Modern** (hold the right mouse button to aim, a separate action key).
 - **PlayStation 4 and 5 controllers** (DualShock 4, DualSense) work directly,
   no extra programs. Xbox controllers of course too.
-- **Rumble** on Xbox and PlayStation controllers, as on the Xbox.
+- **Rumble** on Xbox and PlayStation controllers, as on the Xbox, with
+  rumble strength and stick dead zone set per controller.
 - **Slots**: choose which controller, or the keyboard, is which player.
 - Multiplayer keyboard and mouse controls, with a zoom key.
 
@@ -164,6 +199,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 Press **F4** (or Back + RB) in gameplay or a cutscene to freeze the moment
 and fly a free camera: zoom, roll, hide the HUD and Conker, step frame by
 frame, adjust the depth of field, and take pictures (saved as PNG files).
+**P** freezes the game the same way, without photo mode's controls.
 
 <p align="center">
   <img src="images/photo-mode-menu.png" alt="The photo mode panel over a frozen scene"><br>
@@ -177,8 +213,20 @@ ones the game never lets you skip: hold the skip button (LT; Space, E or the
 left mouse button) for 3 seconds. A cutscene in several parts skips one part
 at a time. Or turn off Hold to Skip to skip on a press.
 
+### Loading
+
+- **Fast Load** (experimental, off by default): loads no longer wait for the
+  old level's music to fade out, so they take under a second instead of 3 to
+  8 seconds.
+- **Precompile Shaders** (launcher, Files tab): prepares the shaders of every
+  story level and chapter in one go (a few minutes, once), so the short pauses
+  the first time you see an area are mostly gone.
+
 ### Sound
 
+- Volume and mute for **Music**, **Effects**, **Dialogue** and **Other**
+  (ambience and menus) besides the master volume, and a **Cutscene volume**
+  (0–200 %) for everything heard in cutscenes.
 - The Xbox's sound chip emulated as in xemu, for the original mix, with sound
   effects no longer louder than the music (xemu's mix plays 3D sounds too loud).
 - Speaker mix and 3D sound (HRTF) options.
@@ -218,7 +266,10 @@ A few glitches the Xbox version has too are fixed:
 
 - Imports the game from a disc image, folder or archive (`.zip`, `.7z`,
   `.rar`, multi-part included), and checks it is a supported release.
-- Every in-game setting and control, in tabs, before you start.
+- Every in-game setting and control before you start, in the same tabs as
+  the game's menus.
+- **Precompile Shaders** (see [Loading](#loading)), and **Delete Shaders** to
+  clear them again.
 - **Updates itself**: when a new version is out, one click installs it and
   keeps your game files and patch.
 - Keeps your saves, settings and photos next to the game (or in AppData if
@@ -262,7 +313,8 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 | F4 | Back + RB | Photo mode |
 | F11 or Alt+Enter | | Full screen on/off |
 | F1 | | Frame rate counter |
-| P | | Pause or resume |
+| P | | Pause or resume (gameplay and cutscenes) |
+| Esc (main menu) | B (main menu) | Close the game (asks first) |
 | Space, E or left mouse (hold) | LT (hold) | Skip a cutscene |
 
 Saves, settings, photos and logs are in the `userdata` folder next to `conker.exe` (from 0.1.3; the launcher's Files tab can keep them in `%LOCALAPPDATA%\conker-lr-recomp\` instead, where older versions kept them).
@@ -286,10 +338,8 @@ Ideas for future updates, in no particular order. Plans can change.
 
 - Xbox Live and System Link are not available (multiplayer against bots works).
 - The first time an area is seen, a short pause can happen while the graphics
-  card prepares it; it is remembered for next time.
-- The original loading screen doesn't show.
-- Opening photo mode during a cutscene can break the cutscene's sound. For
-  example, during the Great Mighty Poo song it removes the voice lines.
+  card prepares it; it is remembered for next time. The launcher's
+  **Precompile Shaders** prepares the story's shaders ahead.
 
 Found something else? Please open an [issue](../../issues) and attach the
 newest log (launcher → Files → Logs).
@@ -366,7 +416,7 @@ affiliated with or endorsed by Microsoft or Rare.
 
 ## Screenshots
 
-Taken with photo mode at 1920×1080.
+Taken with photo mode at 1920×1080 in v0.1.0.
 
 <table>
   <tr>

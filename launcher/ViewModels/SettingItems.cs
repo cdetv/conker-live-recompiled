@@ -13,6 +13,24 @@ public interface ISettingsOwner
     void Changed(string key, string value);
 }
 
+/// <summary>
+/// One tab of the F2 menu (Display, Picture, Sound, Fixes) or the F3 menu (Single player,
+/// Multiplayer, Photo mode, Menus, Slots), shown inside the Settings or Controls tab.
+/// </summary>
+public sealed class MenuTab(string name)
+{
+    public string Name { get; } = name;
+
+    public ObservableCollection<SettingItem> Items { get; } = [];
+
+    /// <summary>
+    /// Where its list opens: at the top. The tabs share one scroll view, which otherwise opened a
+    /// tab as far down as the last one was scrolled (a remembered place per tab came back cut short
+    /// by the other tab's length).
+    /// </summary>
+    public Avalonia.Vector ScrollOffset { get; }
+}
+
 /// <summary>One row of the Settings or Controls tab.</summary>
 public abstract partial class SettingItem(MenuEntry entry) : ObservableObject
 {
@@ -53,6 +71,14 @@ public abstract partial class SettingItem(MenuEntry entry) : ObservableObject
 }
 
 public sealed class SectionItem(MenuEntry entry) : SettingItem(entry)
+{
+    public override void Show(string value)
+    {
+    }
+}
+
+/// <summary>A plain line between groups of options, with no heading (F2's Fixes tab).</summary>
+public sealed class LineItem(MenuEntry entry) : SettingItem(entry)
 {
     public override void Show(string value)
     {
@@ -145,6 +171,16 @@ public sealed partial class SliderItem(ISettingsOwner owner, MenuEntry entry) : 
 
     public string? ResetTip { get; } = entry.ResetTip;
 
+    /// <summary>A sound channel's mute key: a Mute box beside the name (to-do 13); null for none.</summary>
+    public string? MuteKey { get; } = entry.Mute;
+
+    public bool HasMute => MuteKey is not null;
+
+    public string MuteName => $"Mute {Label}";
+
+    [ObservableProperty]
+    public partial bool IsMuted { get; set; }
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ValueText))]
     public partial double Value { get; set; }
@@ -158,6 +194,14 @@ public sealed partial class SliderItem(ISettingsOwner owner, MenuEntry entry) : 
         showing = false;
     }
 
+    /// <summary>Shows the mute key's value from the file without saving it.</summary>
+    public void ShowMute(string value)
+    {
+        showing = true;
+        IsMuted = value != "0";
+        showing = false;
+    }
+
     /// <summary>Back to neutral (the original), as the menu's reset icon.</summary>
     [RelayCommand]
     private void ResetValue() => Value = double.Parse(neutral, CultureInfo.InvariantCulture);
@@ -167,6 +211,14 @@ public sealed partial class SliderItem(ISettingsOwner owner, MenuEntry entry) : 
         if (!showing)
         {
             owner.Changed(Key!, SettingsSchema.FormatNumber(Math.Round(value, decimals)));
+        }
+    }
+
+    partial void OnIsMutedChanged(bool value)
+    {
+        if (!showing && MuteKey is not null)
+        {
+            owner.Changed(MuteKey, value ? "1" : "0");
         }
     }
 }
