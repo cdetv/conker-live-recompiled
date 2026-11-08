@@ -19,10 +19,13 @@ public sealed partial class App : Application
             var viewModel = new MainWindowViewModel(GameFolder.FromEnvironment(), window);
             viewModel.CloseRequested += (_, _) => window.Close();
             window.DataContext = viewModel;
+            // The controller's buttons as launcher actions (to-do 121); kept alive by its Pad.Pressed handler.
+            _ = new PadNavigator(window, viewModel);
             // "--updated": started by the updater (SPEC 9.3), which then closed.
             bool justUpdated = desktop.Args?.Contains("--updated") == true;
             window.Opened += async (_, _) =>
             {
+                viewModel.Pad.Start();
                 // Before the tabs read settings.ini: an older version's may still be in AppData.
                 await viewModel.UserFiles.MoveInAsync();
                 await viewModel.LoadAsync();
@@ -30,6 +33,8 @@ public sealed partial class App : Application
             };
             // A change made just before closing is still waiting to be written.
             window.Closing += (_, _) => viewModel.Flush();
+            // (A launcher that dies closes the helper's input too: it quits by itself.)
+            window.Closed += (_, _) => viewModel.Pad.Dispose();
             desktop.MainWindow = window;
         }
 

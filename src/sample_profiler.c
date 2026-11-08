@@ -731,6 +731,157 @@ void sample_profiler_frame(void)
     InterlockedIncrement(&s_frame_seq);
 }
 
+/* ── Where every thread is right now (Report Bug in a freeze) ── */
+
+#define DUMP_FRAMES 24
+static uint64_t s_dump_stack[PROF_STACK_COPY / 8];
+
+/* Unwind c (from a thread whose stack [lo, hi) was copied to s_dump_stack) as
+ * far as the copy goes: the frames' addresses, innermost first. */
+static int dump_unwind(CONTEXT *c, uint64_t lo, uint64_t hi, uint64_t *frames)
+{
+    uint64_t clo = (uint64_t)s_dump_stack, chi = clo + (hi - lo);
+    int64_t delta = (int64_t)(clo - lo);
+    int n = 0;
+
+    frames[n++] = c->Rip;
+    c->Rsp += delta;
+    if (c->Rbp >= lo && c->Rbp < hi)
+        c->Rbp += delta;
+    while (n < DUMP_FRAMES) {
+        DWORD64 base = 0;
+        PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(c->Rip, &base, NULL);
+        if (fe) {
+            PVOID hd;
+            DWORD64 ef;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, c->Rip, fe, c, &hd, &ef,
+                             NULL);
+        } else {                                  /* leaf: return at [rsp] */
+            if (c->Rsp < clo || c->Rsp + 8 > chi)
+                break;
+            c->Rip = *(uint64_t *)c->Rsp;
+            c->Rsp += 8;
+        }
+        if (!c->Rip || c->Rsp < clo || c->Rsp >= chi)
+            break;
+        if (c->Rbp >= lo && c->Rbp < hi)
+            c->Rbp += delta;
+        frames[n++] = c->Rip;
+    }
+    return n;
+}
+
+/* "module+0xoffset" and, where dbghelp knows it (system DLLs' exports, our
+ * functions next to a .pdb, which a release has not), the function's name. */
+static void dump_where(uint64_t a, char *out, size_t n)
+{
+    char sb[sizeof(SYMBOL_INFO) + 128], mod[MAX_PATH] = "?", *name = mod;
+    SYMBOL_INFO *sym = (SYMBOL_INFO *)sb;
+    DWORD64 disp = 0;
+    HMODULE m = NULL;
+    uint64_t off = a;
+
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                           | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)a, &m) && m) {
+        char *slash;
+        off = a - (uint64_t)m;
+        GetModuleFileNameA(m, mod, sizeof mod);
+        slash = strrchr(mod, '\\');
+        if (slash)
+            name = slash + 1;
+    }
+    memset(sb, 0, sizeof sb);
+    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+    sym->MaxNameLen = 127;
+    if (SymFromAddr(GetCurrentProcess(), a, &disp, sym))
+        _snprintf_s(out, n, _TRUNCATE, "%s+0x%llX (%s+0x%llX)", name,
+                    (unsigned long long)off, sym->Name, (unsigned long long)disp);
+    else
+        _snprintf_s(out, n, _TRUNCATE, "%s+0x%llX", name, (unsigned long long)off);
+}
+
+/* To stderr: each thread of the process, its start and its call stack. The
+ * guest stacks (xbox_WatchdogDump) cannot show a thread stuck on the host's
+ * side, like the one that draws, which has none. Nothing here takes a lock
+ * while a thread is suspended (top of this file). A release has no .pdb, so
+ * its own frames come out as conker.exe+offset: look them up in that release's
+ * conker.pdb, kept in _work\release\<version>\symbols. */
+void sample_profiler_dump_threads(void)
+{
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    NtQueryInformationThread_t ntqit = ntdll ? (NtQueryInformationThread_t)(void *)
+        GetProcAddress(ntdll, "NtQueryInformationThread") : NULL;
+    THREADENTRY32 te;
+
+    if (snap == INVALID_HANDLE_VALUE)
+        return;
+    te.dwSize = sizeof te;
+    if (Thread32First(snap, &te)) {
+        do {
+            HANDLE h;
+            CONTEXT c;
+            uint64_t start = 0, stack_base = 0, frames[DUMP_FRAMES];
+            size_t copied = 0;
+            char where[300];
+            int i, n;
+            struct {                        /* THREAD_BASIC_INFORMATION */
+                LONG status; PVOID teb; PVOID cid[2];
+                ULONG_PTR affinity; LONG prio, base_prio;
+            } tbi;
+
+            if (te.th32OwnerProcessID != pid || te.th32ThreadID == self)
+                continue;
+            h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT
+                           | THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
+            if (!h)
+                continue;
+            if (ntqit) {
+                ntqit(h, 9 /* ThreadQuerySetWin32StartAddress */, &start,
+                      sizeof start, NULL);
+                if (ntqit(h, 0 /* ThreadBasicInformation */, &tbi, sizeof tbi,
+                          NULL) == 0 && tbi.teb)
+                    stack_base = (uint64_t)((NT_TIB *)tbi.teb)->StackBase;
+            }
+            if (SuspendThread(h) == (DWORD)-1) {
+                CloseHandle(h);
+                continue;
+            }
+            c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+            if (!GetThreadContext(h, &c)) {
+                ResumeThread(h);
+                CloseHandle(h);
+                continue;
+            }
+            if (stack_base > c.Rsp && !(c.Rsp & 7)) {
+                copied = (size_t)(stack_base - c.Rsp);
+                if (copied > PROF_STACK_COPY)
+                    copied = PROF_STACK_COPY;
+                memcpy(s_dump_stack, (const void *)c.Rsp, copied);
+            }
+            ResumeThread(h);
+            CloseHandle(h);
+
+            dump_where(start, where, sizeof where);
+            fprintf(stderr, "[THREAD] %lu, started at %s\n",
+                    (unsigned long)te.th32ThreadID, where);
+            if (copied) {
+                n = dump_unwind(&c, c.Rsp, c.Rsp + copied, frames);
+            } else {
+                frames[0] = c.Rip;
+                n = 1;
+            }
+            for (i = 0; i < n; i++) {
+                dump_where(frames[i], where, sizeof where);
+                fprintf(stderr, "    #%-2d %s\n", i, where);
+            }
+        } while (Thread32Next(snap, &te));
+    }
+    CloseHandle(snap);
+}
+
 /* Start the profiler if RECOMP_SAMPLE_PROFILE or RECOMP_HITCH_MS is set.
  * Call after SymInitialize. */
 void sample_profiler_start(void)

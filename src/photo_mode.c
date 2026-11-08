@@ -42,7 +42,10 @@
  * drawn even while paused (0x0015CAF0), is skipped unless the HUD is
  * shown. Conker hidden: char_render_pass
  * (0x0007FB00) skipped for character id 1. Frame step: the flag left at
- * 0 until the draw, so the world update runs once.
+ * 0 until the draw, so the world update runs once. The world at normal speed
+ * (to-do 31, frame step held or the resume key) is that, every frame, with no
+ * menu up; the sound plays (photo_world_running), and a level change ends
+ * photo mode: the camera belongs to the old level.
  *
  * Photos and the panel (overlay.cpp): the photo key asks the overlay for
  * the next present's picture; the panel key opens the photo panel, which
@@ -117,6 +120,8 @@ extern void sub_002C5070(void);
 #define WHEEL_TIMES 0.9f
 #define FOV_MIN     5.0f
 #define FOV_MAX     100.0f
+/* Frame step held this long: the world runs at normal speed until let go. */
+#define STEP_HOLD_S 0.35f
 /* Depth of field at 100 %: the blur radius (guest pixels) at twice the
  * focus distance; a lens's, so twice that far away and up to 2.5 times
  * nearer (dof_d3d11.c's cinematic style). */
@@ -142,6 +147,10 @@ static PhotoOptions s_opt;
 static volatile LONG s_ask_reset, s_ask_focus;   /* from the panel */
 static int s_after_menu;        /* a menu was up: held keys are no presses */
 static int s_step_asked, s_stepping;
+static int s_step_held;         /* frame step held past STEP_HOLD_S (game thread) */
+static volatile LONG s_resumed; /* the resume key's state */
+static volatile LONG s_running; /* the world moves this frame */
+static unsigned s_level;        /* the level photo mode started in */
 static volatile LONG s_wheel[2];   /* notches up / down (window thread) */
 static int s_wheel_rest;
 
@@ -160,6 +169,16 @@ int photo_active(void)
 int photo_paused(void)
 {
     return s_frozen && s_pause;
+}
+
+int photo_world_running(void)
+{
+    return s_frozen && !s_pause && s_running;
+}
+
+int photo_world_resumed(void)
+{
+    return s_frozen && !s_pause && s_resumed;
 }
 
 int photo_keys_wanted(void)
@@ -227,6 +246,11 @@ void photo_toggle_cut_blur(void)
     int on = s_cut_blur >= 0 ? (int)s_cut_blur : conker_CutsceneBlurOn();
     InterlockedExchange(&s_cut_blur, !on);
     fprintf(stderr, "[PHOTO] cutscene blur %s\n", on ? "off" : "on");
+}
+
+void photo_set_cut_blur(int v)
+{
+    InterlockedExchange(&s_cut_blur, v);
 }
 
 void photo_ask_reset(void)
@@ -402,7 +426,10 @@ static void enter(void)
     InterlockedExchange(&s_ask_focus, 0);
     InterlockedExchange(&s_cut_blur, -1);
     s_after_menu = 0;
-    s_step_asked = s_stepping = 0;
+    s_step_asked = s_stepping = s_step_held = 0;
+    InterlockedExchange(&s_resumed, 0);
+    InterlockedExchange(&s_running, 0);
+    s_level = MEM8(0x007FA1F8u);
     InterlockedExchange(&s_wheel[0], 0);
     InterlockedExchange(&s_wheel[1], 0);
     xbox_InputSetBlocked(1);
@@ -419,7 +446,9 @@ static void enter_pause(void)
     s_have_base = 0;
     s_opt.hud = s_opt.hide_conker = s_opt.dof = 0;
     InterlockedExchange(&s_cut_blur, -1);
-    s_step_asked = s_stepping = 0;
+    s_step_asked = s_stepping = s_step_held = 0;
+    InterlockedExchange(&s_resumed, 0);
+    InterlockedExchange(&s_running, 0);
     InterlockedExchange(&s_frozen, 1);
     xbox_InputSetBlocked(1);
     fprintf(stderr, "[PAUSE] on (level 0x%02X)\n", MEM8(0x007FA1F8u));
@@ -430,6 +459,8 @@ static void leave(void)
     int was_pause = (int)s_pause;
     InterlockedExchange(&s_frozen, 0);
     InterlockedExchange(&s_pause, 0);
+    InterlockedExchange(&s_resumed, 0);
+    InterlockedExchange(&s_running, 0);
     InterlockedExchange(&s_cut_blur, -1);     /* the F2 setting again */
     /* The game's field of view back (it may not set it every frame). */
     if (s_have_base && s_cam && MEMF(s_cam + 0x104u) != s_opt.fov_game) {
@@ -467,8 +498,10 @@ static int notches(int row, const int *wheel)
 static void steer(const Pad *p, WORD pressed)
 {
     static int was[PHOTO_ROWS];
-    static int back_alone;       /* Back down, RB / LB not pressed since */
-    int now[PHOTO_ROWS] = { 0 }, i, inv, wheel[2], zoom;
+    static int back_alone;       /* Back down, nothing with it since */
+    static int step_was;
+    static LARGE_INTEGER step_since;
+    int now[PHOTO_ROWS] = { 0 }, i, inv, wheel[2], zoom, step, back_down;
     LARGE_INTEGER t, f;
     float dt, fwd, side, vert, speed, sy, cy, sp, cp, sx_m, sy_m, look;
     long dx = 0, dy = 0;
@@ -492,9 +525,11 @@ static void steer(const Pad *p, WORD pressed)
         }
     /* Back from a menu (F2, F3, the photo panel): keys held through it and
      * the mouse moved over it do nothing. */
+    step = now[PHOTO_STEP] || (p->buttons & XINPUT_GAMEPAD_DPAD_RIGHT);
     if (s_after_menu) {
         s_after_menu = 0;
         memcpy(was, now, sizeof(was));
+        step_was = step;
         back_alone = 0;
         xbox_KbmMouseDirect(KBM_DIRECT_XY);
         xbox_KbmTakeMouse(&dx, &dy);
@@ -502,11 +537,15 @@ static void steer(const Pad *p, WORD pressed)
     }
 
     /* Back alone resets on letting go; with RB (White) it was the toggle,
-     * with LB (Black) the F2 menu (overlay.cpp). */
+     * with LB (Black) the F2 menu (overlay.cpp), with A the resume. Back +
+     * Start does nothing here: it is kept for a controller menu (user
+     * 2026-11-08). */
+    back_down = (p->buttons & XINPUT_GAMEPAD_BACK) != 0;
     if (pressed & XINPUT_GAMEPAD_BACK)
         back_alone = 1;
     if (p->buttons & (XINPUT_GAMEPAD_RIGHT_SHOULDER
-                      | XINPUT_GAMEPAD_LEFT_SHOULDER))
+                      | XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_START
+                      | XINPUT_GAMEPAD_A))
         back_alone = 0;
     if (!(p->buttons & XINPUT_GAMEPAD_BACK) && back_alone) {
         back_alone = 0;
@@ -526,14 +565,19 @@ static void steer(const Pad *p, WORD pressed)
     }
     if (now[PHOTO_RESET] && !was[PHOTO_RESET])
         reset_camera();
-    if ((now[PHOTO_TAKE] && !was[PHOTO_TAKE]) || (pressed & XINPUT_GAMEPAD_A))
+    if ((now[PHOTO_TAKE] && !was[PHOTO_TAKE])
+        || ((pressed & XINPUT_GAMEPAD_A) && !back_down))
         overlay_photo_shot();
     if ((now[PHOTO_CUT_BLUR] && !was[PHOTO_CUT_BLUR])
         || (pressed & XINPUT_GAMEPAD_B))
         photo_toggle_cut_blur();
+    if ((now[PHOTO_RESUME] && !was[PHOTO_RESUME])
+        || ((pressed & XINPUT_GAMEPAD_A) && back_down))
+        InterlockedExchange(&s_resumed, !s_resumed);
     if ((now[PHOTO_PANEL] && !was[PHOTO_PANEL])
-        || (pressed & XINPUT_GAMEPAD_START)) {
+        || ((pressed & XINPUT_GAMEPAD_START) && !back_down)) {
         memcpy(was, now, sizeof(was));
+        step_was = step;
         overlay_photo_panel();
         return;
     }
@@ -546,9 +590,15 @@ static void steer(const Pad *p, WORD pressed)
         s_opt.hide_conker = !s_opt.hide_conker;
         fprintf(stderr, "[PHOTO] Conker %s\n", s_opt.hide_conker ? "hidden" : "shown");
     }
-    if ((now[PHOTO_STEP] && !was[PHOTO_STEP])
-        || (pressed & XINPUT_GAMEPAD_DPAD_RIGHT))
+    /* A press is one frame; held a moment, the world runs until let go. */
+    if (step && !step_was) {
         s_step_asked = 1;
+        step_since = t;
+    }
+    s_step_held = step && step_was
+        && (float)(t.QuadPart - step_since.QuadPart) / (float)f.QuadPart
+           >= STEP_HOLD_S;
+    step_was = step;
     memcpy(was, now, sizeof(was));
 
     /* Zoom: held keys and the D-pad smoothly, wheel notches a step each. */
@@ -688,6 +738,7 @@ void photo_frame_begin(void)
         reset_camera();
     if (s_have_base && InterlockedExchange(&s_ask_focus, 0))
         focus_on_conker();
+    s_step_held = 0;                    /* steer says so again */
     if (!menu && s_have_base) {
         steer(&p, pressed);
     } else {
@@ -697,12 +748,29 @@ void photo_frame_begin(void)
     }
     if (!s_frozen)
         return;
+    /* The world moved into another level (only it can, here): the camera and
+     * the views saved here belong to the old one. */
+    if (MEM8(0x007FA1F8u) != s_level) {
+        fprintf(stderr, "[PHOTO] another level (0x%02X): leaving\n",
+                MEM8(0x007FA1F8u));
+        leave();
+        return;
+    }
+    {
+        /* Not under a menu (the panel, F2, Report Bug): those hold it. */
+        LONG run = !menu && (s_resumed || s_step_held);
+        if (run != s_running) {
+            InterlockedExchange(&s_running, run);
+            fprintf(stderr, "[PHOTO] world %s\n", run ? "running" : "frozen");
+        }
+    }
     /* Frame step: the world update runs this frame; the flag is set at the
      * draw instead, so the frame is drawn as a frozen one (no HUD). */
-    if (s_step_asked && !s_flag_set) {
+    if ((s_step_asked || s_running) && !s_flag_set) {
+        if (!s_running)
+            fprintf(stderr, "[PHOTO] one frame on\n");
         s_step_asked = 0;
         s_stepping = 1;
-        fprintf(stderr, "[PHOTO] one frame on\n");
         return;
     }
     hold_flag();

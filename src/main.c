@@ -32,6 +32,24 @@
  *               for the launcher's Slots choices: the controllers the game
  *               sees, as JSON to stdout (takes 1.5 s), then exit.
  *
+ *   conker.exe --pad-feed
+ *
+ *               for the launcher's controller navigation: a line on
+ *               stdout per controller change, until stdin closes
+ *               (src/padfeed.c).
+ *
+ *   conker.exe --bug-report [--save-dir <folder>] [--desc-file <file>]
+ *              [--shot <png>] [--no-saves]
+ *
+ *               for the launcher's Report Bug button: writes the report
+ *               zip (src/bug_report.c) and prints its path, then exit.
+ *
+ *   conker.exe --bug-report --crash | --freeze [--save-dir <folder>]
+ *
+ *               what the game starts when it crashed (the question, then the
+ *               small report window; src/bug_report_win.c) or on F10 with no
+ *               new picture (the window straight away).
+ *
  * Started without its output captured (double-clicked, or from the
  * launcher), it writes its log to <save dir>\logs (open_log).
  *
@@ -68,6 +86,7 @@
 #include <string.h>
 #include <math.h>
 #include <io.h>         /* _dup2, _get_osfhandle: open_log */
+#include <fcntl.h>      /* _O_BINARY: bug_report_cmd */
 #include <shlobj.h>     /* SHCreateDirectoryExA */
 #include <bcrypt.h>     /* the default.xbe check */
 
@@ -123,6 +142,9 @@ extern void xbox_FramebufferWindowSetAppTitle(const wchar_t *title, int stats);
 
 static char s_game_dir[MAX_PATH];
 static char s_save_dir[MAX_PATH];
+/* The game wrote its log into <save dir>\logs (open_log), so a player's report
+ * holds this run; run.ps1 and other scripts capture it themselves. */
+static int s_own_log;
 
 /* settings.ini in the save folder (src/settings.c), and the F2 menu that
  * edits it (src/overlay.cpp). */
@@ -130,9 +152,11 @@ static char s_save_dir[MAX_PATH];
 #include "decensor.h"
 #include "save_names.h"
 #include "precompile.h"
+#include "bug_report.h"
 extern void overlay_init(void);
 extern void overlay_dump_settings(FILE *f);
 extern void overlay_list_pads(FILE *f);
+extern int pad_feed_run(void);
 
 /* ── Built-in defaults for the runtime switches ────────────── */
 
@@ -236,13 +260,19 @@ static void open_log(void)
     if (out && out != INVALID_HANDLE_VALUE
         && GetFileType(out) != FILE_TYPE_UNKNOWN)
         return;
+    s_own_log = 1;
     sprintf_s(dir, MAX_PATH, "%s\\logs", s_save_dir);
     SHCreateDirectoryExA(NULL, dir, NULL);
     prune_logs(dir);
     GetLocalTime(&t);
     sprintf_s(path, MAX_PATH, "%s\\conker_%04u%02u%02u_%02u%02u%02u.log", dir,
               t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
-    if (freopen_s(&f, path, "w", stdout) || !f)
+    /* freopen, not freopen_s: the _s one opens the file unshared, so nobody
+     * could read this run's log while the game runs (Report Bug's zip, to-do
+     * 12b, a tester's editor); freopen lets others read and write. */
+#pragma warning(suppress: 4996)
+    f = freopen(path, "w", stdout);
+    if (!f)
         return;
     /* A windowed .exe starts with no stderr descriptor (_fileno = -2), and
      * _dup2 needs a real one to point at the log: open stderr on NUL first,
@@ -315,6 +345,95 @@ static void default_save_dir(char *out)
         }
     }
     strcpy_s(out, MAX_PATH, appdata_dir);
+}
+
+/* conker.exe --bug-report [--save-dir <folder>] [--desc-file <file>]
+ * [--shot <png>] [--no-saves] (to-do 12, SPEC 9.2): the launcher's Report
+ * Bug button. Writes the report zip (bug_report.c) and prints its path on
+ * stdout; a reason on stderr and exit code 1 when it fails. Before
+ * parse_args on purpose: open_log there would start a new log and delete
+ * the oldest one the report is meant to hold. */
+static int bug_report_cmd(int argc, char **argv)
+{
+    char save[MAX_PATH], zip[MAX_PATH * 2];
+    const char *desc_file = NULL;
+    char *desc = NULL;
+    BugReport r;
+    int i, rc, window = 0;
+
+    memset(&r, 0, sizeof r);
+    r.include_saves = 1;
+    r.origin = "from the launcher";
+    save[0] = '\0';
+    for (i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "--save-dir") && i + 1 < argc) {
+            strcpy_s(save, MAX_PATH, argv[++i]);
+        } else if (!strcmp(argv[i], "--desc-file") && i + 1 < argc) {
+            desc_file = argv[++i];
+        } else if (!strcmp(argv[i], "--shot") && i + 1 < argc) {
+            r.shot_png = argv[++i];
+        } else if (!strcmp(argv[i], "--no-saves")) {
+            r.include_saves = 0;
+        } else if (!strcmp(argv[i], "--crash")) {
+            window = BUG_WINDOW_CRASH;
+        } else if (!strcmp(argv[i], "--freeze")) {
+            window = BUG_WINDOW_FREEZE;
+        } else {
+            fprintf(stderr, "Unknown or incomplete argument: %s\n"
+                    "Usage: conker --bug-report [--save-dir <folder>] "
+                    "[--desc-file <file>] [--shot <png>] [--no-saves] "
+                    "[--crash | --freeze]\n",
+                    argv[i]);
+            return 2;
+        }
+    }
+    if (!save[0])
+        default_save_dir(save);
+    if (window)
+        return bug_report_window(save, window);
+    r.save_dir = save;
+    if (desc_file) {
+        /* UTF-8 text, at most 64 KB; a BOM is dropped. */
+        FILE *f;
+        if (fopen_s(&f, desc_file, "rb") == 0 && f) {
+            desc = (char *)calloc(65537, 1);
+            if (desc) {
+                size_t n = fread(desc, 1, 65536, f);
+                desc[n] = '\0';
+            }
+            fclose(f);
+        }
+        if (desc && !strncmp(desc, "\xEF\xBB\xBF", 3))
+            memmove(desc, desc + 3, strlen(desc + 3) + 1);
+        r.description = desc;
+    }
+    rc = bug_report_write(&r, zip, sizeof zip);
+    if (rc) {
+        free(desc);
+        fprintf(stderr, "Report Bug: %s\n", zip);
+        return 1;
+    }
+    /* For the launcher, UTF-8 and as is (no CRLF for LF): the zip's path, the
+     * prefilled issue page, then the rest is the issue's text. */
+    {
+        wchar_t wide[MAX_PATH * 2];
+        char utf8[MAX_PATH * 6];
+        char *url = NULL, *text = NULL;
+
+        _setmode(_fileno(stdout), _O_BINARY);
+        if (MultiByteToWideChar(CP_ACP, 0, zip, -1, wide, MAX_PATH * 2) > 0
+            && WideCharToMultiByte(CP_UTF8, 0, wide, -1, utf8, sizeof utf8, NULL,
+                                   NULL) > 0)
+            printf("%s\n", utf8);
+        else
+            printf("%s\n", zip);
+        if (bug_report_issue(desc, zip, &url, &text) == 0)
+            printf("%s\n%s", url, text);
+        free(url);
+        free(text);
+    }
+    free(desc);
+    return 0;
 }
 
 /* The language (settings.ini language, RECOMP_LANGUAGE; the toolkit answers
@@ -688,6 +807,157 @@ static LONG CALLBACK veh_handler(PEXCEPTION_POINTERS ep)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+/* ── Report Bug: crash and freeze (SPEC 9.2) ───────────────── */
+
+/* The report window as a process of its own (src/bug_report_win.c). */
+static BOOL start_report_window(const char *flag, HANDLE *proc)
+{
+    char exe[MAX_PATH], save[MAX_PATH], cmd[MAX_PATH * 2 + 64];
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    size_t n;
+
+    strcpy_s(save, MAX_PATH, s_save_dir);
+    n = strlen(save);
+    /* A backslash before the closing quote would escape it. */
+    while (n && (save[n - 1] == '\\' || save[n - 1] == '/'))
+        save[--n] = '\0';
+    GetModuleFileNameA(NULL, exe, MAX_PATH);
+    sprintf_s(cmd, sizeof cmd, "\"%s\" --bug-report %s --save-dir \"%s\"", exe,
+              flag, save);
+    memset(&si, 0, sizeof si);
+    si.cb = sizeof si;
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+        return FALSE;
+    CloseHandle(pi.hThread);
+    *proc = pi.hProcess;
+    return TRUE;
+}
+
+/* Crash: this thread exists from the start and does nothing else, as the
+ * crashed one may have no stack left (stack overflow). */
+static HANDLE s_crash_go, s_crash_done;
+
+static DWORD WINAPI crash_offer_thread(LPVOID unused)
+{
+    HANDLE p;
+
+    (void)unused;
+    WaitForSingleObject(s_crash_go, INFINITE);
+    if (start_report_window("--crash", &p))
+        CloseHandle(p);
+    SetEvent(s_crash_done);
+    return 0;
+}
+
+/* The last chance: nothing caught this exception. The vectored handler above
+ * sees every fault first, also the ones a __try here catches (lightmaps.c), so
+ * the question can only be asked from here. No window of ours: the game's own
+ * still covers the screen, may hold it (exclusive full screen), and waits on
+ * threads that may be stuck. The report window goes up in a new process and
+ * this one ends. A crash while ending, or on a second thread, waits for that. */
+static LONG WINAPI crash_filter(PEXCEPTION_POINTERS ep)
+{
+    static volatile LONG once;
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+
+    if (!s_crash_go) {
+        if (code != EXCEPTION_ACCESS_VIOLATION)
+            fprintf(stderr, "[CRASH] Exception 0x%08lX at RIP=0x%llX\n", code,
+                    (unsigned long long)ep->ContextRecord->Rip);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (InterlockedExchange(&once, 1)) {
+        Sleep(5000);
+        TerminateProcess(GetCurrentProcess(), code);
+    }
+    SetEvent(s_crash_go);
+    if (code != EXCEPTION_ACCESS_VIOLATION) {
+        fprintf(stderr, "[CRASH] Exception 0x%08lX at RIP=0x%llX\n", code,
+                (unsigned long long)ep->ContextRecord->Rip);
+        print_guest_context((void *)ep->ContextRecord->Rip);
+    }
+    fprintf(stderr, "[CRASH] offering a bug report\n");
+    fflush(stderr);
+    WaitForSingleObject(s_crash_done, 5000);
+    TerminateProcess(GetCurrentProcess(), code);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+/* A player's run only: a script at a crash wants the old exit, and its log is
+ * not in the folder a report reads. RECOMP_CRASH_OFFER=0 turns it off. */
+static void crash_offer_init(void)
+{
+    const char *e = getenv("RECOMP_CRASH_OFFER");
+
+    SetUnhandledExceptionFilter(crash_filter);
+    if (!s_own_log || (e && e[0] == '0'))
+        return;
+    s_crash_done = CreateEventA(NULL, TRUE, FALSE, NULL);
+    s_crash_go = CreateEventA(NULL, TRUE, FALSE, NULL);
+    if (!s_crash_go || !s_crash_done) {
+        s_crash_go = NULL;
+        return;
+    }
+    {
+        HANDLE t = CreateThread(NULL, 0, crash_offer_thread, NULL, 0, NULL);
+        if (t)
+            CloseHandle(t);
+        else
+            s_crash_go = NULL;
+    }
+}
+
+/* Freeze: Report Bug's key with no new picture (overlay.cpp's window hook; its
+ * thread still gets keys). The log gets where every thread is, then the same
+ * window. The game stays as it is. Threads of their own, as stuck threads may
+ * hold what they need: the dump gets 3 s, then the window goes up anyway. */
+static volatile LONG s_freeze_busy;
+
+static DWORD WINAPI freeze_dump_thread(LPVOID arg)
+{
+    extern void sample_profiler_dump_threads(void);
+
+    fprintf(stderr, "[FREEZE] Report Bug's key with no new picture for %u ms: "
+            "where the threads are\n", (unsigned)(uintptr_t)arg);
+    xbox_WatchdogDump();
+    sample_profiler_dump_threads();
+    fprintf(stderr, "[FREEZE] dump done\n");
+    fflush(stderr);
+    return 0;
+}
+
+static DWORD WINAPI freeze_thread(LPVOID arg)
+{
+    HANDLE d = CreateThread(NULL, 0, freeze_dump_thread, arg, 0, NULL), p;
+
+    if (d) {
+        WaitForSingleObject(d, 3000);
+        CloseHandle(d);
+    }
+    /* The game has the player's last key press, so it may hand on the front. */
+    AllowSetForegroundWindow(ASFW_ANY);
+    if (start_report_window("--freeze", &p)) {
+        WaitForSingleObject(p, INFINITE);       /* one window at a time */
+        CloseHandle(p);
+    }
+    InterlockedExchange(&s_freeze_busy, 0);
+    return 0;
+}
+
+void conker_freeze_report(unsigned stale_ms)
+{
+    HANDLE t;
+
+    if (InterlockedCompareExchange(&s_freeze_busy, 1, 0))
+        return;
+    t = CreateThread(NULL, 0, freeze_thread, (LPVOID)(uintptr_t)stale_ms, 0, NULL);
+    if (t)
+        CloseHandle(t);
+    else
+        InterlockedExchange(&s_freeze_busy, 0);
+}
+
 /* ── WinMain ───────────────────────────────────────────────── */
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -715,6 +985,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         overlay_list_pads(stdout);
         return 0;
     }
+    if (__argc == 2 && strcmp(__argv[1], "--pad-feed") == 0)
+        return pad_feed_run();
+    if (__argc >= 2 && strcmp(__argv[1], "--bug-report") == 0)
+        return bug_report_cmd(__argc, __argv);
 
     printf("=== Conker: Live & Reloaded - Static Recompilation ===\n");
 
@@ -738,6 +1012,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
     AddVectoredExceptionHandler(1, veh_handler);
+    crash_offer_init();
 
     /* RECOMP_SAMPLE_PROFILE: which functions each thread spends its time in
      * (src/sample_profiler.c). */
@@ -983,8 +1258,10 @@ static BOOL xbe_supported(const void *xbe, size_t size)
         sprintf_s(hex + i * 2, 3, "%02X", digest[i]);
     printf("default.xbe SHA-1 %s\n", hex);
     for (i = 0; i < (int)(sizeof s_xbe_sha1 / sizeof *s_xbe_sha1); i++)
-        if (!strcmp(hex, s_xbe_sha1[i]))
+        if (!strcmp(hex, s_xbe_sha1[i])) {
+            bug_report_set_release(i == 0 ? "PAL" : "USA", hex);
             return TRUE;
+        }
     return FALSE;
 }
 

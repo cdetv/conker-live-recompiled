@@ -57,6 +57,8 @@ IN THE GAME
                 On a controller: Back + LB
   F3            Controls menu (keys, mouse, controllers per player)
   F4            Photo mode (on a controller: Back + RB; Esc leaves)
+  F10           Report a bug: makes a .zip to attach to a GitHub issue (on a
+                controller: the Report Bug... button in the F2 menu)
   F11           Full screen on/off (also Alt+Enter)
   F1            Frame rate counter
   P             Pause or resume the game (gameplay and cutscenes)
@@ -116,8 +118,11 @@ PROBLEMS?
   Pack"), or the game's movies can't play.
 - "Game files not imported yet": start the launcher and import the game
   (step 3 above).
-- Anything else: please report it on the project page (Issues), and
-  attach the newest log from the Logs folder (launcher, Files tab, Logs).
+- Anything else: please report it on the project page (Issues). F10 in the
+  game, or Report Bug on the launcher's Files tab, makes a .zip to attach:
+  the game's logs, a picture of the moment, your settings and, if you leave
+  them ticked, your saves. After a crash the game offers this by itself, and
+  F10 still works if the game has frozen.
 
 
 LICENCE AND CREDITS

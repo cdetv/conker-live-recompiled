@@ -188,6 +188,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   rumble strength and stick dead zone set per controller.
 - **Slots**: choose which controller, or the keyboard, is which player.
 - Multiplayer keyboard and mouse controls, with a zoom key.
+- The [launcher](#the-launcher) works fully with a controller too.
 
 <p align="center">
   <img src="images/controls-menu.png" alt="The F3 controls menu over the game"><br>
@@ -198,8 +199,10 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 
 Press **F4** (or Back + RB) in gameplay or a cutscene to freeze the moment
 and fly a free camera: zoom, roll, hide the HUD and Conker, step frame by
-frame, adjust the depth of field, and take pictures (saved as PNG files).
-**P** freezes the game the same way, without photo mode's controls.
+frame or let the world run at normal speed and freeze it again, adjust the
+depth of field, and take pictures (saved as PNG files). Its panel can also
+change the Pop-in Fix, haze, vignette, screen drops and CRT look for photo mode
+alone. **P** freezes the game the same way, without photo mode's controls.
 
 <p align="center">
   <img src="images/photo-mode-menu.png" alt="The photo mode panel over a frozen scene"><br>
@@ -268,13 +271,18 @@ A few glitches the Xbox version has too are fixed:
   `.rar`, multi-part included), and checks it is a supported release.
 - Every in-game setting and control before you start, in the same tabs as
   the game's menus.
+- **Works with a controller**: every tab, setting and button by pad, with
+  on-screen button hints.
+- Its own **file browser** for choosing your game or the patch, by mouse,
+  keyboard or controller; or drag the file from Explorer onto it.
 - **Precompile Shaders** (see [Loading](#loading)), and **Delete Shaders** to
   clear them again.
 - **Updates itself**: when a new version is out, one click installs it and
   keeps your game files and patch.
 - Keeps your saves, settings and photos next to the game (or in AppData if
   you prefer), and moves saves from older versions over by itself.
-- Buttons to open your saves, photos and logs.
+- Buttons to open your saves, photos and logs, and **Report Bug** for a crash
+  you notice later.
 
 <table>
   <tr>
@@ -311,6 +319,7 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 | F2 | Back + LB | Settings menu |
 | F3 | | Controls menu |
 | F4 | Back + RB | Photo mode |
+| F10 | Report Bug... button in the settings menu | Report a bug |
 | F11 or Alt+Enter | | Full screen on/off |
 | F1 | | Frame rate counter |
 | P | | Pause or resume (gameplay and cutscenes) |
@@ -341,8 +350,12 @@ Ideas for future updates, in no particular order. Plans can change.
   card prepares it; it is remembered for next time. The launcher's
   **Precompile Shaders** prepares the story's shaders ahead.
 
-Found something else? Please open an [issue](../../issues) and attach the
-newest log (launcher → Files → Logs).
+Found something else? Press **F10** in the game (or **Report Bug** on the
+launcher's Files tab), say what happened and open an [issue](../../issues)
+with the `.zip` it makes. It holds the game's logs, a picture of the moment,
+your settings and, if you leave them ticked, your saves; the Windows user name
+is left out. After a crash the game offers this by itself, and F10 still works
+if the game has frozen.
 
 ## Building from source
 

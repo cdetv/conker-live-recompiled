@@ -31,6 +31,13 @@
  * Back + LB on the pad (Back + Black on an Xbox pad) opens F2 as the F2 key
  * does (pad_opens_menu, polled at each present while no menu is up).
  *
+ * Report Bug (to-do 12, SPEC 9.2; F10 = F3's report_key, caught in the
+ * window hook with its key-up, or F2's "Report Bug..." button) is a menu of
+ * its own, MENU_REPORT: the picture of that moment grabbed as a photo is,
+ * the game frozen as under P, a description and Create Report, the zip
+ * written by bug_report.c on a thread of its own, then Open Folder / Open
+ * GitHub Issue (build_report and the jobs above it).
+ *
  * The menu is a small window, top left by default, that can be moved by
  * its title bar and resized by its edges; where it is goes to settings.ini
  * (menu_window, as parts of the picture) once the mouse lets go.
@@ -101,6 +108,7 @@
 #include <math.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"         /* ClearActiveID: Report Bug's Esc */
 #include "backends/imgui_impl_dx11.h"
 
 #include "settings.h"
@@ -108,6 +116,7 @@
 #include "photo_mode.h"
 #include "decensor.h"
 #include "precompile.h"
+#include "bug_report.h"
 
 extern "C" {
 void xbox_KbmSetActive(int on);
@@ -185,7 +194,9 @@ static volatile LONG s_place_dirty; /* the game window was moved or resized */
 /* Which menu: none, F2's settings, F3's controls or photo mode's panel. */
 /* MENU_QUIT: only the quit question, from B / Esc on the main menu's
  * boards (to-do 28). */
-enum { MENU_NONE, MENU_SETTINGS, MENU_CONTROLS, MENU_PHOTO, MENU_QUIT };
+/* MENU_REPORT: Report Bug's window (to-do 12; F10 or F2's button). */
+enum { MENU_NONE, MENU_SETTINGS, MENU_CONTROLS, MENU_PHOTO, MENU_QUIT,
+       MENU_REPORT };
 static volatile LONG s_want_open;   /* F2/F3 state; the executor follows it */
 static volatile LONG s_want_pause;  /* the pause key's state (P; F4 before
                                      * photo mode), likewise */
@@ -199,6 +210,13 @@ static HWND volatile s_hwnd;        /* the frame window */
 static int s_capture_set = -1;
 static volatile int s_capture_idx = -1;
 static volatile LONG s_bb_w = 640, s_bb_h = 480;   /* back buffer size */
+/* Report Bug (to-do 12): a picture of this moment wanted (taken at the next
+ * present, before any ImGui); the window was opened by its key (the
+ * description box then takes the typing); a report is being written (the
+ * window cannot close). */
+static volatile LONG s_report_shot_want;
+static volatile LONG s_report_by_key;
+static volatile LONG s_report_busy;
 
 /* Input for ImGui, queued on the window thread. Mouse positions are already
  * in back-buffer pixels. A full queue drops events: nobody types 256 keys
@@ -272,6 +290,61 @@ extern "C" void overlay_pause_refused(void)
 
 /* ---- window thread ---------------------------------------------------------- */
 
+/* No new picture for this long = Report Bug's key means the game froze. */
+#define FREEZE_MS 2000
+static volatile LONG64 s_last_present;  /* GetTickCount64 at the last hook call */
+static bool s_report_key_down;          /* the last press was taken by the hook */
+extern "C" void conker_freeze_report(unsigned stale_ms);    /* main.c */
+
+/* A press less than FREEZE_MS after the last picture asks the next picture for
+ * the window. If none comes, nothing would ever draw it: this waits for the
+ * window to open, and otherwise makes it the freeze path. So any press works,
+ * however soon after the picture stopped (user's try 2026-11-08). */
+static volatile LONG s_report_watching;
+static bool report_window_up(void);
+
+static DWORD WINAPI report_watch_job(void *)
+{
+    for (;;) {
+        ULONGLONG ago;
+        Sleep(100);
+        if (report_window_up())
+            break;                      /* it is up: the game is alive */
+        if (s_want_open != MENU_REPORT)
+            break;                      /* closed again by the key */
+        ago = GetTickCount64() - (ULONGLONG)s_last_present;
+        if (ago >= FREEZE_MS) {
+            InterlockedCompareExchange(&s_want_open, MENU_NONE, MENU_REPORT);
+            conker_freeze_report((unsigned)ago);
+            break;
+        }
+    }
+    InterlockedExchange(&s_report_watching, 0);
+    return 0;
+}
+
+/* Report Bug's key (window thread): opens the window with a picture of
+ * this moment, from any menu; closes it again unless a report is being
+ * written. */
+static void report_key(void)
+{
+    if (s_want_open == MENU_REPORT) {
+        if (!s_report_busy)
+            InterlockedCompareExchange(&s_want_open, MENU_NONE, MENU_REPORT);
+        return;
+    }
+    InterlockedExchange(&s_report_by_key, 1);
+    InterlockedExchange(&s_report_shot_want, 1);
+    InterlockedExchange(&s_want_open, MENU_REPORT);
+    if (!InterlockedExchange(&s_report_watching, 1)) {
+        HANDLE t = CreateThread(NULL, 0, report_watch_job, NULL, 0, NULL);
+        if (t)
+            CloseHandle(t);
+        else
+            InterlockedExchange(&s_report_watching, 0);
+    }
+}
+
 static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
                        intptr_t *result)
 {
@@ -301,21 +374,64 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         || (m == WM_SIZE && (w == SIZE_MAXIMIZED || w == SIZE_RESTORED)
             && !xbox_FramebufferWindowIsFullscreen()))
         InterlockedExchange(&s_place_dirty, 1);
+    /* Report Bug's key with no new picture for a while (SPEC 9.2 "Freeze"):
+     * nothing would draw a window of ours (and maybe no picture yet at all),
+     * so the small one of its own, with where the threads are in the log. */
+    {
+        ULONGLONG ago = GetTickCount64() - (ULONGLONG)s_last_present;
+        int rk = controls_report_key();
+        if ((m == WM_KEYDOWN || m == WM_SYSKEYDOWN) && rk > 0 && (int)w == rk
+            && !(HIWORD(l) & KF_ALTDOWN) && ago >= FREEZE_MS) {
+            *result = 0;
+            s_report_key_down = true;
+            if (!(l & (1L << 30)))
+                conker_freeze_report((unsigned)ago);
+            return 1;
+        }
+    }
     if (!s_gpu_seen)
         return 0;
     *result = 0;
-    /* F2 the settings, F3 the controls; the open one's key closes it. */
+    /* F2 the settings, F3 the controls; the open one's key closes it. Not
+     * over Report Bug's window: it is closed by its own buttons. */
     if ((m == WM_KEYDOWN || m == WM_SYSKEYDOWN) && (w == VK_F2 || w == VK_F3)) {
         LONG which = w == VK_F2 ? MENU_SETTINGS : MENU_CONTROLS;
-        if (!(l & (1L << 30)))                      /* not auto-repeat */
+        if (!(l & (1L << 30)) && s_want_open != MENU_REPORT)  /* not repeat */
             InterlockedExchange(&s_want_open,
                                 s_want_open == which ? MENU_NONE : which);
         return 1;
     }
+    /* Report Bug's key (F10 by default, F3's photo table; to-do 12). F10
+     * is Windows' menu key: it comes as WM_SYSKEYDOWN, and DefWindowProc
+     * would turn its key-up into the window's menu loop (SC_KEYMENU), which
+     * takes the keys that follow; so the key-up of a press taken here is
+     * taken too. Not while a key is being set (the press is the answer),
+     * and with the report window up a key that types a character is the
+     * description's. */
+    {
+        int rk = controls_report_key();
+        if ((m == WM_KEYUP || m == WM_SYSKEYUP) && s_report_key_down
+            && (int)w == rk) {
+            s_report_key_down = false;
+            return 1;
+        }
+        if ((m == WM_KEYDOWN || m == WM_SYSKEYDOWN) && rk > 0 && (int)w == rk
+            && !(HIWORD(l) & KF_ALTDOWN)
+            && !(s_want_open && s_capture_idx >= 0)
+            && !(s_want_open == MENU_REPORT
+                 && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
+            s_report_key_down = true;
+            if (!(l & (1L << 30)))
+                report_key();
+            return 1;
+        }
+    }
     /* The pause key (P) and the photo mode key (F4), from F3's photo
-     * table, unless a key is being set (the press is the answer). Not
+     * table, unless a key is being set (the press is the answer) or Report
+     * Bug's window is up (they are letters to type there). Not
      * WM_SYSKEYDOWN: Alt+F4 still closes the window. */
     if (m == WM_KEYDOWN && !(s_want_open && s_capture_idx >= 0)
+        && s_want_open != MENU_REPORT
         && ((int)w == controls_pause_key()
             || (int)w == controls_photo_toggle_key())) {
         if (!(l & (1L << 30))) {
@@ -399,6 +515,11 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
 static bool s_ready;          /* ImGui and its D3D11 objects made */
 static bool s_open;           /* a menu is showing */
 static int s_menu;            /* which one (MENU_SETTINGS, MENU_CONTROLS) */
+
+static bool report_window_up(void)
+{
+    return s_open && s_menu == MENU_REPORT;
+}
 static int s_capture_got = -1;  /* the input pressed for it, once pressed */
 static bool s_capture_hover;  /* the mouse was over a button last frame:
                                * a click there is for the button */
@@ -411,6 +532,8 @@ static bool s_popup_open;     /* a list or question was open last frame */
 static bool s_item_active;    /* a slider was held or typed in last frame:
                                * B and Esc are its, not the menu's */
 static bool s_ask_quit;       /* "Do you want to close the game?" is up */
+static bool s_report_unfocus; /* Report Bug: Esc / B in the description: the
+                               * box lets go of the keys, its text kept */
 static bool s_focus;          /* give the menu the focus next frame */
 static WORD s_pad_prev;       /* pad buttons last frame, for presses */
 static WORD s_pad_latch;      /* held at opening, kept from ImGui until let go */
@@ -454,6 +577,12 @@ static ImGuiKey key_from_vk(WPARAM vk)
     case VK_CONTROL:return ImGuiMod_Ctrl;
     case VK_MENU:   return ImGuiMod_Alt;
     }
+    /* Letters and digits: Ctrl+A / C / V / X / Z in a text box (Report
+     * Bug's description). */
+    if (vk >= 'A' && vk <= 'Z')
+        return (ImGuiKey)(ImGuiKey_A + (int)(vk - 'A'));
+    if (vk >= '0' && vk <= '9')
+        return (ImGuiKey)(ImGuiKey_0 + (int)(vk - '0'));
     return ImGuiKey_None;
 }
 
@@ -521,6 +650,9 @@ static bool init_imgui(ID3D11Device *dev, ID3D11DeviceContext *ctx,
     return true;
 }
 
+static void report_begin(void);
+static void report_end(void);
+
 static void open_menu(void)
 {
     XINPUT_STATE pad;
@@ -541,13 +673,18 @@ static void open_menu(void)
     fprintf(stderr, "[OVERLAY] opened%s\n",
             s_menu == MENU_CONTROLS ? " (controls)"
             : s_menu == MENU_PHOTO ? " (photo panel)"
-            : s_menu == MENU_QUIT ? " (quit question)" : "");
+            : s_menu == MENU_QUIT ? " (quit question)"
+            : s_menu == MENU_REPORT ? " (Report Bug)" : "");
+    if (s_menu == MENU_REPORT)
+        report_begin();
 }
 
 /* F3 with F2's menu open, or the other way round: the other menu, as if
  * just opened, the pad staying where it is. */
 static void switch_menu(void)
 {
+    if (s_menu == MENU_REPORT)
+        report_end();
     s_menu = (int)s_want_open;
     s_error[0] = '\0';
     s_focus = true;
@@ -556,11 +693,17 @@ static void switch_menu(void)
     s_ask_reset = -1;
     fprintf(stderr, "[OVERLAY] switched to the %s menu\n",
             s_menu == MENU_CONTROLS ? "controls"
-            : s_menu == MENU_PHOTO ? "photo" : "settings");
+            : s_menu == MENU_PHOTO ? "photo"
+            : s_menu == MENU_QUIT ? "quit question"
+            : s_menu == MENU_REPORT ? "Report Bug" : "settings");
+    if (s_menu == MENU_REPORT)
+        report_begin();
 }
 
 static void close_menu(void)
 {
+    if (s_open && s_menu == MENU_REPORT)
+        report_end();
     s_open = false;
     s_capture_idx = -1;
     InterlockedExchange(&s_want_open, MENU_NONE);
@@ -614,7 +757,7 @@ static void follow_pause(void)
     /* The flip is held only for the old pause (debug); the new one is a
      * freeze of the game thread's (photo_frozen). */
     bool paused = s_want_pause != 0 && old_pause_on();
-    bool hold_apu = (paused || photo_frozen())
+    bool hold_apu = (paused || (photo_frozen() && !photo_world_running()))
                     && strcmp(settings_get("pause_silence"), "0") != 0;
 
     if (paused != s_paused) {
@@ -628,6 +771,7 @@ static void follow_pause(void)
 }
 
 static void save(const char *key, const char *value);
+static void follow_photo_picture(void);
 
 /* F1: the counter's level, into settings.ini. Counting starts afresh when
  * it comes on. */
@@ -756,6 +900,14 @@ static void drain_events(bool *close)
             if (e.w == VK_ESCAPE && down && !s_popup_open && !s_item_active
                 && s_capture_idx < 0)
                 *close = true;
+            /* Report Bug: Esc in the description leaves the box with the
+             * text kept; ImGui never gets it (its Esc throws away what was
+             * typed since the box was clicked). */
+            if (s_menu == MENU_REPORT && e.w == VK_ESCAPE) {
+                if (down && s_item_active)
+                    s_report_unfocus = true;
+                break;
+            }
             /* The photo panel's own key closes it too (Tab: not ImGui's). */
             if (s_menu == MENU_PHOTO && (int)e.w
                     == controls_key(CONTROLS_PHOTO, PHOTO_PANEL)) {
@@ -767,9 +919,20 @@ static void drain_events(bool *close)
                 io.AddKeyEvent(k, down);
             break;
         }
-        case WM_CHAR:
-            io.AddInputCharacter((unsigned)e.w);
+        case WM_CHAR: {
+            /* The game window is an ANSI one: a character past ASCII comes
+             * in the ANSI code page (é is 0xE9 either way, € is not). */
+            unsigned c = (unsigned)e.w;
+            if (c >= 0x80 && c < 0x100) {
+                char b = (char)c;
+                wchar_t wc;
+                if (MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, &b, 1,
+                                        &wc, 1) == 1)
+                    c = wc;
+            }
+            io.AddInputCharacter(c);
             break;
+        }
         case WM_MOUSEMOVE:
             io.AddMousePosEvent(e.x, e.y);
             break;
@@ -896,6 +1059,13 @@ static void feed_pad(bool *close)
         *close = true;
     if ((pressed & XINPUT_GAMEPAD_B) && !s_popup_open && !s_item_active)
         *close = true;
+    /* Report Bug: B in the description leaves the box, the text kept (as
+     * Esc there); ImGui never gets B (its cancel throws the text away). */
+    if (s_menu == MENU_REPORT) {
+        if ((pressed & XINPUT_GAMEPAD_B) && s_item_active)
+            s_report_unfocus = true;
+        st.Gamepad.wButtons &= (WORD)~XINPUT_GAMEPAD_B;
+    }
     /* LB / RB step through F2's tabs (to-do 11); not while a list, a
      * question or a held slider has the pad. */
     s_tab_step = 0;
@@ -2179,6 +2349,23 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         *close = true;
     ImGui::SameLine();
     note("(F2, Esc, B or Start)");
+    /* Report Bug (to-do 12): its window in place of this menu, with the
+     * picture of the next frame (the game runs under this menu, so that is
+     * the game without menus). */
+    if (ImGui::Button("Report Bug...")) {
+        InterlockedExchange(&s_report_by_key, 0);
+        InterlockedExchange(&s_report_shot_want, 1);
+        InterlockedExchange(&s_want_open, MENU_REPORT);
+    }
+    {
+        int rk = controls_report_key();
+        if (rk > 0) {
+            char k[48];
+            snprintf(k, sizeof(k), "(%s)", controls_key_label(rk));
+            ImGui::SameLine();
+            note(k);
+        }
+    }
     ImGui::Separator();
     if (ImGui::Button("Close game"))
         s_ask_quit = true;
@@ -2368,7 +2555,7 @@ static void dump_keys(int set)
         }
         if (scheme_name[scheme])
             fprintf(s_dump, ", \"scheme\": \"%s\"", scheme_name[scheme]);
-        if (set == CONTROLS_PHOTO && i <= PHOTO_PAUSE)
+        if (set == CONTROLS_PHOTO && i <= PHOTO_REPORT)
             fputs(", \"clashes_all\": true", s_dump);
         fputs(" }", s_dump);
     }
@@ -2406,13 +2593,14 @@ static void keys_table(int set)
                 continue;
             int input = controls_key(set, i);
             const char *also = NULL;
-            /* Photo mode's two "anywhere" keys clash with all its rows. */
+            /* Photo mode's three "anywhere" keys (photo mode, pause,
+             * Report Bug) clash with all its rows. */
             for (int j = 0; j < n && input > 0; j++)
                 if (j != i && controls_key(set, j) == input
                     && (same_section(controls_action(set, j)->section,
                                      a->section)
                         || (set == CONTROLS_PHOTO
-                            && (i <= PHOTO_PAUSE || j <= PHOTO_PAUSE)))
+                            && (i <= PHOTO_REPORT || j <= PHOTO_REPORT)))
                     && strcmp(controls_action(set, j)->button, a->button))
                     also = controls_action(set, j)->label;
 
@@ -3027,25 +3215,25 @@ template <class T> static void release(T *&p)
     }
 }
 
-static DWORD WINAPI write_shot(void *arg)
+/* 24-bit BGR rows (w x h) as a PNG at path, with WIC; COM is set up on
+ * this thread. No half-written file is left behind. */
+static HRESULT write_png(const wchar_t *path, const BYTE *bgr, unsigned w,
+                         unsigned h)
 {
-    Shot *s = (Shot *)arg;
     IWICImagingFactory *fac = NULL;
     IWICStream *st = NULL;
     IWICBitmapEncoder *enc = NULL;
     IWICBitmapFrameEncode *fr = NULL;
     WICPixelFormatGUID fmt = GUID_WICPixelFormat24bppBGR;
-    UINT stride = s->w * 3;
-    HRESULT com = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    UINT stride = w * 3;
     HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, NULL,
                                   CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&fac));
     bool made = false;
-    char msg[160];
 
     if (SUCCEEDED(hr))
         hr = fac->CreateStream(&st);
     if (SUCCEEDED(hr))
-        hr = st->InitializeFromFilename(s->path, GENERIC_WRITE);
+        hr = st->InitializeFromFilename(path, GENERIC_WRITE);
     if (SUCCEEDED(hr)) {
         made = true;
         hr = fac->CreateEncoder(GUID_ContainerFormatPng, NULL, &enc);
@@ -3057,13 +3245,13 @@ static DWORD WINAPI write_shot(void *arg)
     if (SUCCEEDED(hr))
         hr = fr->Initialize(NULL);
     if (SUCCEEDED(hr))
-        hr = fr->SetSize(s->w, s->h);
+        hr = fr->SetSize(w, h);
     if (SUCCEEDED(hr))
         hr = fr->SetPixelFormat(&fmt);
     if (SUCCEEDED(hr) && fmt != GUID_WICPixelFormat24bppBGR)
         hr = E_FAIL;
     if (SUCCEEDED(hr))
-        hr = fr->WritePixels(s->h, stride, stride * s->h, s->bgr);
+        hr = fr->WritePixels(h, stride, stride * h, (BYTE *)bgr);
     if (SUCCEEDED(hr))
         hr = fr->Commit();
     if (SUCCEEDED(hr))
@@ -3073,7 +3261,17 @@ static DWORD WINAPI write_shot(void *arg)
     release(st);
     release(fac);
     if (FAILED(hr) && made)
-        DeleteFileW(s->path);       /* no half-written file left behind */
+        DeleteFileW(path);
+    return hr;
+}
+
+static DWORD WINAPI write_shot(void *arg)
+{
+    Shot *s = (Shot *)arg;
+    HRESULT com = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    HRESULT hr = write_png(s->path, s->bgr, s->w, s->h);
+    char msg[160];
+
     if (SUCCEEDED(hr)) {
         snprintf(msg, sizeof(msg), "Photo saved: %s", s->name);
         fprintf(stderr, "[PHOTO] saved %s (%ux%u)\n", s->name, s->w, s->h);
@@ -3235,20 +3433,24 @@ static void take_picked_folder(void)
     fprintf(stderr, "[PHOTO] photo folder: %s\n", dir);
 }
 
-static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
-                      ID3D11RenderTargetView *rtv)
+/* The back buffer as the overlay hook gets it (after the filter chain,
+ * before any ImGui) as 24-bit BGR rows, malloc'd, *pw x *ph; NULL with a
+ * reason in *why. A staging copy read back at once: one short stall. */
+static BYTE *grab_back_buffer(ID3D11Device *dev, ID3D11DeviceContext *ctx,
+                              ID3D11RenderTargetView *rtv, unsigned *pw,
+                              unsigned *ph, const char **why)
 {
     ID3D11Resource *res = NULL;
     ID3D11Texture2D *bb = NULL, *flat = NULL, *stage = NULL, *src;
     D3D11_TEXTURE2D_DESC d, sd;
     D3D11_MAPPED_SUBRESOURCE m;
-    const char *why = NULL;
-    Shot *s = NULL;
+    BYTE *bgr = NULL;
     int order;          /* 0 BGRA, 1 RGBA, 2 RGB10A2 */
 
+    *why = NULL;
     rtv->GetResource(&res);
     if (!res || FAILED(res->QueryInterface(IID_PPV_ARGS(&bb)))) {
-        why = "no back buffer";
+        *why = "no back buffer";
         goto done;
     }
     bb->GetDesc(&d);
@@ -3264,7 +3466,7 @@ static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
         order = 2;
         break;
     default:
-        why = "back buffer format not handled";
+        *why = "back buffer format not handled";
         goto done;
     }
     src = bb;
@@ -3278,7 +3480,7 @@ static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
         sd.Usage = D3D11_USAGE_DEFAULT;
         sd.CPUAccessFlags = 0;
         if (FAILED(dev->CreateTexture2D(&sd, NULL, &flat))) {
-            why = "no resolve texture";
+            *why = "no resolve texture";
             goto done;
         }
         ctx->ResolveSubresource(flat, 0, bb, 0, d.Format);
@@ -3293,23 +3495,20 @@ static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
     sd.Usage = D3D11_USAGE_STAGING;
     sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     if (FAILED(dev->CreateTexture2D(&sd, NULL, &stage))) {
-        why = "no staging texture";
+        *why = "no staging texture";
         goto done;
     }
     ctx->CopySubresourceRegion(stage, 0, 0, 0, 0, src, 0, NULL);
     if (FAILED(ctx->Map(stage, 0, D3D11_MAP_READ, 0, &m))) {
-        why = "the copy could not be read";
+        *why = "the copy could not be read";
         goto done;
     }
-    s = new Shot();
-    s->w = d.Width;
-    s->h = d.Height;
-    s->bgr = (BYTE *)malloc((size_t)s->w * s->h * 3);
-    if (s->bgr) {
-        for (unsigned y = 0; y < s->h; y++) {
+    bgr = (BYTE *)malloc((size_t)d.Width * d.Height * 3);
+    if (bgr) {
+        for (unsigned y = 0; y < d.Height; y++) {
             const BYTE *in = (const BYTE *)m.pData + (size_t)y * m.RowPitch;
-            BYTE *out = s->bgr + (size_t)y * s->w * 3;
-            for (unsigned x = 0; x < s->w; x++, in += 4, out += 3) {
+            BYTE *out = bgr + (size_t)y * d.Width * 3;
+            for (unsigned x = 0; x < d.Width; x++, in += 4, out += 3) {
                 if (order == 0) {
                     out[0] = in[0]; out[1] = in[1]; out[2] = in[2];
                 } else if (order == 1) {
@@ -3325,31 +3524,46 @@ static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
         }
     }
     ctx->Unmap(stage, 0);
-    if (!s->bgr) {
-        why = "out of memory";
-        delete s;
-        goto done;
-    }
-    if (!shot_path(s)) {
-        why = "no free file name in Photos";
-    } else {
-        HANDLE t = CreateThread(NULL, 0, write_shot, s, 0, NULL);
-        if (t) {
-            CloseHandle(t);
-            s = NULL;               /* the thread's now */
-        } else {
-            why = "no writer thread";
-        }
-    }
-    if (s) {
-        free(s->bgr);
-        delete s;
-    }
+    if (!bgr)
+        *why = "out of memory";
+    *pw = d.Width;
+    *ph = d.Height;
 done:
     release(stage);
     release(flat);
     release(bb);
     release(res);
+    return bgr;
+}
+
+static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
+                      ID3D11RenderTargetView *rtv)
+{
+    const char *why = NULL;
+    unsigned w = 0, h = 0;
+    BYTE *bgr = grab_back_buffer(dev, ctx, rtv, &w, &h, &why);
+
+    if (bgr) {
+        Shot *s = new Shot();
+        s->bgr = bgr;
+        s->w = w;
+        s->h = h;
+        if (!shot_path(s)) {
+            why = "no free file name in Photos";
+        } else {
+            HANDLE t = CreateThread(NULL, 0, write_shot, s, 0, NULL);
+            if (t) {
+                CloseHandle(t);
+                s = NULL;               /* the thread's now */
+            } else {
+                why = "no writer thread";
+            }
+        }
+        if (s) {
+            free(s->bgr);
+            delete s;
+        }
+    }
     if (why) {
         char msg[160];
         snprintf(msg, sizeof(msg), "The photo could not be taken (%s)", why);
@@ -3364,6 +3578,198 @@ done:
  * of field, and the keys. Every change shows at once (the camera holds
  * still while the panel is open); fly speed and blur strength go to
  * settings.ini when let go. */
+/* The panel's picture toggles (to-do 32, SPEC 10.1): photo mode's own pop-in
+ * fix, haze, vignette, screen drops and CRT. They go straight to the same
+ * setters as F2's, never to F2's settings, which come back when photo mode
+ * ends; "Save photo settings" keeps them (photo_picture, one line in
+ * settings.ini; empty = photo mode starts from F2's). Executor thread. */
+struct PhotoPicture {
+    bool popin, grass, chars, fur, particles, haze, vignette, drops;
+    float density, crt_strength;
+    int crt;                        /* xbox_SetCrt's order: off, scanlines, crt */
+    int cut_blur;                   /* photo_cut_blur: -1 as F2 says */
+};
+static PhotoPicture s_pp;
+static bool s_pp_on;                /* photo mode's are in force */
+static bool s_pp_f2_open;
+
+static bool on_setting(const char *key)
+{
+    return strcmp(settings_get(key), "0") != 0;
+}
+
+static int crt_setting(void)
+{
+    const char *v = settings_get("crt");
+    return !_stricmp(v, "scanlines") ? 1 : !_stricmp(v, "crt") ? 2 : 0;
+}
+
+static void pp_from_settings(PhotoPicture *p)
+{
+    p->popin = on_setting("grass_full_detail");
+    p->grass = on_setting("popin_grass");
+    p->chars = on_setting("popin_characters");
+    p->fur = on_setting("popin_fur");
+    p->particles = on_setting("popin_particles");
+    p->density = slide_value(slide_for("particle_density"));
+    p->haze = on_setting("screen_haze");
+    p->vignette = on_setting("vignette");
+    p->drops = on_setting("screen_drops");
+    p->crt = crt_setting();
+    p->crt_strength = slide_value(slide_for("crt_strength"));
+    p->cut_blur = -1;
+}
+
+static float pp_field(const char *line, const char *name, float def)
+{
+    char key[24];
+    const char *at;
+
+    snprintf(key, sizeof(key), "%s=", name);
+    at = strstr(line, key);
+    return at ? (float)atof(at + strlen(key)) : def;
+}
+
+/* Over F2's values, so a line from an older version still works. */
+static void pp_from_saved(PhotoPicture *p, const char *line)
+{
+    p->popin = pp_field(line, "popin", p->popin) != 0.0f;
+    p->grass = pp_field(line, "grass", p->grass) != 0.0f;
+    p->chars = pp_field(line, "chars", p->chars) != 0.0f;
+    p->fur = pp_field(line, "fur", p->fur) != 0.0f;
+    p->particles = pp_field(line, "particles", p->particles) != 0.0f;
+    p->density = pp_field(line, "density", p->density);
+    p->haze = pp_field(line, "haze", p->haze) != 0.0f;
+    p->vignette = pp_field(line, "vignette", p->vignette) != 0.0f;
+    p->drops = pp_field(line, "drops", p->drops) != 0.0f;
+    p->crt = (int)pp_field(line, "crt", (float)p->crt);
+    p->crt_strength = pp_field(line, "strength", p->crt_strength);
+    p->cut_blur = (int)pp_field(line, "blur", (float)p->cut_blur);
+}
+
+static void pp_save(const PhotoPicture *p)
+{
+    char line[160];
+
+    snprintf(line, sizeof(line), "popin=%d grass=%d chars=%d fur=%d particles=%d "
+             "density=%.0f haze=%d vignette=%d drops=%d crt=%d strength=%.0f blur=%d",
+             p->popin, p->grass, p->chars, p->fur, p->particles, p->density,
+             p->haze, p->vignette, p->drops, p->crt, p->crt_strength, p->cut_blur);
+    save("photo_picture", line);
+}
+
+/* As F2 does it: a setting the environment overrides stays with that. */
+static void pp_apply(const PhotoPicture *p)
+{
+    if (!settings_env_override("grass_full_detail"))
+        conker_SetGrassFull(p->popin);
+    if (!settings_env_override("popin_grass"))
+        conker_SetPopinPart(0, p->grass);
+    if (!settings_env_override("popin_characters"))
+        conker_SetPopinPart(1, p->chars);
+    if (!settings_env_override("popin_fur"))
+        conker_SetPopinPart(2, p->fur);
+    if (!settings_env_override("popin_particles"))
+        conker_SetPopinPart(3, p->particles);
+    if (!settings_env_override("particle_density"))
+        conker_SetParticleDensity(p->density);
+    if (!settings_env_override("screen_haze"))
+        conker_SetScreenHaze(p->haze);
+    if (!settings_env_override("vignette"))
+        conker_SetVignette(p->vignette);
+    if (!settings_env_override("screen_drops"))
+        conker_SetScreenDrops(p->drops);
+    xbox_SetCrt(settings_env_override("crt") ? -1 : p->crt,
+                settings_env_override("crt_strength") ? -1.0f : p->crt_strength);
+}
+
+/* Each present: photo mode's picture in when it starts, F2's back when it
+ * ends; F2 changed meanwhile (that menu applies at once): photo mode's again
+ * when it closes; B changed the blur: kept when saving. */
+static void follow_photo_picture(void)
+{
+    bool active = photo_active() != 0;
+    bool f2 = s_open && s_menu == MENU_SETTINGS;
+
+    if (active != s_pp_on) {
+        PhotoPicture p;
+        s_pp_on = active;
+        pp_from_settings(&p);
+        if (active) {
+            const char *line = settings_get("photo_picture");
+            if (line[0]) {
+                pp_from_saved(&p, line);
+                photo_set_cut_blur(p.cut_blur);
+                fprintf(stderr, "[PHOTO] saved picture settings: %s\n", line);
+            }
+            s_pp = p;
+        }
+        pp_apply(&p);
+    } else if (active) {
+        if (s_pp_f2_open && !f2)
+            pp_apply(&s_pp);
+        if (s_pp.cut_blur != photo_cut_blur()) {
+            s_pp.cut_blur = photo_cut_blur();
+            if (settings_get("photo_picture")[0])
+                pp_save(&s_pp);
+        }
+    }
+    s_pp_f2_open = f2;
+}
+
+/* The panel's section. */
+static void build_photo_picture(float right, float gap)
+{
+    static const char *const crt_names[] = { "Off", "Scanlines", "CRT" };
+    bool keep = settings_get("photo_picture")[0] != 0;
+    bool changed = false, moved = false, done = false;
+
+    (void)gap;
+    ImGui::SeparatorText("Picture");
+    note("Only in photo mode: your own settings stay as they are.");
+    changed |= ImGui::Checkbox("Pop-in Fix", &s_pp.popin);
+    if (s_pp.popin) {
+        ImGui::Indent();
+        changed |= ImGui::Checkbox("Grass & flowers", &s_pp.grass);
+        changed |= ImGui::Checkbox("Characters", &s_pp.chars);
+        changed |= ImGui::Checkbox("Fur", &s_pp.fur);
+        changed |= ImGui::Checkbox("Ambient Particles (experimental)", &s_pp.particles);
+        if (s_pp.particles) {
+            ImGui::TextUnformatted("Particle density");
+            ImGui::SetNextItemWidth(right);
+            moved |= ImGui::SliderFloat("##pp_density", &s_pp.density, 0.0f, 100.0f,
+                                        "%.0f %%", ImGuiSliderFlags_AlwaysClamp);
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        ImGui::Unindent();
+    }
+    changed |= ImGui::Checkbox("Haze", &s_pp.haze);
+    changed |= ImGui::Checkbox("Vignette", &s_pp.vignette);
+    changed |= ImGui::Checkbox("Screen drops", &s_pp.drops);
+    ImGui::TextUnformatted("CRT / scanlines");
+    ImGui::SetNextItemWidth(right);
+    changed |= ImGui::Combo("##pp_crt", &s_pp.crt, crt_names, 3);
+    if (s_pp.crt) {
+        ImGui::TextUnformatted("CRT strength");
+        ImGui::SetNextItemWidth(right);
+        moved |= ImGui::SliderFloat("##pp_crt_strength", &s_pp.crt_strength, 0.0f,
+                                    100.0f, "%.0f %%", ImGuiSliderFlags_AlwaysClamp);
+        done |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    if (changed || moved)
+        pp_apply(&s_pp);
+    if (ImGui::Checkbox("Save photo settings", &keep)) {
+        if (keep)
+            pp_save(&s_pp);
+        else
+            save("photo_picture", "");
+    } else if (keep && (changed || done)) {
+        pp_save(&s_pp);
+    }
+    ImGui::SetItemTooltip("Photo mode starts with these from now on, also after "
+                          "a restart. Off: it starts from your settings.");
+}
+
 static void build_photo(unsigned w, unsigned h, bool *close)
 {
     PhotoOptions *o = photo_options();
@@ -3489,6 +3895,8 @@ static void build_photo(unsigned w, unsigned h, bool *close)
     }
     ImGui::EndDisabled();
 
+    build_photo_picture(right, gap);
+
     if (ImGui::CollapsingHeader("Keys")) {
         if (ImGui::BeginTable("##photo_keys", 2,
                               ImGuiTableFlags_RowBg
@@ -3510,6 +3918,312 @@ static void build_photo(unsigned w, unsigned h, bool *close)
     }
     note("Start, Tab, B or Esc closes the panel.");
     remember_window("photo_window", w, h);
+    ImGui::End();
+}
+
+/* ---- Report Bug (to-do 12) ------------------------------------------------- */
+
+/* F10 or F2's "Report Bug..." (SPEC 9.2 "Report Bug"). report_begin freezes
+ * the game as the pause key does where photo mode can (unless it is frozen
+ * already) and report_end lets it go; the picture of the moment was grabbed
+ * just before (report_grab, at the top of the hook: no menu on it). The
+ * window takes a description and whether the saves go in; Create Report
+ * hands them to a thread of its own (report_job: the PNG, bug_report_write,
+ * bug_report_issue) so the picture keeps drawing, and the window cannot
+ * close meanwhile. Then the zip's name, Open Folder (Explorer with it
+ * selected), Open GitHub Issue (the prefilled new-issue page, its text put
+ * on the clipboard first) and Close, each shell call on a thread of its
+ * own too. Executor thread, except the jobs; their results come through
+ * s_lock. */
+enum { REPORT_EDIT, REPORT_WORKING, REPORT_DONE, REPORT_FAILED };
+static volatile LONG s_report_stage;
+static LONG s_report_shown = -1;  /* the stage the window last drew */
+static bool s_report_up;          /* report_begin ran, report_end not yet */
+static bool s_report_paused;      /* report_begin froze the game */
+static bool s_report_saves = true;
+static char s_report_desc[4096];  /* UTF-8; kept after Cancel, emptied once
+                                   * a report was made */
+/* The picture (BGR rows), read by the job while s_report_busy: freed only
+ * when no job runs (the window cannot close then). */
+static BYTE *s_report_px;
+static unsigned s_report_w, s_report_h;
+/* The job's results (s_lock): the zip's full path or why it failed; the
+ * issue page and its text (malloc'd, NULL when they could not be made). */
+static char s_report_zip[MAX_PATH * 2];
+static char *s_report_url, *s_report_text;
+static char s_report_note[200];   /* what the last button did */
+
+static void report_grab(ID3D11Device *dev, ID3D11DeviceContext *ctx,
+                        ID3D11RenderTargetView *rtv)
+{
+    const char *why = NULL;
+
+    if (s_report_busy)
+        return;                     /* never: the window is up meanwhile */
+    free(s_report_px);
+    s_report_px = grab_back_buffer(dev, ctx, rtv, &s_report_w, &s_report_h,
+                                   &why);
+    if (!s_report_px)
+        fprintf(stderr, "[REPORT] no picture: %s\n", why ? why : "?");
+}
+
+static void report_begin(void)
+{
+    s_report_up = true;
+    s_report_shown = -1;
+    s_report_unfocus = false;
+    if (s_report_stage == REPORT_DONE)
+        s_report_desc[0] = '\0';
+    if (!s_report_busy)
+        InterlockedExchange(&s_report_stage, REPORT_EDIT);
+    s_report_saves = true;
+    s_report_note[0] = '\0';
+    /* Frozen as under P (to-do 117), where photo mode can freeze; refused
+     * elsewhere, and the game runs on under the window as under F2. */
+    if (!photo_frozen() && !s_want_pause) {
+        want_pause(true);
+        s_report_paused = true;
+    }
+    fprintf(stderr, "[REPORT] window open (%s; picture %ux%u%s)\n",
+            s_report_by_key ? "its key" : "F2's button",
+            s_report_px ? s_report_w : 0, s_report_px ? s_report_h : 0,
+            s_report_px ? "" : ", none");
+}
+
+static void report_end(void)
+{
+    if (!s_report_up)
+        return;
+    s_report_up = false;
+    if (!s_report_busy) {
+        free(s_report_px);
+        s_report_px = NULL;
+    }
+    if (s_report_paused) {
+        s_report_paused = false;
+        if (s_want_pause)
+            want_pause(false);
+    }
+    fprintf(stderr, "[REPORT] window closed\n");
+}
+
+/* report.txt's game state lines. */
+static void report_extra(char *out, size_t n)
+{
+    const char *audio = !decensor_available(0) ? "no patch"
+        : strcmp(settings_get("uncensored_audio"), "0") ? "on" : "off";
+    const char *text = !decensor_available(1) ? "no patch"
+        : strcmp(settings_get("uncensored_text"), "0") ? "on" : "off";
+    snprintf(out, n, "Uncensored audio: %s\r\nUncensored text: %s\r\n"
+             "Debug mode: %s\r\n", audio, text,
+             settings_debug() ? "on (--debug)" : "off");
+}
+
+struct ReportJob {
+    const BYTE *px;               /* s_report_px, or NULL */
+    unsigned w, h;
+    char save[MAX_PATH * 2];
+    char *desc;
+    int saves;
+    char extra[256];
+};
+
+static DWORD WINAPI report_job(void *arg)
+{
+    ReportJob *j = (ReportJob *)arg;
+    HRESULT com = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    char shot[MAX_PATH * 2] = "", full[MAX_PATH * 2], zip[MAX_PATH * 2];
+    char *url = NULL, *text = NULL;
+    BugReport r;
+    int rc;
+
+    /* The picture as a PNG beside the reports; zipped, then deleted. */
+    if (j->px) {
+        wchar_t wpath[MAX_PATH * 2];
+        HRESULT hr = E_FAIL;
+        if (!GetFullPathNameA(j->save, sizeof(full), full, NULL))
+            snprintf(full, sizeof(full), "%s", j->save);
+        snprintf(shot, sizeof(shot), "%s\\reports", full);
+        SHCreateDirectoryExA(NULL, shot, NULL);
+        snprintf(shot, sizeof(shot), "%s\\reports\\screenshot_%lu.png", full,
+                 (unsigned long)GetCurrentProcessId());
+        if (MultiByteToWideChar(CP_ACP, 0, shot, -1, wpath, MAX_PATH * 2) > 0)
+            hr = write_png(wpath, j->px, j->w, j->h);
+        if (FAILED(hr)) {
+            fprintf(stderr, "[REPORT] the picture could not be written: "
+                    "0x%08lX\n", (unsigned long)hr);
+            shot[0] = '\0';
+        }
+    }
+    memset(&r, 0, sizeof(r));
+    r.save_dir = j->save;
+    r.description = j->desc;
+    r.shot_png = shot[0] ? shot : NULL;
+    r.include_saves = j->saves;
+    r.origin = "F10 in the game";
+    r.extra = j->extra;
+    rc = bug_report_write(&r, zip, sizeof(zip));
+    if (shot[0])
+        DeleteFileA(shot);
+    if (rc == 0 && bug_report_issue(j->desc, zip, &url, &text) != 0)
+        fprintf(stderr, "[REPORT] no issue text (out of memory)\n");
+    if (rc != 0)
+        fprintf(stderr, "[REPORT] failed: %s\n", zip);
+    else if (url)
+        fprintf(stderr, "[REPORT] issue page: %u characters\n",
+                (unsigned)strlen(url));
+
+    EnterCriticalSection(&s_lock);
+    snprintf(s_report_zip, sizeof(s_report_zip), "%s", zip);
+    free(s_report_url);
+    free(s_report_text);
+    s_report_url = url;
+    s_report_text = text;
+    LeaveCriticalSection(&s_lock);
+    InterlockedExchange(&s_report_stage, rc ? REPORT_FAILED : REPORT_DONE);
+    InterlockedExchange(&s_report_busy, 0);
+    free(j->desc);
+    delete j;
+    if (SUCCEEDED(com))
+        CoUninitialize();
+    return 0;
+}
+
+static void report_create(void)
+{
+    ReportJob *j = new ReportJob();
+    HANDLE t;
+
+    j->px = s_report_px;
+    j->w = s_report_w;
+    j->h = s_report_h;
+    snprintf(j->save, sizeof(j->save), "%s", settings_save_dir());
+    j->desc = _strdup(s_report_desc);
+    j->saves = s_report_saves ? 1 : 0;
+    report_extra(j->extra, sizeof(j->extra));
+    fprintf(stderr, "[REPORT] creating (description %u bytes, saves %s, "
+            "picture %s)\n", (unsigned)strlen(s_report_desc),
+            s_report_saves ? "in" : "out", s_report_px ? "in" : "none");
+    InterlockedExchange(&s_report_busy, 1);
+    InterlockedExchange(&s_report_stage, REPORT_WORKING);
+    t = CreateThread(NULL, 0, report_job, j, 0, NULL);
+    if (t) {
+        CloseHandle(t);
+        return;
+    }
+    free(j->desc);
+    delete j;
+    EnterCriticalSection(&s_lock);
+    snprintf(s_report_zip, sizeof(s_report_zip), "no thread to write it");
+    LeaveCriticalSection(&s_lock);
+    InterlockedExchange(&s_report_stage, REPORT_FAILED);
+    InterlockedExchange(&s_report_busy, 0);
+}
+
+static void report_open_issue(void)
+{
+    int rc;
+
+    EnterCriticalSection(&s_lock);
+    rc = bug_report_open_issue(s_report_url, s_report_text, s_hwnd);
+    LeaveCriticalSection(&s_lock);
+    snprintf(s_report_note, sizeof(s_report_note), "%s",
+             rc == 0 ? "Opening the issue page in your browser; its text is on "
+                       "the clipboard too."
+                     : "The issue page could not be opened.");
+}
+
+/* The window, in the middle of the picture. On a stage's first frame the
+ * keyboard / pad cursor goes to its main item: the description when the
+ * key opened it (to type at once), else Create Report; Open GitHub Issue;
+ * Back. */
+static void build_report(unsigned w, unsigned h, bool *close)
+{
+    float px = ImGui::GetFontSize();
+    float wide = px * 26.0f;
+    LONG stage = s_report_stage;
+    bool fresh = stage != s_report_shown;
+    char zip[MAX_PATH * 2];
+
+    s_report_shown = stage;
+    ImGui::SetNextWindowPos(ImVec2(w * 0.5f, h * 0.5f), ImGuiCond_Always,
+                            ImVec2(0.5f, 0.5f));
+    if (s_focus) {
+        ImGui::SetNextWindowFocus();
+        s_focus = false;
+    }
+    ImGui::Begin("Report Bug", NULL,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove
+                 | ImGuiWindowFlags_NoSavedSettings
+                 | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wide);
+    EnterCriticalSection(&s_lock);
+    snprintf(zip, sizeof(zip), "%s", s_report_zip);
+    LeaveCriticalSection(&s_lock);
+
+    if (stage == REPORT_EDIT) {
+        ImGui::TextUnformatted("What went wrong, and what were you doing? "
+                               "(optional)");
+        /* Esc / B in the box: it lets go, the text kept (drain_events). */
+        if (s_report_unfocus) {
+            ImGui::ClearActiveID();
+            s_report_unfocus = false;
+        }
+        if (fresh && s_report_by_key)
+            ImGui::SetKeyboardFocusHere();
+        ImGui::InputTextMultiline("##description", s_report_desc,
+                                  sizeof(s_report_desc),
+                                  ImVec2(wide, ImGui::GetTextLineHeight()
+                                               * 8.0f));
+        ImGui::Checkbox("Include save files", &s_report_saves);
+        note("Makes a .zip to attach to a GitHub issue: this picture, the "
+             "game's last logs, its settings, the saves when ticked and the "
+             "PC's details (Windows, graphics card, processor). The Windows "
+             "user name is left out.");
+        if (fresh && !s_report_by_key)
+            ImGui::SetKeyboardFocusHere();
+        if (ImGui::Button("Create Report"))
+            report_create();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+            *close = true;
+    } else if (stage == REPORT_WORKING) {
+        static const char *const dots[] = { "", ".", "..", "..." };
+        ImGui::Text("Creating the report%s",
+                    dots[(int)(ImGui::GetTime() * 3.0) % 4]);
+    } else if (stage == REPORT_DONE) {
+        const char *name = strrchr(zip, '\\');
+        ImGui::Text("Report saved: %s", name ? name + 1 : zip);
+        if (ImGui::Button("Open Folder"))
+            bug_report_open_folder(zip);
+        ImGui::SameLine();
+        if (fresh)
+            ImGui::SetKeyboardFocusHere();
+        if (ImGui::Button("Open GitHub Issue"))
+            report_open_issue();
+        ImGui::SameLine();
+        if (ImGui::Button("Close"))
+            *close = true;
+        note("Open GitHub Issue opens a new issue with its text filled in "
+             "and copies that text too: if the page comes up empty, paste "
+             "it there (Ctrl+V). Then drag the zip into the issue. Posting "
+             "needs a free GitHub account.");
+        if (s_report_note[0])
+            ImGui::TextUnformatted(s_report_note);
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                           "The report could not be made:");
+        ImGui::TextUnformatted(zip);
+        if (fresh)
+            ImGui::SetKeyboardFocusHere();
+        if (ImGui::Button("Back"))
+            InterlockedExchange(&s_report_stage, REPORT_EDIT);
+        ImGui::SameLine();
+        if (ImGui::Button("Close"))
+            *close = true;
+    }
+    s_item_active = ImGui::IsAnyItemActive();
+    ImGui::PopTextWrapPos();
     ImGui::End();
 }
 
@@ -3535,6 +4249,9 @@ static void pause_label(unsigned h, bool photo)
                     controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_TAKE)),
                     controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_PANEL)),
                     controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_LEAVE)));
+        if (photo_world_resumed())
+            ImGui::Text("The world is running   Pause it: %s / Back + A",
+                        controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_RESUME)));
         if (shot_message_now(msg, sizeof(msg)))
             ImGui::TextUnformatted(msg);
     } else
@@ -3800,6 +4517,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     if (!s_want_open && s_open)
         close_menu();
     follow_pause();
+    follow_photo_picture();
     /* The keyboard and mouse are the game's with no menu up and the game
      * running. With a menu up the keys follow its focus as the pad does
      * (user 2026-10-28): a click outside it gives them back to the game;
@@ -3810,6 +4528,9 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     /* The photo first: the picture as it is, before any text of ours. */
     if (s_shot_want && InterlockedExchange(&s_shot_want, 0))
         take_shot(dev, ctx, rtv);
+    /* Report Bug's picture likewise (F10 or F2's button asked for it). */
+    if (s_report_shot_want && InterlockedExchange(&s_report_shot_want, 0))
+        report_grab(dev, ctx, rtv);
     /* The photo panel goes with photo mode. */
     if (s_want_open == MENU_PHOTO && !photo_active())
         InterlockedCompareExchange(&s_want_open, MENU_NONE, MENU_PHOTO);
@@ -3871,6 +4592,9 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     if (s_open) {
         drain_events(&close);
         feed_pad(&close);
+        /* Report Bug's window stays while its report is being written. */
+        if (close && s_menu == MENU_REPORT && s_report_busy)
+            close = false;
         if (close) {
             close_menu();
             if (!s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
@@ -3900,6 +4624,8 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     }
     if (s_open && s_menu == MENU_PHOTO)
         build_photo(w, h, &close);
+    else if (s_open && s_menu == MENU_REPORT)
+        build_report(w, h, &close);
     else if (s_open && s_menu == MENU_QUIT) {
         /* The question alone; its No (or Esc / B) closes it all. */
         ask_quit();
@@ -3911,10 +4637,11 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     else if (s_paused || photo_frozen())
         pause_label(h, photo_active() != 0);
     /* A click outside the menu takes its focus (ImGui's own rule), and the
-     * pad goes with it. The quit question alone keeps the pad: it wants an
-     * answer (its modal is not "focused" on its first frame). */
+     * pad goes with it. The quit question and Report Bug's window keep the
+     * pad: they want an answer (the quit modal is not "focused" on its
+     * first frame), and the game is frozen under the report. */
     if (s_open)
-        pad_to_menu(s_menu == MENU_QUIT
+        pad_to_menu(s_menu == MENU_QUIT || s_menu == MENU_REPORT
                     || ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow));
     ImGui::Render();
 
@@ -3941,6 +4668,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
 static int overlay_frame(void *dev, void *ctx, void *rtv, unsigned w,
                          unsigned h)
 {
+    InterlockedExchange64(&s_last_present, (LONG64)GetTickCount64());
     follow_fps();
     fps_tick(!s_held);
     s_held = overlay_draw(dev, ctx, rtv, w, h) != 0;
@@ -3950,6 +4678,7 @@ static int overlay_frame(void *dev, void *ctx, void *rtv, unsigned w,
 void overlay_init(void)
 {
     InitializeCriticalSection(&s_lock);
+    s_last_present = (LONG64)GetTickCount64();
     s_want_fps = settings_get("fps_counter")[0] - '0';
     xbox_SetWindowMessageHook(window_hook);
     xbox_SetGpuOverlay(overlay_frame);

@@ -3,7 +3,15 @@ param([string]$Action = "list", [string]$Name = "", [string]$Value = "", [string
 #   -Action list | tab -Name SETTINGS | toggle -Name "Full screen" | invoke -Name "Reset to defaults" | radio -Name Modern
 #   | select -Name "Frame rate" -Value "30 fps (original)" | range -Name Gamma -Value 1.2
 #   | key -Value 4B (a key press posted to the window, hex virtual-key code: the Controls tab's "Press a key")
+#   | pad -Value a (a controller line for a launcher started with CONKER_LAUNCHER_PAD_FILE: appended to that
+#     file, -Name <file> or this shell's $env:CONKER_LAUNCHER_PAD_FILE; "down:1000" holds, "kind ps"; PadInput.cs)
 # Windows PowerShell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\launcher_uia.ps1 ...
+if ($Action -eq "pad") {
+    $file = if ($Name) { $Name } else { $env:CONKER_LAUNCHER_PAD_FILE }
+    if (-not $file) { throw "pad: give -Name <pad file> or set CONKER_LAUNCHER_PAD_FILE" }
+    [System.IO.File]::AppendAllText($file, "$Value`n")
+    return
+}
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $p = Get-Process $Process | Select-Object -First 1
 if ($Action -eq "key") {

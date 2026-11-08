@@ -1,0 +1,140 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ConkerLauncher.ViewModels"
+             x:Class="ConkerLauncher.Views.FileBrowserView"
+             x:DataType="vm:FileBrowserViewModel">
+  <!-- The launcher's own file browser (to-do 122, SPEC 9.3): MainWindow's BrowserOverlay shows it
+       while a file choice is open (MainWindow.PickFileAsync). -->
+  <UserControl.Resources>
+    <!-- Rows without Fluent's green fill: the selected row is the option rows' white 10 % (App.axaml
+         RowFocusBrush), a bit brighter under the mouse; the focus ring shows round it for keyboard / pad. -->
+    <SolidColorBrush x:Key="SystemControlHighlightListAccentLowBrush" Color="#1AFFFFFF" />
+    <SolidColorBrush x:Key="SystemControlHighlightListAccentMediumBrush" Color="#24FFFFFF" />
+    <SolidColorBrush x:Key="SystemControlHighlightListAccentHighBrush" Color="#2EFFFFFF" />
+    <SolidColorBrush x:Key="SystemControlHighlightListLowBrush" Color="#0DFFFFFF" />
+    <SolidColorBrush x:Key="SystemControlHighlightListMediumBrush" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="FolderBrush" Color="#FFD9B65C" />
+    <!-- Our own simple icons (no copied ones): a folder, a page with a folded corner. -->
+    <StreamGeometry x:Key="FolderIcon">M0,1 L5,1 L6.5,2.5 L14,2.5 L14,11 L0,11 Z</StreamGeometry>
+    <StreamGeometry x:Key="FileIcon">M0.5,0.5 L7,0.5 L10.5,4 L10.5,13.5 L0.5,13.5 Z M7,0.5 L7,4 L10.5,4</StreamGeometry>
+  </UserControl.Resources>
+  <UserControl.Styles>
+    <Style Selector="ListBox.browser">
+      <Setter Property="Background" Value="#FF0A0E0A" />
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="2" />
+    </Style>
+    <Style Selector="ListBox.browser ListBoxItem">
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border AdornerLayer.IsClipEnabled="False" BorderThickness="2" BorderBrush="{DynamicResource SystemControlFocusVisualPrimaryBrush}"
+                  CornerRadius="4" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ListBox.browser ListBoxItem /template/ ContentPresenter">
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <!-- Places: the folder listed now is lit green. -->
+    <Style Selector="ListBox.places ListBoxItem:selected TextBlock.place">
+      <Setter Property="Foreground" Value="{StaticResource XboxGreenBrush}" />
+    </Style>
+    <Style Selector="Grid.other">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{StaticResource DimTextBrush}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+          CornerRadius="10" Padding="20,16" Width="680" Height="580">
+    <DockPanel>
+      <TextBlock DockPanel.Dock="Top" Classes="section" Text="{Binding Title}" FontSize="17" TextWrapping="Wrap" Margin="0,0,0,10" />
+
+      <!-- Type or paste a folder or a file, Enter (mouse and keyboard; the pad skips it). -->
+      <TextBox x:Name="AddressBox" DockPanel.Dock="Top" Text="{Binding AddressText}" Margin="0,0,0,10"
+               AutomationProperties.Name="Address" PlaceholderText="Type or paste a folder or a file, then press Enter"
+               ToolTip.Tip="Type or paste a folder or a file, then press Enter" />
+
+      <!-- Windows dialog... / Cancel / Choose -->
+      <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" Margin="0,10,0,0">
+        <Button Content="Windows dialog..." Command="{Binding UseWindowsDialogCommand}" IsVisible="{Binding CanUseWindowsDialog}"
+                VerticalAlignment="Center" ToolTip.Tip="Choose the file with the Windows Open dialog instead" />
+        <Button Grid.Column="2" Classes="secondary safe" Content="Cancel" Command="{Binding CancelCommand}" />
+        <Button Grid.Column="3" Classes="play" Content="Choose" Command="{Binding ChooseCommand}" MinWidth="150" />
+      </Grid>
+
+      <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*" Margin="0,4,0,0">
+        <CheckBox Content="Show all files" IsChecked="{Binding ShowAllFiles}" FontSize="13" MinHeight="26"
+                  ToolTip.Tip="List every file, not only the ones this choice takes" />
+        <!-- "or drag a file here"; while a drag it won't take hovers, why (MainWindow's drag handlers). -->
+        <TextBlock x:Name="HintLine" Grid.Column="1" Text="{Binding HintText}" FontSize="13" TextTrimming="CharacterEllipsis"
+                   Classes.dim="{Binding !HintIsProblem}" Classes.error="{Binding HintIsProblem}" Margin="12,0,0,0"
+                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+      </Grid>
+
+      <!-- What went wrong, or "Reading..." while a slow folder is read (FileBrowserView.axaml.cs). -->
+      <Panel DockPanel.Dock="Bottom" MinHeight="20" Margin="0,6,0,0">
+        <TextBlock x:Name="ReadingLine" Classes="dim" Text="Reading..." FontSize="13" IsVisible="False" />
+        <TextBlock Classes="error" Text="{Binding Message}" FontSize="13" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                   IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </Panel>
+
+      <Grid ColumnDefinitions="165,*" ColumnSpacing="10">
+        <!-- Places: the launcher's folder, recent folders, Desktop, Downloads, Documents, drives. -->
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="dim" Text="Places" FontSize="12" Margin="10,0,0,4" />
+          <ListBox x:Name="PlacesList" Classes="browser places" ItemsSource="{Binding Places}" AutomationProperties.Name="Places">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:BrowserPlace">
+                <StackPanel ToolTip.Tip="{Binding Path}" Background="Transparent">
+                  <TextBlock Classes="place" Text="{Binding Label}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="dim" Text="{Binding Detail}" FontSize="11" TextTrimming="CharacterEllipsis"
+                             IsVisible="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlaceKind.Drive}}" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+
+        <!-- The folder's list: folders first, then the files this choice takes (all with "Show all files"). -->
+        <DockPanel Grid.Column="1">
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="22,*,74,112" ColumnSpacing="6" Margin="11,0,9,4">
+            <TextBlock Grid.Column="1" Classes="dim" Text="Name" FontSize="12" />
+            <TextBlock Grid.Column="2" Classes="dim" Text="Size" FontSize="12" HorizontalAlignment="Right" />
+            <TextBlock Grid.Column="3" Classes="dim" Text="Modified" FontSize="12" />
+          </Grid>
+          <Panel>
+            <ListBox x:Name="EntryList" Classes="browser" ItemsSource="{Binding Entries}" SelectedItem="{Binding SelectedEntry}"
+                     AutomationProperties.Name="Files">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:BrowserEntry">
+                  <Grid ColumnDefinitions="22,*,74,112" ColumnSpacing="6" Classes.other="{Binding IsOther}" Background="Transparent">
+                    <Path Data="{StaticResource FolderIcon}" Fill="{StaticResource FolderBrush}" Width="15" Height="12" Stretch="Uniform"
+                          VerticalAlignment="Center" IsVisible="{Binding IsFolder}" />
+                    <Path Data="{StaticResource FileIcon}" StrokeThickness="1.2" Width="11" Height="14" Stretch="Uniform"
+                          Stroke="{StaticResource XboxGreenBrush}" VerticalAlignment="Center" IsVisible="{Binding Matches}" />
+                    <Path Data="{StaticResource FileIcon}" StrokeThickness="1.2" Width="11" Height="14" Stretch="Uniform"
+                          Stroke="{StaticResource DimTextBrush}" VerticalAlignment="Center" IsVisible="{Binding IsOther}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Classes="dim" Text="{Binding SizeText}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="3" Classes="dim" Text="{Binding DateText}" FontSize="12" VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Classes="dim" Text="{Binding EmptyText}" FontSize="13" TextWrapping="Wrap" TextAlignment="Center"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" IsHitTestVisible="False"
+                       IsVisible="{Binding EmptyText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </Panel>
+        </DockPanel>
+      </Grid>
+    </DockPanel>
+  </Border>
+</UserControl>

@@ -18,10 +18,19 @@ public static class PadList
             CreateNoWindow = true,
             RedirectStandardOutput = true,
         };
-        using Process process = Process.Start(start) ?? throw new IOException("conker.exe didn't start.");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        string json = await process.StandardOutput.ReadToEndAsync(timeout.Token);
-        await process.WaitForExitAsync(timeout.Token);
+        using Process process = OwnProcesses.Start(start) ?? throw new IOException("conker.exe didn't start.");
+        string json;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            json = await process.StandardOutput.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        finally
+        {
+            OwnProcesses.Forget(process);
+        }
+
         if (process.ExitCode != 0)
         {
             throw new IOException($"conker.exe --list-pads ended with {process.ExitCode}.");

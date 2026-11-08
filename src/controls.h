@@ -41,15 +41,16 @@ extern "C" {
  * the F3 "Photo mode" table, rows in the PHOTO_ order below. */
 #define CONTROLS_PHOTO        14
 
-/* The photo table's rows. The first two work everywhere (the window's
- * message hook acts on them); the rest only in photo mode. */
+/* The photo table's rows. The first three work everywhere (the window's
+ * message hook acts on them; PHOTO_REPORT opens Report Bug, to-do 12); the
+ * rest only in photo mode. */
 enum {
-    PHOTO_TOGGLE, PHOTO_PAUSE,
+    PHOTO_TOGGLE, PHOTO_PAUSE, PHOTO_REPORT,
     PHOTO_FORWARD, PHOTO_BACK, PHOTO_LEFT, PHOTO_RIGHT, PHOTO_UP, PHOTO_DOWN,
     PHOTO_ROLL_LEFT, PHOTO_ROLL_RIGHT, PHOTO_SLOW, PHOTO_FAST,
     PHOTO_ZOOM_IN, PHOTO_ZOOM_OUT, PHOTO_TAKE, PHOTO_LEAVE, PHOTO_RESET,
-    PHOTO_HUD, PHOTO_CONKER, PHOTO_STEP, PHOTO_PANEL, PHOTO_CUT_BLUR,
-    PHOTO_ROWS
+    PHOTO_HUD, PHOTO_CONKER, PHOTO_STEP, PHOTO_RESUME, PHOTO_PANEL,
+    PHOTO_CUT_BLUR, PHOTO_ROWS
 };
 
 /* One action: its settings.ini key ("story_jump"), what the menu calls it,
@@ -108,11 +109,12 @@ int controls_pad_of_port(int port);
  * has none. */
 int controls_pad_name(int pad, char *out, int size);
 
-/* The photo mode key (PHOTO_TOGGLE) and the pause key (PHOTO_PAUSE), for
- * the window's message hook: copies made by controls_apply, so any thread
- * may read them. */
+/* The photo mode key (PHOTO_TOGGLE), the pause key (PHOTO_PAUSE) and the
+ * Report Bug key (PHOTO_REPORT), for the window's message hook: copies made
+ * by controls_apply, so any thread may read them. */
 int controls_photo_toggle_key(void);
 int controls_pause_key(void);
+int controls_report_key(void);
 
 /* Which set the game is in (recomp_manual.c, from the level), and which it
  * last said. */

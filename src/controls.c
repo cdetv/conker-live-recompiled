@@ -380,6 +380,8 @@ static const int s_cutscene_keys[] = { VK_SPACE, 'E', VK_LBUTTON, VK_ESCAPE };
 static const Action s_photo[] = {
     { { "photo_toggle", "Photo mode on / off", "Back + RB", PHOTO_ANYWHERE } },
     { { "pause_key", "Pause (hold the picture)", "none", PHOTO_ANYWHERE } },
+    /* To-do 12 (SPEC 9.2): the pad reaches it through F2's button. */
+    { { "report_key", "Report Bug", "none", PHOTO_ANYWHERE } },
     { { "photo_forward", "Fly forward", "Left stick up", PHOTO_IN } },
     { { "photo_back", "Fly back", "Left stick down", PHOTO_IN } },
     { { "photo_left", "Fly left", "Left stick left", PHOTO_IN } },
@@ -398,8 +400,9 @@ static const Action s_photo[] = {
     { { "photo_hud", "Show / hide the HUD and speech bubbles", "Y",
         PHOTO_IN } },
     { { "photo_conker", "Show / hide Conker", "X", PHOTO_IN } },
-    { { "photo_step", "Frame step (the world moves one frame)", "D-pad right",
+    { { "photo_step", "Frame step (one frame; hold: normal speed)", "D-pad right",
         PHOTO_IN } },
+    { { "photo_resume", "Pause / resume the world", "Back + A", PHOTO_IN } },
     { { "photo_panel", "Photo settings", "Start", PHOTO_IN } },
     /* B was "leave" until 2026-10-29 (user): Back + RB leaves too. */
     { { "photo_cutscene_blur", "Cutscene blur on / off", "B", PHOTO_IN } },
@@ -520,10 +523,11 @@ void controls_mouse(int set, float *sx, float *sy, int *invert)
 }
 
 /* Is input bound to a swimming or bat action that works here? */
-static volatile LONG s_photo_toggle_key, s_pause_key;
+static volatile LONG s_photo_toggle_key, s_pause_key, s_report_key;
 
 int controls_photo_toggle_key(void) { return (int)s_photo_toggle_key; }
 int controls_pause_key(void) { return (int)s_pause_key; }
+int controls_report_key(void) { return (int)s_report_key; }
 
 /* Photo mode's profile: nothing bound and the mouse not looking, so the
  * game gets a pad at rest; photo_mode.c reads the keys itself. */
@@ -538,6 +542,7 @@ static void apply_photo(void)
     InterlockedExchange(&s_photo_toggle_key,
                         controls_key(CONTROLS_PHOTO, PHOTO_TOGGLE));
     InterlockedExchange(&s_pause_key, controls_key(CONTROLS_PHOTO, PHOTO_PAUSE));
+    InterlockedExchange(&s_report_key, controls_key(CONTROLS_PHOTO, PHOTO_REPORT));
 }
 
 static int place_key(const Action *t, const int *map, int n, int set,

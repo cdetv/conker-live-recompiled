@@ -396,6 +396,10 @@ static const Option s_options[] = {
       "Photo mode's depth of field: how strong the blur is, 0 to 100\n"
       "percent (default 50). Depth of field itself starts off every time.",
       0.0f, 100.0f },
+    { "photo", "photo_picture", OPT_PATH, "", "", NULL, NULL,
+      "What photo mode's panel keeps when \"Save photo settings\" is ticked: its\n"
+      "own pop-in, haze, vignette, screen drops, CRT and cutscene blur, used only\n"
+      "while in photo mode. Empty = photo mode starts from the settings above." },
     { "photo", "photo_folder", OPT_PATH, "", "", NULL, NULL,
       "The folder photos go to. Empty = the default: the Photos folder next\n"
       "to this file. The photo panel's \"Change Photo Directory\" sets it." },
@@ -580,11 +584,13 @@ static const Option s_options[] = {
     { "controls_multiplayer", "mp_look_left", OPT_KEY, "none", "none", NULL, NULL, NULL },
     { "controls_multiplayer", "mp_look_right", OPT_KEY, "none", "none", NULL, NULL, NULL },
     { "controls_photo", "photo_toggle", OPT_KEY, "f4", "f4", NULL, NULL,
-      "Photo mode (F3 > Photo mode): photo_toggle and pause_key work\n"
-      "everywhere (pause_key holds the picture, as F4 did before); the rest\n"
-      "only in photo mode. Key names as for single player; the controller's\n"
-      "photo buttons are fixed (Back + RB turns photo mode on / off)." },
+      "Photo mode (F3 > Photo mode): photo_toggle, pause_key and report_key\n"
+      "work everywhere (pause_key freezes the game, report_key opens Report\n"
+      "Bug); the rest only in photo mode. Key names as for single player; the\n"
+      "controller's photo buttons are fixed (Back + RB turns photo mode on /\n"
+      "off)." },
     { "controls_photo", "pause_key", OPT_KEY, "p", "p", NULL, NULL, NULL },
+    { "controls_photo", "report_key", OPT_KEY, "f10", "f10", NULL, NULL, NULL },
     { "controls_photo", "photo_forward", OPT_KEY, "w", "w", NULL, NULL, NULL },
     { "controls_photo", "photo_back", OPT_KEY, "s", "s", NULL, NULL, NULL },
     { "controls_photo", "photo_left", OPT_KEY, "a", "a", NULL, NULL, NULL },
@@ -604,6 +610,7 @@ static const Option s_options[] = {
     { "controls_photo", "photo_hud", OPT_KEY, "h", "h", NULL, NULL, NULL },
     { "controls_photo", "photo_conker", OPT_KEY, "c", "c", NULL, NULL, NULL },
     { "controls_photo", "photo_step", OPT_KEY, "f", "f", NULL, NULL, NULL },
+    { "controls_photo", "photo_resume", OPT_KEY, "1", "1", NULL, NULL, NULL },
     { "controls_photo", "photo_panel", OPT_KEY, "tab", "tab", NULL, NULL, NULL },
     { "controls_photo", "photo_cutscene_blur", OPT_KEY, "b", "b", NULL, NULL,
       NULL },

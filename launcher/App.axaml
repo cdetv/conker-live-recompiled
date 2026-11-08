@@ -10,6 +10,14 @@
     <SolidColorBrush x:Key="PanelBrush" Color="#CC101611" />
     <SolidColorBrush x:Key="PanelBorderBrush" Color="#FF24341F" />
     <SolidColorBrush x:Key="DimTextBrush" Color="#FF8C9A88" />
+    <!-- Focus ring (to-do 121): Fluent's white box (outer + inner line) turned Xbox green.
+         It shows only while the window is active. -->
+    <SolidColorBrush x:Key="SystemControlFocusVisualPrimaryBrush" Color="#FF5DBB1E" />
+    <SolidColorBrush x:Key="SystemControlFocusVisualSecondaryBrush" Color="#00000000" />
+    <!-- A focused text-less check box that is ticked: green would vanish on its green fill (user's pick). -->
+    <SolidColorBrush x:Key="BoxFocusCheckedBrush" Color="#FFA8E080" />
+    <!-- Behind the focused option's row (pad / keyboard focus), like F2's highlight; white 10 % (user's pick of four, 2026-11-07). -->
+    <SolidColorBrush x:Key="RowFocusBrush" Color="#1AFFFFFF" />
   </Application.Resources>
 
   <Application.Styles>
@@ -29,6 +37,65 @@
     </Style>
     <Style Selector=":is(Control)#PART_MaximizeButton">
       <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <!-- Focus outlines (to-do 121; looks chosen by the user 2026-11-07). A FocusAdorner's root needs
+         AdornerLayer.IsClipEnabled="False", or it is clipped to the control and a ring outside draws nothing. -->
+    <!-- Check boxes and radio buttons: room after the text, and a ring about 6 px round box and text. -->
+    <Style Selector="CheckBox, RadioButton">
+      <Setter Property="Padding" Value="8,0,6,0" />
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border AdornerLayer.IsClipEnabled="False" BorderThickness="2" BorderBrush="{DynamicResource SystemControlFocusVisualPrimaryBrush}"
+                  Margin="-8,-2,-2,-2" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <!-- A check box without text (Mute, Slots keyboard): the box's own outline turns green instead,
+         pale green when ticked. Styling the template part follows a tick at once; an adorner wouldn't. -->
+    <Style Selector="CheckBox.box">
+      <Setter Property="FocusAdorner" Value="{x:Null}" />
+    </Style>
+    <Style Selector="CheckBox.box:focus-visible /template/ Border#NormalRectangle">
+      <Setter Property="BorderBrush" Value="{StaticResource XboxGreenBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="CheckBox.box:focus-visible:checked /template/ Border#NormalRectangle">
+      <Setter Property="BorderBrush" Value="{DynamicResource BoxFocusCheckedBrush}" />
+    </Style>
+    <!-- Every button: the outline on the button's own edge, not a box round it.
+         (The Button selector doesn't reach CheckBox, RadioButton or HyperlinkButton.) -->
+    <Style Selector="Button">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border AdornerLayer.IsClipEnabled="False" BorderThickness="2" BorderBrush="{DynamicResource SystemControlFocusVisualPrimaryBrush}"
+                  CornerRadius="{DynamicResource ControlCornerRadius}" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <!-- An option's row in Settings / Controls; lit while the pad or keyboard focus is in it
+         (class "focused", MainWindow.OnFocusMoved). The band reaches 4 px past the content (2 above and below) without moving it. -->
+    <Style Selector="Border.row">
+      <Setter Property="Padding" Value="4,2" />
+      <Setter Property="Margin" Value="-4,-2" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Border.row.focused">
+      <Setter Property="Background" Value="{DynamicResource RowFocusBrush}" />
+    </Style>
+    <!-- A slider the pad is adjusting (A tapped or held; PadNavigator): a paler, bigger knob. -->
+    <Style Selector="Slider.adjust /template/ Thumb">
+      <Setter Property="Background" Value="{DynamicResource BoxFocusCheckedBrush}" />
+      <Setter Property="RenderTransform" Value="scale(1.35)" />
+    </Style>
+    <!-- PLAY, Update, Not now...: rounder corners (6), so the outline follows them. -->
+    <Style Selector="Button.play, Button.secondary">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border AdornerLayer.IsClipEnabled="False" BorderThickness="2" BorderBrush="{DynamicResource SystemControlFocusVisualPrimaryBrush}"
+                  CornerRadius="6" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
     </Style>
 
     <!-- Tabs: big uppercase headers, green when chosen. -->

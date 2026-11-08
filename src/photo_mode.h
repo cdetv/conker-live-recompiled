@@ -22,6 +22,12 @@ void photo_frame_end(void);
 int photo_frozen(void);
 int photo_active(void);
 int photo_paused(void);
+/* Photo mode with the world moving at normal speed (any thread; to-do 31):
+ * frame step held, or the world resumed. photo_active stays on: the camera,
+ * keys and panel are still photo mode's, but the sound plays. */
+int photo_world_running(void);
+/* Resumed with the key, not just held (the corner note says so). */
+int photo_world_resumed(void);
 /* Nonzero while photo mode's keys are in use: frozen, or just left with a
  * key the game would take (Esc, its pause) still held. */
 int photo_keys_wanted(void);
@@ -56,6 +62,8 @@ typedef struct {
     float blur;         /* its strength, percent (photo_blur) */
 } PhotoOptions;
 PhotoOptions *photo_options(void);
+/* Photo mode's cutscene blur: -1 as the F2 menu says, else 0 off / 1 on. */
+void photo_set_cut_blur(int v);
 /* Asked from the panel, done by the game thread at its next frame. */
 void photo_ask_reset(void);
 void photo_ask_focus_conker(void);

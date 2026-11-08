@@ -40,11 +40,14 @@
       <TextBlock Text="{Binding Label}" TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}" Margin="0,2,0,4" />
     </DataTemplate>
     <DataTemplate DataType="vm:CheckItem">
-      <CheckBox Content="{Binding Label}" IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}"
-                ToolTip.Tip="{Binding Tip}" IsVisible="{Binding IsShown}" Margin="{Binding Indent}" />
+      <Border Classes="row" IsVisible="{Binding IsShown}">
+        <CheckBox Content="{Binding Label}" IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}"
+                  ToolTip.Tip="{Binding Tip}" Margin="{Binding Indent}" />
+      </Border>
     </DataTemplate>
     <DataTemplate DataType="vm:ChoiceItem">
-      <StackPanel Spacing="4" Margin="0,4" ToolTip.Tip="{Binding Tip}" Background="Transparent" IsVisible="{Binding IsShown}">
+      <Border Classes="row" IsVisible="{Binding IsShown}">
+      <StackPanel Spacing="4" Margin="0,4" ToolTip.Tip="{Binding Tip}" Background="Transparent">
         <TextBlock Text="{Binding Label}" />
         <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}" AutomationProperties.Name="{Binding Label}"
                   HorizontalAlignment="Stretch" IsEnabled="{Binding IsAvailable}">
@@ -55,10 +58,12 @@
           </ComboBox.ItemTemplate>
         </ComboBox>
       </StackPanel>
+      </Border>
     </DataTemplate>
     <DataTemplate DataType="vm:SliderItem">
+      <Border Classes="row" IsVisible="{Binding IsShown}">
       <StackPanel Spacing="0" Margin="{Binding SliderIndent}" ToolTip.Tip="{Binding Tip}" Background="Transparent"
-                  IsVisible="{Binding IsShown}" Grid.IsSharedSizeScope="True">
+                  Grid.IsSharedSizeScope="True">
         <Grid ColumnSpacing="8">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -68,7 +73,7 @@
           <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
           <!-- A sound channel's Mute (to-do 13; user 2026-11-07): the word over the value, the box over the reset button. -->
           <TextBlock Grid.Column="1" Text="Mute" IsVisible="{Binding HasMute}" VerticalAlignment="Center" HorizontalAlignment="Right" />
-          <CheckBox Grid.Column="2" IsChecked="{Binding IsMuted}" IsVisible="{Binding HasMute}" HorizontalAlignment="Center"
+          <CheckBox Classes="box" Grid.Column="2" IsChecked="{Binding IsMuted}" IsVisible="{Binding HasMute}" HorizontalAlignment="Center"
                     AutomationProperties.Name="{Binding MuteName}" MinWidth="0" MinHeight="0" Padding="0" />
         </Grid>
         <Grid ColumnSpacing="8">
@@ -86,8 +91,10 @@
                   VerticalAlignment="Center" />
         </Grid>
       </StackPanel>
+      </Border>
     </DataTemplate>
     <DataTemplate DataType="vm:RadioItem">
+      <Border Classes="row">
       <ItemsControl ItemsSource="{Binding Options}" Margin="0,2">
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:RadioOption">
@@ -95,10 +102,12 @@
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
+      </Border>
     </DataTemplate>
     <!-- A key row: the action (and the controller button it presses), its key, a reset icon when changed. -->
     <DataTemplate DataType="vm:KeyItem">
-      <Grid ColumnDefinitions="*,160,36" ColumnSpacing="6" Margin="0,1" IsVisible="{Binding IsShown}">
+      <Border Classes="row" IsVisible="{Binding IsShown}">
+      <Grid ColumnDefinitions="*,160,36" ColumnSpacing="6" Margin="0,1">
         <WrapPanel VerticalAlignment="Center">
           <TextBlock Text="{Binding Label}" TextWrapping="Wrap" Margin="0,0,6,0" />
           <TextBlock Text="{Binding ButtonText}" Foreground="{StaticResource DimTextBrush}"
@@ -110,6 +119,7 @@
         <Button Grid.Column="2" Content="↺" Command="{Binding ResetKeyCommand}" IsVisible="{Binding IsChanged}"
                 ToolTip.Tip="{Binding ResetTip}" AutomationProperties.Name="{Binding ResetTip}" VerticalAlignment="Center" />
       </Grid>
+      </Border>
     </DataTemplate>
     <DataTemplate DataType="vm:FixedItem">
       <Grid ColumnDefinitions="200,*" ColumnSpacing="8" Margin="0,2">
@@ -123,7 +133,7 @@
         <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsAsking}">
           <TextBlock Text="{Binding Question}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
           <Button Content="Yes" Command="{Binding ConfirmCommand}" />
-          <Button Content="No" Command="{Binding CancelCommand}" />
+          <Button Classes="safe" Content="No" Command="{Binding CancelCommand}" />
         </StackPanel>
       </StackPanel>
     </DataTemplate>
@@ -137,6 +147,7 @@
         <ItemsControl ItemsSource="{Binding Rows}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:SlotRow">
+              <Border Classes="row">
               <Grid ColumnDefinitions="70,*,90" ColumnSpacing="8" Margin="0,2">
                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
                 <ComboBox Grid.Column="1" ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}"
@@ -147,9 +158,10 @@
                     </DataTemplate>
                   </ComboBox.ItemTemplate>
                 </ComboBox>
-                <CheckBox Grid.Column="2" IsChecked="{Binding KeyboardOn}" ToolTip.Tip="{Binding KeyboardTip}"
+                <CheckBox Classes="box" Grid.Column="2" IsChecked="{Binding KeyboardOn}" ToolTip.Tip="{Binding KeyboardTip}"
                           AutomationProperties.Name="{Binding KeyboardName}" HorizontalAlignment="Center" />
               </Grid>
+              </Border>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
@@ -169,12 +181,16 @@
       </Border.Background>
     </Border>
 
-    <DockPanel Margin="24,0,24,20">
+    <!-- The page (Page): while a pop-up shows, keyboard Tab skips it (MainWindow.UpdateOverlayFocus). -->
+    <DockPanel x:Name="Page" Margin="24,0,24,20">
       <!-- The logo; dragging it moves the window, like a title bar. -->
       <Border DockPanel.Dock="Top" Background="Transparent" Padding="0,16,0,8"
               WindowDecorationProperties.ElementRole="TitleBar">
         <Image Source="/Assets/logo.png" Height="150" HorizontalAlignment="Center" />
       </Border>
+
+      <!-- Room for the button hints (drawn last, over the pop-ups' dimming) while the pad is in use. -->
+      <Border DockPanel.Dock="Bottom" Height="26" IsVisible="{Binding PadMode}" />
 
       <!-- Version History, Auto Update, Update and Play (SPEC 9.3) -->
       <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,16,0,0">
@@ -192,9 +208,16 @@
         <Button Grid.Column="2" Classes="play" Content="PLAY" Command="{Binding PlayCommand}" />
       </Grid>
 
+      <!-- Help line while the pad is in use (to-do 121 1f): the focused control's tooltip, which a
+           pad can't hover; up to four lines (about 3 in 4 texts whole; user 2026-11-07), kept
+           free so the page doesn't jump. -->
+      <TextBlock DockPanel.Dock="Bottom" Text="{Binding HelpText}" IsVisible="{Binding PadMode}"
+                 FontSize="12" Foreground="{StaticResource DimTextBrush}" TextWrapping="Wrap"
+                 MaxLines="4" TextTrimming="CharacterEllipsis" Height="66" Margin="8,8,8,0" />
+
       <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
               BorderThickness="1" CornerRadius="8" Padding="12,4,12,12">
-        <TabControl>
+        <TabControl x:Name="MainTabs">
           <TabItem Header="FILES">
             <ScrollViewer DataContext="{Binding Files}" x:DataType="vm:FilesViewModel">
               <StackPanel Spacing="10" Margin="4,8,16,4">
@@ -233,7 +256,7 @@
                   <TextBlock Text="Delete every compiled shader? The game compiles them again as you play (or precompile again)."
                              TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="480" />
                   <Button Content="Yes" Command="{Binding DeleteShadersCommand}" />
-                  <Button Content="No" Command="{Binding CancelDeleteShadersCommand}" />
+                  <Button Classes="safe" Content="No" Command="{Binding CancelDeleteShadersCommand}" />
                 </StackPanel>
                 <TextBlock Text="{Binding PrecompileError}" TextWrapping="Wrap" Classes="error"
                            IsVisible="{Binding PrecompileError, Converter={x:Static ObjectConverters.IsNotNull}}" />
@@ -256,6 +279,8 @@
                   <Button Content="Logs" Command="{Binding OpenLogsCommand}" />
                   <Button Content="Saves" Command="{Binding OpenSavesCommand}" />
                   <Button Content="Photos" Command="{Binding OpenPhotosCommand}" />
+                  <Button Content="Report Bug" Command="{Binding Report.OpenCommand}"
+                          ToolTip.Tip="Makes a .zip to attach to a GitHub issue, for a crash noticed later" />
                 </StackPanel>
               </StackPanel>
             </ScrollViewer>
@@ -277,7 +302,7 @@
                   <TextBlock Text="Set every setting (all four tabs, not the controls) back to the default?"
                              TextWrapping="Wrap" VerticalAlignment="Center" />
                   <Button Content="Reset" Command="{Binding ResetCommand}" />
-                  <Button Content="Cancel" Command="{Binding CancelResetCommand}" />
+                  <Button Classes="safe" Content="Cancel" Command="{Binding CancelResetCommand}" />
                 </StackPanel>
                 <ItemsControl ItemsSource="{Binding TopItems}" IsEnabled="{Binding IsEditable}" />
               </StackPanel>
@@ -331,15 +356,22 @@
     <!-- First launch: offer the import (SPEC 9.3); it can be closed, Play stays off. -->
     <!-- Not over the user files pop-ups: those come first. -->
     <Panel IsVisible="{Binding !UserFiles.IsBusy}">
-    <Border Background="#B0000000" IsVisible="{Binding ShowImportPrompt}">
+    <Border x:Name="WelcomeOverlay" Background="#B0000000" IsVisible="{Binding ShowImportPrompt}">
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="480" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="16">
           <TextBlock Classes="section" Text="Welcome" FontSize="22" />
           <TextBlock TextWrapping="Wrap"
                      Text="To play, the launcher needs the game files from your own Conker: Live &amp; Reloaded disc (PAL or USA): a disc image (.iso), an archive holding it (.zip, .7z, .rar), or a copied game folder." />
+          <!-- A file dropped here is imported at once (to-do 122); a drag it won't take says why while it hovers. -->
+          <Panel>
+            <TextBlock Text="or drag your disc image here" FontSize="13" Foreground="{StaticResource DimTextBrush}"
+                       IsVisible="{Binding WelcomeDropProblem, Converter={x:Static ObjectConverters.IsNull}}" />
+            <TextBlock Classes="error" Text="{Binding WelcomeDropProblem}" FontSize="13" TextWrapping="Wrap"
+                       IsVisible="{Binding WelcomeDropProblem, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </Panel>
           <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-            <Button Classes="secondary" Content="Not now" Command="{Binding DismissImportPromptCommand}" />
+            <Button Classes="secondary safe" Content="Not now" Command="{Binding DismissImportPromptCommand}" />
             <Button Classes="play" Content="Import Files" FontSize="16" Command="{Binding ImportFromPromptCommand}" />
           </StackPanel>
         </StackPanel>
@@ -349,7 +381,7 @@
 
     <!-- A new release (SPEC 9.3): its page text, Update Now / Update Later, Don't remind me. -->
     <Panel IsVisible="{Binding !UserFiles.IsBusy}">
-    <Border Background="#B0000000" IsVisible="{Binding ShowUpdatePrompt}">
+    <Border x:Name="UpdateOverlay" Background="#B0000000" IsVisible="{Binding ShowUpdatePrompt}">
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="600" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="12">
@@ -363,7 +395,7 @@
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
             <CheckBox Content="Don't remind me" IsChecked="{Binding SkipThisRelease}" VerticalAlignment="Center"
                       ToolTip.Tip="No window at start for this version; it shows again when a newer one is out" />
-            <Button Grid.Column="1" Classes="secondary" Content="Update Later" Command="{Binding UpdateLaterCommand}" />
+            <Button Grid.Column="1" Classes="secondary safe" Content="Update Later" Command="{Binding UpdateLaterCommand}" />
             <Button Grid.Column="2" Classes="play" Content="Update Now" FontSize="16" Command="{Binding UpdateCommand}" />
           </Grid>
         </StackPanel>
@@ -371,12 +403,12 @@
     </Border>
 
     <!-- Version History: every release's page text, newest first. -->
-    <Border Background="#B0000000" IsVisible="{Binding ShowHistory}">
+    <Border x:Name="HistoryOverlay" Background="#B0000000" IsVisible="{Binding ShowHistory}">
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="640" Height="600" HorizontalAlignment="Center" VerticalAlignment="Center">
         <DockPanel>
           <TextBlock DockPanel.Dock="Top" Classes="section" Text="Version history" FontSize="22" Margin="0,0,0,12" />
-          <Button DockPanel.Dock="Bottom" Classes="secondary" Content="Close" Command="{Binding CloseHistoryCommand}"
+          <Button DockPanel.Dock="Bottom" Classes="secondary safe" Content="Close" Command="{Binding CloseHistoryCommand}"
                   HorizontalAlignment="Right" Margin="0,12,0,0" />
           <TextBlock DockPanel.Dock="Top" Text="{Binding HistoryNote}" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}"
                      IsVisible="{Binding HistoryNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
@@ -406,8 +438,60 @@
     </Border>
     </Panel>
 
+    <!-- Report Bug (to-do 12d, SPEC 9.2): the Files tab's button; the zip is conker.exe's own. -->
+    <Border x:Name="ReportOverlay" Background="#B0000000" DataContext="{Binding Files.Report}" x:DataType="vm:ReportBugViewModel"
+            IsVisible="{Binding IsOpen}">
+      <Border x:Name="ReportPanel" Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+              Focusable="True" FocusAdorner="{x:Null}">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="section" Text="Report Bug" FontSize="22" />
+          <StackPanel Spacing="10" IsVisible="{Binding IsEdit}">
+            <TextBlock Text="What went wrong, and what were you doing? (optional)" TextWrapping="Wrap" />
+            <TextBox x:Name="ReportText" Text="{Binding Description}" AcceptsReturn="True" TextWrapping="Wrap" Height="150" />
+            <CheckBox Content="Include save files" IsChecked="{Binding IncludeSaves}" />
+            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
+                       Text="Makes a .zip to attach to a GitHub issue: the game's last logs, its settings, the saves when ticked and the PC's details (Windows, graphics card, processor). The Windows user name is left out." />
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+              <Button Classes="secondary safe" Content="Cancel" Command="{Binding CloseCommand}" />
+              <Button x:Name="ReportCreate" Classes="play" Content="Create Report" FontSize="16" Command="{Binding CreateCommand}" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel Spacing="10" IsVisible="{Binding IsWorking}">
+            <TextBlock Text="Creating the report..." Foreground="{StaticResource DimTextBrush}" />
+            <ProgressBar IsIndeterminate="True" />
+          </StackPanel>
+          <StackPanel Spacing="10" IsVisible="{Binding IsDone}">
+            <TextBlock Text="{Binding ResultText}" TextWrapping="Wrap" />
+            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
+                       Text="Open GitHub Issue opens a new issue with its text filled in and copies that text too: if the page comes up empty, paste it there (Ctrl+V). Then drag the zip into the issue. Posting needs a free GitHub account." />
+            <TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
+                       IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+              <Button Content="Open Folder" Command="{Binding OpenFolderCommand}" />
+              <Button x:Name="ReportIssue" Content="Open GitHub Issue" Command="{Binding OpenIssueCommand}" />
+              <Button Classes="secondary safe" Content="Close" Command="{Binding CloseCommand}" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel Spacing="10" IsVisible="{Binding IsFailed}">
+            <TextBlock Classes="error" Text="{Binding ResultText}" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+              <Button x:Name="ReportBack" Content="Back" Command="{Binding BackCommand}" />
+              <Button Classes="secondary safe" Content="Close" Command="{Binding CloseCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Border>
+
+    <!-- The file browser (to-do 122): Import Files and Add patch choose their file here (MainWindow.PickFileAsync). -->
+    <Border x:Name="BrowserOverlay" Background="#B0000000"
+            IsVisible="{Binding Browser, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <v:FileBrowserView x:Name="BrowserView" DataContext="{Binding Browser}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Border>
+
     <!-- User files being moved, and a save slot found in both places (SPEC 9.3): one slot at a time. -->
-    <Border Background="#B0000000" DataContext="{Binding UserFiles}" x:DataType="vm:UserFilesViewModel"
+    <Border x:Name="UserFilesOverlay" Background="#B0000000" DataContext="{Binding UserFiles}" x:DataType="vm:UserFilesViewModel"
             IsVisible="{Binding IsBusy}">
       <Panel>
         <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
@@ -434,7 +518,7 @@
               <TextBlock Text="{Binding DeleteQuestion}" TextWrapping="Wrap" Foreground="#FFE0A040" />
               <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
                 <Button Content="Delete" Command="{Binding DeleteCommand}" />
-                <Button Content="Cancel" Command="{Binding CancelDeleteCommand}" />
+                <Button Classes="safe" Content="Cancel" Command="{Binding CancelDeleteCommand}" />
               </StackPanel>
             </StackPanel>
           </StackPanel>
@@ -445,7 +529,7 @@
     <!-- Controls tab: "Press a key" for a key row, as F3 asks. Every key is the answer (the
          window passes them here); a click or wheel turn here, not on a button, is that mouse input. -->
     <Border x:Name="CaptureLayer" Background="#B0000000" DataContext="{Binding Controls}" x:DataType="vm:ControlsViewModel"
-            IsVisible="{Binding IsCapturing}">
+            IsVisible="{Binding IsCapturing}" Focusable="True" FocusAdorner="{x:Null}">
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="440" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="10">
@@ -462,5 +546,43 @@
         </StackPanel>
       </Border>
     </Border>
+
+    <!-- Button hints while the pad is in use (to-do 121 1f): at the very bottom, over everything
+         (a pop-up's dimming too); the DockPanel keeps room for them. -->
+    <ItemsControl ItemsSource="{Binding Hints}" IsVisible="{Binding PadMode}"
+                  HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <StackPanel Orientation="Horizontal" Spacing="18" />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:PadHint">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <ItemsControl ItemsSource="{Binding Glyphs}" VerticalAlignment="Center">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="3" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PadGlyph">
+                  <Border Background="{Binding Fill}" Height="20" MinWidth="20" Padding="5,0"
+                          CornerRadius="{Binding Corners}">
+                    <Panel>
+                      <TextBlock Text="{Binding Text}" Foreground="{Binding Ink}" FontSize="11" FontWeight="Bold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      <Path Data="{Binding Shape}" Stroke="{Binding Ink}" Fill="{Binding ShapeFill}" StrokeThickness="1.6" IsVisible="{Binding HasShape}"
+                            Height="10" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Panel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding Label}" FontSize="13" VerticalAlignment="Center" />
+          </StackPanel>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
   </Panel>
 </Window>

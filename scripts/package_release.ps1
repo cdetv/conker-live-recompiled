@@ -141,6 +141,12 @@ foreach ($Name in $Inside) {
     if ($Name -match '(^|/)(settings\.ini|game/|decensor/)|\.(pdb|xbe|iso|xiso|log)$') { throw "The zip holds $Name" }
 }
 
+# The .pdb stays here, never in the zip: a player's freeze report names our frames as
+# conker.exe+offset (sample_profiler_dump_threads), and only this build's .pdb reads them.
+$Symbols = Join-Path $OutDir 'symbols'
+New-Item -ItemType Directory -Force $Symbols | Out-Null
+Copy-Item -LiteralPath ($GameExe -replace '\.exe$', '.pdb') -Destination $Symbols -Force
+
 $Hash = (Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash
 Write-Host ''
 Write-Host "Release zip: $Zip"

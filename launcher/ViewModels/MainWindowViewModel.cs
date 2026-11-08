@@ -17,9 +17,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         this.folder = folder;
         updater = new Updater(folder);
+        Pad = new PadInput(folder);
+        Hints = PadHints.For(PadHintState.Page, PadKind.Xbox);
         // First: it decides where SaveFolder is, which the other tabs read.
         UserFiles = new UserFilesViewModel(folder, IsGameRunning);
-        Files = new FilesViewModel(folder, picker, UserFiles, IsGameRunning);
+        Files = new FilesViewModel(folder, picker, UserFiles, IsGameRunning, Pad);
         Settings = new SettingsViewModel(folder, LaunchDebugCommand);
         Controls = new ControlsViewModel(folder);
         UserFiles.StateChanged += (_, _) =>
@@ -43,6 +45,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         };
         Files.StateChanged += (_, _) =>
         {
+            UpdatePadAccepting();
             PlayCommand.NotifyCanExecuteChanged();
             LaunchDebugCommand.NotifyCanExecuteChanged();
             UpdateCommand.NotifyCanExecuteChanged();
@@ -57,6 +60,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         gameWatch.Tick += (_, _) => WatchGame();
         gameWatch.Start();
         WatchGame();
+        UpdatePadAccepting();
     }
 
     /// <summary>Asks the window to close (Play closes the launcher).</summary>
@@ -116,6 +120,63 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public SettingsViewModel Settings { get; }
 
     public ControlsViewModel Controls { get; }
+
+    /// <summary>A drag hovering the Welcome pop-up that it won't take: why (in place of its hint line; to-do 122).</summary>
+    [ObservableProperty]
+    public partial string? WelcomeDropProblem { get; set; }
+
+    /// <summary>A disc image (or game folder's <c>default.xbe</c>) dropped on the Welcome pop-up: imported at once, as after Import Files.</summary>
+    public async Task ImportDroppedAsync(string source)
+    {
+        WelcomeDropProblem = null;
+        ShowImportPrompt = false;
+        await Files.ImportGameFromAsync(source);
+    }
+
+    /// <summary>The launcher's own folder: where the file browser opens (to-do 122).</summary>
+    public string LauncherFolder => folder.Root;
+
+    /// <summary>The file browser showing (to-do 122), or null; <c>MainWindow.PickFileAsync</c> opens and closes it.</summary>
+    [ObservableProperty]
+    public partial FileBrowserViewModel? Browser { get; set; }
+
+    /// <summary>The controllers (to-do 121): the <c>conker.exe --pad-feed</c> helper.</summary>
+    public PadInput Pad { get; }
+
+    /// <summary>
+    /// The pad is in use (to-do 121 part 1f): the help line and the button hints show. On with
+    /// a pad press (PadNavigator), off when the mouse moves or clicks (MainWindow).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool PadMode { get; set; }
+
+    /// <summary>The focused control's tooltip for the help line (a pad can't hover); MainWindow keeps it.</summary>
+    [ObservableProperty]
+    public partial string? HelpText { get; set; }
+
+    /// <summary>The button hints bar (PadNavigator, by what has the pad and the pad's type).</summary>
+    [ObservableProperty]
+    public partial IReadOnlyList<PadHint> Hints { get; set; }
+
+    /// <summary>The window is the active one (the pad drives it only then).</summary>
+    public bool WindowActive
+    {
+        get;
+        set
+        {
+            field = value;
+            UpdatePadAccepting();
+        }
+    }
+
+    /// <summary>
+    /// The pad drives the launcher only while its window is in front (any window with the test
+    /// file) and no game, precompile run or update is going.
+    /// </summary>
+    private void UpdatePadAccepting() =>
+        Pad.Accepting = (WindowActive || Pad.FromFile) && !Settings.IsLocked && !Files.IsPrecompiling && !IsUpdating;
+
+    partial void OnIsUpdatingChanged(bool value) => UpdatePadAccepting();
 
     [ObservableProperty]
     public partial bool ShowImportPrompt { get; set; }
@@ -277,6 +338,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             start.ArgumentList.Add("--debug");
         }
 
+        // The game reads the pads itself; the launcher closes now anyway.
+        Pad.Stop();
         try
         {
             Process.Start(start)?.Dispose();
@@ -284,6 +347,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (System.ComponentModel.Win32Exception e)
         {
             Message = $"The game didn't start: {e.Message}";
+            Pad.Start();
             return;
         }
 
@@ -305,10 +369,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             Flush();
             Controls.Capturing = null;
+            // Also a game started outside the launcher: one program reads the pads at a time.
+            Pad.Stop();
+        }
+        else if (!IsUpdating && !Files.IsPrecompiling)
+        {
+            Pad.Start();
         }
 
         Settings.IsLocked = running;
         Controls.IsLocked = running;
+        UpdatePadAccepting();
         Files.GameRunningChanged();
         if (!running)
         {
@@ -327,6 +398,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             using (p)
             {
+                if (OwnProcesses.Contains(p.Id))
+                {
+                    continue;       // the launcher's own runs (pad helper, --list-pads ...), not the game
+                }
+
                 try
                 {
                     found |= string.Equals(p.MainModule?.FileName, exe, StringComparison.OrdinalIgnoreCase);
@@ -400,6 +476,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Message = null;
         IsUpdating = true;
         Files.Updating = true;
+        // The update replaces conker.exe, which the pad helper runs.
+        Pad.Stop();
         var progress = new Progress<JobProgress>(p =>
             UpdateNote = p.Fraction is { } f ? $"{p.Text.Split(':')[0]}: {f:P0}" : p.Text);
         try
@@ -422,6 +500,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         UpdateNote = $"v{Updater.TagVersion(release.Tag)} is out";
         IsUpdating = false;
         Files.Updating = false;
+        Pad.Start();
     }
 
     private bool CanUpdate() => NewRelease is not null && !IsUpdating && !Files.IsBusy && !Files.IsPrecompiling && !UserFiles.IsBusy;

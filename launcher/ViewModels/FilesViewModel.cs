@@ -13,14 +13,17 @@ public sealed partial class FilesViewModel : ObservableObject
     private readonly DecensorPatch decensor;
     private readonly IFilePicker picker;
     private readonly Func<bool> isGameRunning;
+    private readonly PadInput pad;
     private CancellationTokenSource? job;
 
-    public FilesViewModel(GameFolder folder, IFilePicker picker, UserFilesViewModel userFiles, Func<bool> isGameRunning)
+    public FilesViewModel(GameFolder folder, IFilePicker picker, UserFilesViewModel userFiles, Func<bool> isGameRunning, PadInput pad)
     {
         this.folder = folder;
         this.picker = picker;
         this.isGameRunning = isGameRunning;
+        this.pad = pad;
         UserFiles = userFiles;
+        Report = new ReportBugViewModel(folder, picker);
         importer = new GameImporter(folder);
         decensor = new DecensorPatch(folder);
         try
@@ -38,6 +41,9 @@ public sealed partial class FilesViewModel : ObservableObject
 
     /// <summary>The User files section: where they are kept.</summary>
     public UserFilesViewModel UserFiles { get; }
+
+    /// <summary>The Report Bug pop-up (to-do 12d).</summary>
+    public ReportBugViewModel Report { get; }
 
     /// <summary>Raised when the game files or the busy state change (Play depends on both).</summary>
     public event EventHandler? StateChanged;
@@ -213,16 +219,33 @@ public sealed partial class FilesViewModel : ObservableObject
         }
     }
 
+    /// <summary>What Import Files takes, in words (the file browser's and the Welcome pop-up's error lines).</summary>
+    public const string GameFilterName = "Conker disc (.iso, .xiso, .zip, .7z, .rar, default.xbe)";
+
     [RelayCommand(CanExecute = nameof(CanStartJob))]
     private async Task ImportGameAsync()
     {
         string? source = await picker.PickFileAsync(
             "Choose your Conker disc image, an archive holding it, or the default.xbe of a game folder",
-            "Conker disc (.iso, .xiso, .zip, .7z, .rar, default.xbe)",
+            GameFilterName,
             [.. GameImporter.Extensions.Select(x => "*" + x)]);
         if (source is null)
         {
             return;
+        }
+
+        await ImportGameFromAsync(source);
+    }
+
+    /// <summary>
+    /// Imports the game from this file: the one picked, or one dropped on the Welcome pop-up
+    /// (to-do 122). False: another job runs (nothing started).
+    /// </summary>
+    public async Task<bool> ImportGameFromAsync(string source)
+    {
+        if (!CanStartJob())
+        {
+            return false;
         }
 
         await RunJobAsync(false, cancel => Task.Run(() =>
@@ -230,6 +253,7 @@ public sealed partial class FilesViewModel : ObservableObject
             string region = importer.Import(source, Progress(), cancel);
             return $"Game files imported ({region} disc).";
         }, cancel));
+        return true;
     }
 
     [RelayCommand(CanExecute = nameof(CanStartJob))]
@@ -282,6 +306,8 @@ public sealed partial class FilesViewModel : ObservableObject
         start.ArgumentList.Add("--save-dir");
         start.ArgumentList.Add(SaveFolder.Root);
         start.ArgumentList.Add("--precompile-shaders");
+        // That run reads every controller (B stops it): the launcher's pad helper waits until it ends.
+        pad.Stop();
         Process? game;
         try
         {
@@ -290,11 +316,13 @@ public sealed partial class FilesViewModel : ObservableObject
         catch (System.ComponentModel.Win32Exception e)
         {
             PrecompileError = $"The game didn't start: {e.Message}";
+            pad.Start();
             return;
         }
 
         if (game is null)
         {
+            pad.Start();
             return;
         }
 
@@ -311,6 +339,7 @@ public sealed partial class FilesViewModel : ObservableObject
                 IsPrecompiling = false;
                 Precompiled = ShaderCache.ReadResult();
                 CacheHasFiles = ShaderCache.HasFiles();
+                pad.Start();
                 StateChanged?.Invoke(this, EventArgs.Empty);
             }
         }

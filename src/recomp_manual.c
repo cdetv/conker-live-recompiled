@@ -2042,7 +2042,7 @@ static int photo_sound_mode(void)
 
 static int photo_sound_held(void)
 {
-    return photo_sound_mode() && photo_frozen()
+    return photo_sound_mode() && photo_frozen() && !photo_world_running()
         && strcmp(settings_get("pause_silence"), "0") != 0;
 }
 
