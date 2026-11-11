@@ -130,6 +130,7 @@ extern void sub_002C5070(void);
 #define DOF_FOCUS   200.0f
 
 static volatile LONG s_frozen;  /* written by the game thread */
+static volatile LONG s_freecam, s_fc_game, s_fc_ask;  /* photo_freecam_set */
 static volatile LONG s_pause;   /* frozen by the pause key, not photo mode */
 static int s_settle;            /* left by a key still held: its set stays */
 static volatile LONG s_toggle;  /* asked by the window thread */
@@ -183,7 +184,40 @@ int photo_world_resumed(void)
 
 int photo_keys_wanted(void)
 {
-    return s_frozen || s_settle;
+    return (s_frozen && !s_fc_game) || s_settle;
+}
+
+/* ---- freecam (--debug; to-do 33, SPEC 10.3) ------------------------------- */
+
+/* Photo mode with the world running (to-do 31's way), no panel and no note: asked
+ * from any thread, done at the next frame. The pad and keys belong to the camera or,
+ * after the swap key (Back + X on the pad, s_fc_game), to Conker with the camera
+ * staying where it is. The game's own pause ends it (photo mode can't start there). */
+int photo_freecam(void)
+{
+    return s_frozen && s_freecam;
+}
+
+/* The fly camera's place while freecam is on (the console's tp cam, to-do
+ * 155): 1 with it, 0 when freecam is off. */
+int photo_freecam_pos(float *x, float *y, float *z)
+{
+    if (!photo_freecam())
+        return 0;
+    *x = s_pos[0];
+    *y = s_pos[1];
+    *z = s_pos[2];
+    return 1;
+}
+
+int photo_freecam_game(void)
+{
+    return s_frozen && s_freecam && s_fc_game;
+}
+
+void photo_freecam_set(int on)
+{
+    InterlockedExchange(&s_fc_ask, on ? 1 : 2);
 }
 
 void photo_request_toggle(void)
@@ -458,6 +492,8 @@ static void leave(void)
 {
     int was_pause = (int)s_pause;
     InterlockedExchange(&s_frozen, 0);
+    InterlockedExchange(&s_freecam, 0);
+    InterlockedExchange(&s_fc_game, 0);
     InterlockedExchange(&s_pause, 0);
     InterlockedExchange(&s_resumed, 0);
     InterlockedExchange(&s_running, 0);
@@ -484,6 +520,44 @@ static int held(int row)
 {
     int k = controls_key(CONTROLS_PHOTO, row);
     return k > 0 && xbox_KbmHeld((unsigned)k);
+}
+
+/* Noclip (recomp_manual.c): the fly controls with the game running; nothing while
+ * a menu has the pad or the keys. Speed in units a second. */
+int overlay_fly_input_free(void);
+
+void photo_fly_input(float *fwd, float *side, float *vert, float *speed)
+{
+    Pad p;
+    /* Photo mode's speed setting; s_opt holds it only once photo mode has been on. */
+    float pct = (float)atof(settings_get("photo_speed"));
+    float s = FLY_SPEED * (pct > 0.0f ? pct : 100.0f) * 0.01f;
+
+    *fwd = *side = *vert = 0.0f;
+    if (!overlay_fly_input_free()) {
+        *speed = s;
+        return;
+    }
+    read_pad(&p);
+    *fwd = (float)(held(PHOTO_FORWARD) - held(PHOTO_BACK)) + p.ly;
+    *side = (float)(held(PHOTO_RIGHT) - held(PHOTO_LEFT)) + p.lx;
+    *vert = (float)(held(PHOTO_UP) - held(PHOTO_DOWN)) + p.rt - p.lt;
+    if (held(PHOTO_SLOW) || (p.buttons & XINPUT_GAMEPAD_RIGHT_THUMB))
+        s *= SLOW_TIMES;
+    if (held(PHOTO_FAST) || (p.buttons & XINPUT_GAMEPAD_LEFT_THUMB))
+        s *= FAST_TIMES;
+    *speed = s;
+}
+
+/* The fast-fly key is down (noclip's tail spins fast with it). */
+int photo_fly_fast(void)
+{
+    Pad p;
+
+    if (!overlay_fly_input_free())
+        return 0;
+    read_pad(&p);
+    return held(PHOTO_FAST) || (p.buttons & XINPUT_GAMEPAD_LEFT_THUMB);
 }
 
 /* Wheel notches since the last frame on a row's key, if it is the wheel. */
@@ -545,7 +619,7 @@ static void steer(const Pad *p, WORD pressed)
         back_alone = 1;
     if (p->buttons & (XINPUT_GAMEPAD_RIGHT_SHOULDER
                       | XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_START
-                      | XINPUT_GAMEPAD_A))
+                      | XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_X))
         back_alone = 0;
     if (!(p->buttons & XINPUT_GAMEPAD_BACK) && back_alone) {
         back_alone = 0;
@@ -571,11 +645,11 @@ static void steer(const Pad *p, WORD pressed)
     if ((now[PHOTO_CUT_BLUR] && !was[PHOTO_CUT_BLUR])
         || (pressed & XINPUT_GAMEPAD_B))
         photo_toggle_cut_blur();
-    if ((now[PHOTO_RESUME] && !was[PHOTO_RESUME])
-        || ((pressed & XINPUT_GAMEPAD_A) && back_down))
+    if (!s_freecam && ((now[PHOTO_RESUME] && !was[PHOTO_RESUME])
+                       || ((pressed & XINPUT_GAMEPAD_A) && back_down)))
         InterlockedExchange(&s_resumed, !s_resumed);
-    if ((now[PHOTO_PANEL] && !was[PHOTO_PANEL])
-        || ((pressed & XINPUT_GAMEPAD_START) && !back_down)) {
+    if (!s_freecam && ((now[PHOTO_PANEL] && !was[PHOTO_PANEL])
+                       || ((pressed & XINPUT_GAMEPAD_START) && !back_down))) {
         memcpy(was, now, sizeof(was));
         step_was = step;
         overlay_photo_panel();
@@ -586,7 +660,7 @@ static void steer(const Pad *p, WORD pressed)
         fprintf(stderr, "[PHOTO] HUD %s\n", s_opt.hud ? "shown" : "hidden");
     }
     if ((now[PHOTO_CONKER] && !was[PHOTO_CONKER])
-        || (pressed & XINPUT_GAMEPAD_X)) {
+        || ((pressed & XINPUT_GAMEPAD_X) && !(s_freecam && back_down))) {
         s_opt.hide_conker = !s_opt.hide_conker;
         fprintf(stderr, "[PHOTO] Conker %s\n", s_opt.hide_conker ? "hidden" : "shown");
     }
@@ -727,6 +801,41 @@ void photo_frame_begin(void)
     } else if (s_frozen && s_pause) {
         leave();
     }
+    /* Freecam (to-do 33). */
+    {
+        static int swap_was;
+        LONG ask = InterlockedExchange(&s_fc_ask, 0);
+        int swap = held(PHOTO_FREECAM_SWAP)
+                   || (p.buttons & (XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_X))
+                      == (XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_X);
+
+        if (ask == 1 && !s_frozen) {
+            if (can_enter()) {
+                enter();
+                InterlockedExchange(&s_freecam, 1);
+                InterlockedExchange(&s_resumed, 1);
+                s_opt.hud = 1;
+                fprintf(stderr, "[FREECAM] on\n");
+            } else {
+                fprintf(stderr, "[FREECAM] not here (level 0x%02X, %s)\n",
+                        MEM8(0x007FA1F8u), not_here_why());
+            }
+        } else if (ask == 2 && s_freecam) {
+            leave();
+            fprintf(stderr, "[FREECAM] off\n");
+        }
+        if (s_freecam && MEM8(0x007FA274u)) {   /* the game's own pause */
+            leave();
+            fprintf(stderr, "[FREECAM] off: the game paused\n");
+        }
+        if (s_freecam && swap && !swap_was && !menu) {
+            InterlockedExchange(&s_fc_game, !s_fc_game);
+            xbox_InputSetBlocked(s_fc_game ? overlay_pad_menu() : 1);
+            fprintf(stderr, "[FREECAM] the pad and keys: %s\n",
+                    s_fc_game ? "Conker" : "the camera");
+        }
+        swap_was = swap;
+    }
     if (!s_frozen)
         return;
     if (s_pause) {                      /* no camera, keys or frame step */
@@ -739,7 +848,7 @@ void photo_frame_begin(void)
     if (s_have_base && InterlockedExchange(&s_ask_focus, 0))
         focus_on_conker();
     s_step_held = 0;                    /* steer says so again */
-    if (!menu && s_have_base) {
+    if (!menu && s_have_base && !s_fc_game) {
         steer(&p, pressed);
     } else {
         QueryPerformanceCounter(&s_last);
@@ -757,8 +866,9 @@ void photo_frame_begin(void)
         return;
     }
     {
-        /* Not under a menu (the panel, F2, Report Bug): those hold it. */
-        LONG run = !menu && (s_resumed || s_step_held);
+        /* Not under a menu (the panel, F2, Report Bug): those hold it, but for
+         * freecam, where the game runs under the menus as without it. */
+        LONG run = s_freecam || (!menu && (s_resumed || s_step_held));
         if (run != s_running) {
             InterlockedExchange(&s_running, run);
             fprintf(stderr, "[PHOTO] world %s\n", run ? "running" : "frozen");

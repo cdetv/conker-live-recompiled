@@ -28,6 +28,12 @@ int photo_paused(void);
 int photo_world_running(void);
 /* Resumed with the key, not just held (the corner note says so). */
 int photo_world_resumed(void);
+/* Freecam (to-do 33): photo mode's camera with the world running; _game: the pad
+ * and keys are Conker's just now. _set: any thread, from the next frame. */
+int photo_freecam(void);
+int photo_freecam_pos(float *x, float *y, float *z);
+int photo_freecam_game(void);
+void photo_freecam_set(int on);
 /* Nonzero while photo mode's keys are in use: frozen, or just left with a
  * key the game would take (Esc, its pause) still held. */
 int photo_keys_wanted(void);
@@ -89,6 +95,10 @@ void conker_AspectRefresh(unsigned cam);
  * game). */
 int overlay_menu_open(void);
 int overlay_pad_menu(void);
+/* One of our menus is up (F2, F3, F8, the cheat menu, the pad's list,
+ * Report Bug, Quit; not the console or the photo panel): the game's pause
+ * (Start) is kept from it, keys and pad (to-do 181). Any thread. */
+int overlay_blocks_pause(void);
 /* The pause key (P, the F2 checkbox), for the game thread: nonzero while a
  * pause is wanted (not the debug choice old_pause, which holds the flip
  * instead), *age_ms since it was asked; refused clears it (not here). */

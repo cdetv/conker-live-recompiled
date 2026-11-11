@@ -13,8 +13,9 @@
  *   --save-dir  where T:/U:/cache/partition images go (the user files).
  *               Default: "userdata" next to the .exe, or
  *               %LOCALAPPDATA%\conker-lr-recomp (default_save_dir).
- *   --debug     the F2 menu also shows debug-only choices, and the title
- *               bar the frame rate.
+ *   --debug     the F2 menu also shows debug-only choices, the title bar
+ *               the frame rate, and the console (~) and the Debug menu (F8)
+ *               can be opened (SPEC 10.3).
  *   --precompile-shaders
  *               the launcher's "Precompile Shaders" (Files tab): runs every
  *               level and chapter behind a progress screen so their shaders
@@ -43,6 +44,14 @@
  *
  *               for the launcher's Report Bug button: writes the report
  *               zip (src/bug_report.c) and prints its path, then exit.
+ *
+ *   conker.exe --edit-save <1|2|3> <word><number> [--save-dir <folder>]
+ *              [--game-dir <folder>]
+ *
+ *               for the launcher's save editor (to-do 147, SPEC 10.3): moves
+ *               Game 1-3 to the start of a chapter's part (`slop2`), as the
+ *               Chapters list starts it, then exit; a copy of the slot goes
+ *               to <save>\edit_save_backups first (src/edit_save.c).
  *
  *   conker.exe --bug-report --crash | --freeze [--save-dir <folder>]
  *
@@ -153,6 +162,7 @@ static int s_own_log;
 #include "save_names.h"
 #include "precompile.h"
 #include "bug_report.h"
+#include "edit_save.h"
 extern void overlay_init(void);
 extern void overlay_dump_settings(FILE *f);
 extern void overlay_list_pads(FILE *f);
@@ -958,6 +968,70 @@ void conker_freeze_report(unsigned stale_ms)
         InterlockedExchange(&s_freeze_busy, 0);
 }
 
+/* conker.exe --edit-save <1|2|3> <word><number> [--save-dir <folder>]
+ * [--game-dir <folder>] (to-do 147): no window and no game; the game's tables
+ * are read from default.xbe. What it did on stdout; a reason on stderr and
+ * exit code 1 when it can't, 2 for a bad argument. */
+static int edit_save_cmd(int argc, char **argv)
+{
+    char save[MAX_PATH] = "", game[MAX_PATH] = "", xbe[MAX_PATH], err[256];
+    int slot = 0, chapter = -1, part = 0, i, rc;
+    void *data = NULL;
+    size_t size = 0;
+    EsXbe x;
+    EsResult res;
+
+    for (i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "--save-dir") && i + 1 < argc) {
+            strcpy_s(save, MAX_PATH, argv[++i]);
+        } else if (!strcmp(argv[i], "--game-dir") && i + 1 < argc) {
+            strcpy_s(game, MAX_PATH, argv[++i]);
+        } else if (!slot && argv[i][0] >= '1' && argv[i][0] <= '3' && !argv[i][1]) {
+            slot = argv[i][0] - '0';
+        } else if (chapter < 0 && edit_save_parse(argv[i], &chapter, &part)) {
+        } else {
+            fprintf(stderr, "Unknown or incomplete argument: %s\n"
+                    "Usage: conker --edit-save <1|2|3> <word><number> "
+                    "[--save-dir <folder>] [--game-dir <folder>]\n", argv[i]);
+            return 2;
+        }
+    }
+    if (!slot || chapter < 0) {
+        fprintf(stderr, "Usage: conker --edit-save <1|2|3> <word><number> "
+                "[--save-dir <folder>] [--game-dir <folder>]\n");
+        return 2;
+    }
+    if (!save[0])
+        default_save_dir(save);
+    if (!game[0]) {
+        char *slash;
+        GetModuleFileNameA(NULL, game, MAX_PATH);
+        slash = strrchr(game, '\\');
+        if (slash)
+            *slash = '\0';
+        strcat_s(game, MAX_PATH, "\\game");
+    }
+    sprintf_s(xbe, MAX_PATH, "%s\\default.xbe", game);
+    if (!load_xbe(xbe, &data, &size)) {
+        fprintf(stderr, "Edit Save: no default.xbe in %s\n", game);
+        return 1;
+    }
+    x.data = (const uint8_t *)data;
+    x.size = size;
+    rc = edit_save_file(save, slot, chapter, part, edit_save_xbe_read, &x, &res,
+                        err, sizeof err);
+    free(data);
+    if (rc) {
+        fprintf(stderr, "Edit Save: %s\n", err);
+        return 1;
+    }
+    printf("Game %d: %s %d, %s (level 0x%02X, start %d, $%d); the old save is in %s\n",
+           slot, edit_save_chapter_name(chapter), part,
+           edit_save_part_name(chapter, part), res.level, res.spawn, res.money,
+           res.backup);
+    return 0;
+}
+
 /* ── WinMain ───────────────────────────────────────────────── */
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -989,6 +1063,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return pad_feed_run();
     if (__argc >= 2 && strcmp(__argv[1], "--bug-report") == 0)
         return bug_report_cmd(__argc, __argv);
+    if (__argc >= 2 && strcmp(__argv[1], "--edit-save") == 0)
+        return edit_save_cmd(__argc, __argv);
 
     printf("=== Conker: Live & Reloaded - Static Recompilation ===\n");
 

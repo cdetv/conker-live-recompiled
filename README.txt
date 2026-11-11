@@ -19,7 +19,7 @@ WHAT YOU NEED
 - Your own copy of Conker: Live & Reloaded for the original Xbox, PAL
   (Europe) or USA, as a disc image (.iso, Redump or XISO) or as the
   disc's files. It may be packed in a .zip, .7z or .rar.
-- About 5 GB of free space (more while unpacking an archive).
+- About 6 GB of free space (more while unpacking an archive).
 - A controller is optional: Xbox controllers, PlayStation 4 and 5
   controllers (DualShock 4, DualSense; no extra programs needed), or
   keyboard and mouse.
@@ -57,6 +57,9 @@ IN THE GAME
                 On a controller: Back + LB
   F3            Controls menu (keys, mouse, controllers per player)
   F4            Photo mode (on a controller: Back + RB; Esc leaves)
+  Back + Start  On a controller: a menu with settings, controls, photo
+                mode and Report Bug
+  F8            The cheat menu, once you've unlocked it
   F10           Report a bug: makes a .zip to attach to a GitHub issue (on a
                 controller: the Report Bug... button in the F2 menu)
   F11           Full screen on/off (also Alt+Enter)
@@ -69,6 +72,16 @@ IN THE GAME
 
 Every setting is also in the launcher's Settings and Controls tabs, so you
 can set things up before playing.
+
+
+DEBUG MODE
+----------
+
+Tick "Debug Mode" on the launcher's Debug tab (or start conker.exe
+--debug) for a Debug menu (F8) and a console (~): level warp, a cutscene
+viewer, noclip, Edit Save, a jukebox and more, and every cheat without its
+code. DEBUG_MODE.txt in this folder lists everything it does. It's a
+testing tool: back up your saves (the userdata folder) first.
 
 
 WHERE YOUR FILES ARE

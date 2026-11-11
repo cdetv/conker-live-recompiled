@@ -22,11 +22,10 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     private readonly DispatcherTimer saveTimer;
     private SettingsSchema? schema;
 
-    public SettingsViewModel(GameFolder folder, IRelayCommand launchDebug)
+    public SettingsViewModel(GameFolder folder)
     {
         this.folder = folder;
         decensor = new DecensorPatch(folder);
-        LaunchDebugCommand = launchDebug;
         saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         saveTimer.Tick += (_, _) => Flush();
     }
@@ -35,9 +34,6 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     public ObservableCollection<SettingItem> TopItems { get; } = [];
 
     public ObservableCollection<MenuTab> Tabs { get; } = [];
-
-    /// <summary>Starts the game with <c>--debug</c> (the main window's command).</summary>
-    public IRelayCommand LaunchDebugCommand { get; }
 
     /// <summary>The game is running: its F2 menu rewrites settings.ini, so the tab is locked.</summary>
     [ObservableProperty]

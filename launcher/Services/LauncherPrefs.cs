@@ -9,6 +9,7 @@ namespace ConkerLauncher.Services;
 /// </summary>
 /// <remarks>
 /// <c>auto_update</c> (0/1, default 0): install a new release at start without asking.
+/// <c>debug_mode</c> (0/1, default 0): the Debug tab's Debug Mode, Play adds <c>--debug</c>.
 /// <c>skip_update</c> (a version, e.g. 0.2.1): "Don't remind me" for that release; the
 /// update window shows again once a newer one is out.
 /// <c>recent_folders</c>: the last 5 folders a file was chosen from in the file browser
@@ -26,6 +27,13 @@ public static class LauncherPrefs
     {
         get => Read("auto_update") == "1";
         set => Write("auto_update", value ? "1" : "0");
+    }
+
+    /// <summary>The Debug tab's Debug Mode (to-do 144): Play starts the game with --debug.</summary>
+    public static bool DebugMode
+    {
+        get => Read("debug_mode") == "1";
+        set => Write("debug_mode", value ? "1" : "0");
     }
 
     /// <summary>The release "Don't remind me" was ticked for, or null.</summary>

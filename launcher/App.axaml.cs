@@ -23,6 +23,11 @@ public sealed partial class App : Application
             _ = new PadNavigator(window, viewModel);
             // "--updated": started by the updater (SPEC 9.3), which then closed.
             bool justUpdated = desktop.Args?.Contains("--updated") == true;
+            // "--fullscreen": for TVs and handhelds (to-do 143); F11 swaps it back.
+            if (desktop.Args?.Contains("--fullscreen") == true)
+            {
+                window.WindowState = Avalonia.Controls.WindowState.FullScreen;
+            }
             window.Opened += async (_, _) =>
             {
                 viewModel.Pad.Start();

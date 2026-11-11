@@ -199,6 +199,47 @@ static const Option s_options[] = {
       "stops at once when a load starts, a load from the main menu takes\n"
       "about half a second), 0 = off (default; the original: the music\n"
       "fades out first, 3 seconds or more). From the next load." },
+    /* To-dos 150-152 (user 2026-11-09). */
+    { "display", "idle_demo", OPT_BOOL, "1", "1", "RECOMP_IDLE_DEMO", NULL,
+      "The demo movie that starts after about 2 minutes on the main menu\n"
+      "without a press: 1 = on as the original (default), 0 = it never\n"
+      "starts. Applies at once." },
+    { "display", "skip_intro", OPT_BOOL, "0", "0", "RECOMP_SKIP_INTRO", NULL,
+      "Start at the main menu, without the logo and the intro movie:\n"
+      "1 = on, 0 = off (default; the original). From the next start." },
+    /* To-do 186 (user 2026-11-09). */
+    { "display", "skip_walk_in", OPT_BOOL, "1", "1", "RECOMP_SKIP_WALK_IN", NULL,
+      "With skip_intro: no walk into the bar either, straight to the menu as\n"
+      "when the movie is skipped: 1 = on (default), 0 = the walk-in plays.\n"
+      "From the next start." },
+    { "display", "hide_hud", OPT_BOOL, "0", "0", "RECOMP_HIDE_HUD", NULL,
+      "The HUD (energy, lives, money, counters and the weapon sight) hidden\n"
+      "while playing: 1 = hidden, 0 = shown (default). Applies at once." },
+    /* To-do 183 (user 2026-11-10). */
+    { "display", "hide_bubbles", OPT_BOOL, "0", "0", "RECOMP_HIDE_BUBBLES", NULL,
+      "Speech bubbles hidden while playing (cutscenes and play): 1 = hidden,\n"
+      "0 = shown (default). Photo mode's HUD key hides them anyway. Applies\n"
+      "at once." },
+    /* To-do 154 (user 2026-11-09). */
+    { "display", "speedrun_timer", OPT_BOOL, "0", "0", NULL, NULL,
+      "A speedrun timer in the top right corner: game time without loads from\n"
+      "a new game, the total and the current chapter's part: 1 = on,\n"
+      "0 = off (default). Applies at once." },
+    { "display", "speedrun_cutscenes", OPT_BOOL, "1", "1", NULL, NULL,
+      "With the speedrun timer: 1 = cutscenes count (default), 0 = the\n"
+      "timer stops while a cutscene plays. Applies at once." },
+    /* To-do 182 (user 2026-11-09): dragged with the mouse while F2 is open. */
+    { "display", "speedrun_window", OPT_RECT, "", "", NULL, NULL,
+      "Where the speedrun timer sits (left,top,width,height as parts of the\n"
+      "picture; empty = the top right corner). Drag it while F2 is open." },
+    { "display", "input_display_window", OPT_RECT, "", "", NULL, NULL,
+      "Where the input display sits, like speedrun_window (empty = the\n"
+      "bottom left corner). Drag it while F2 is open." },
+    /* To-do 153 (user 2026-11-09). */
+    { "display", "input_display", OPT_BOOL, "0", "0", NULL, NULL,
+      "Slot 1's controller drawn in the bottom left corner (buttons,\n"
+      "sticks, triggers; keys bound to it show as the buttons they press):\n"
+      "1 = on, 0 = off (default). Applies at once." },
     /* To-do 29 (2026-11-07): the game window's own size and place, kept
      * by the overlay when it is moved or resized (not full screen's). */
     { "display", "window_rect", OPT_WIN, "", "", "RECOMP_WINDOW_RECT", NULL,
@@ -301,6 +342,11 @@ static const Option s_options[] = {
       "The shimmering haze round Conker under water (it shows as a band\n"
       "at eye level; F2 \"Underwater Shimmer\"): 1 = on as the original\n"
       "(default), 0 = off." },
+    { "picture", "stretch_fmv", OPT_BOOL, "0", "0", "RECOMP_STRETCH_FMV", NULL,
+      "The movies (the boot intro, the idle demo, the multiplayer\n"
+      "briefings and win screens): 0 = in their own 4:3 shape with black\n"
+      "bars at the sides on a wide window (default), 1 = stretched to the\n"
+      "window. Story cutscenes are drawn by the game and always fill it." },
     { "picture", "poo_fix", OPT_BOOL, "1", "1", "RECOMP_POO_FIX", NULL,
       "Under the poo after the Bull fight, that haze drawn brown to match\n"
       "the poo instead of the original's blue band: 1 = on (default),\n"
@@ -388,6 +434,22 @@ static const Option s_options[] = {
       "left, top, width, height (0.02,0.02,0.3,0.5 = near the top left\n"
       "corner, 30 % of the width, half the height). Empty = the default\n"
       "(small, top left). The menu saves it when you move or resize it." },
+    /* To-do 14 (SPEC 10.3). */
+    { "menu", "debug_window", OPT_RECT, "", "", NULL, NULL,
+      "Debug (--debug only): where the F8 Debug menu sits and its size, like\n"
+      "menu_window." },
+    { "menu", "console_window", OPT_RECT, "", "", NULL, NULL,
+      "Debug (--debug only): where the console sits and its size, like\n"
+      "menu_window. Empty = a band over the top of the picture. It saves it\n"
+      "when you drag its edges." },
+    { "menu", "con_out", OPT_CHOICE, "simple", "simple", NULL,
+      "simple detailed full",
+      "Debug (--debug only): what the console shows: simple = command replies,\n"
+      "detailed = + the tagged log lines, full = the whole log. The console's\n"
+      "con_out command changes it." },
+    { "menu", "warp_note", OPT_BOOL, "1", "1", NULL, NULL,
+      "Debug (--debug only): 1 = after a level warp, a note says nothing is\n"
+      "saved until the main menu. Saves stay off either way." },
     { "photo", "photo_speed", OPT_NUM, "100", "100", NULL, NULL,
       "Photo mode (F4): how fast the camera flies, 25 to 400 percent\n"
       "(default 100). The photo panel (Tab or Start in photo mode) changes\n"
@@ -584,13 +646,17 @@ static const Option s_options[] = {
     { "controls_multiplayer", "mp_look_left", OPT_KEY, "none", "none", NULL, NULL, NULL },
     { "controls_multiplayer", "mp_look_right", OPT_KEY, "none", "none", NULL, NULL, NULL },
     { "controls_photo", "photo_toggle", OPT_KEY, "f4", "f4", NULL, NULL,
-      "Photo mode (F3 > Photo mode): photo_toggle, pause_key and report_key\n"
-      "work everywhere (pause_key freezes the game, report_key opens Report\n"
-      "Bug); the rest only in photo mode. Key names as for single player; the\n"
+      "Photo mode (F3 > Photo mode): photo_toggle, pause_key, report_key and\n"
+      "cheats_key work everywhere (pause_key freezes the game, report_key\n"
+      "opens Report Bug, cheats_key opens the Debug menu with --debug); the\n"
+      "rest only in photo mode. Key names as for single player; the\n"
       "controller's photo buttons are fixed (Back + RB turns photo mode on /\n"
       "off)." },
     { "controls_photo", "pause_key", OPT_KEY, "p", "p", NULL, NULL, NULL },
     { "controls_photo", "report_key", OPT_KEY, "f10", "f10", NULL, NULL, NULL },
+    { "controls_photo", "cheats_key", OPT_KEY, "f8", "f8", NULL, NULL, NULL },
+    { "controls_photo", "noclip_key", OPT_KEY, "z", "z", NULL, NULL, NULL },
+    { "controls_photo", "bullet_key", OPT_KEY, "b", "b", NULL, NULL, NULL },
     { "controls_photo", "photo_forward", OPT_KEY, "w", "w", NULL, NULL, NULL },
     { "controls_photo", "photo_back", OPT_KEY, "s", "s", NULL, NULL, NULL },
     { "controls_photo", "photo_left", OPT_KEY, "a", "a", NULL, NULL, NULL },
@@ -614,6 +680,7 @@ static const Option s_options[] = {
     { "controls_photo", "photo_panel", OPT_KEY, "tab", "tab", NULL, NULL, NULL },
     { "controls_photo", "photo_cutscene_blur", OPT_KEY, "b", "b", NULL, NULL,
       NULL },
+    { "controls_photo", "freecam_swap", OPT_KEY, "g", "g", NULL, NULL, NULL },
     { "paths", "game_dir", OPT_PATH, "", "", NULL, NULL,
       "Folder holding default.xbe (the extracted disc); it is only read.\n"
       "Empty = the default: a \"game\" folder next to the .exe (the launcher\n"
@@ -622,6 +689,19 @@ static const Option s_options[] = {
       "Folder holding the decensor patch, unpacked as it comes (it holds\n"
       "a dvddata folder); it is only read. Empty = a \"decensor\" folder\n"
       "next to the .exe. Applies when the game is started again." },
+    { "game", "cheat_menu", OPT_BOOL, "0", "0", NULL, NULL,
+      "Kept by the game (SPEC 10.3)." },
+    { "game", "cheats_unlocked", OPT_NUM, "0", "0", NULL, NULL, NULL,
+      0.0f, 65535.0f },
+    { "game", "cheats_on", OPT_NUM, "0", "0", NULL, NULL, NULL,
+      0.0f, 65535.0f },
+    { "game", "cheat_cash_1", OPT_NUM, "-1", "-1", NULL, NULL, NULL,
+      -1.0f, 2000000000.0f },
+    { "game", "cheat_cash_2", OPT_NUM, "-1", "-1", NULL, NULL, NULL,
+      -1.0f, 2000000000.0f },
+    { "game", "cheat_cash_3", OPT_NUM, "-1", "-1", NULL, NULL, NULL,
+      -1.0f, 2000000000.0f },
+    { "game", "cheats_window", OPT_RECT, "", "", NULL, NULL, NULL },
 };
 #define NUM_OPTIONS (sizeof(s_options) / sizeof(s_options[0]))
 
@@ -938,6 +1018,8 @@ static void apply_env(size_t i)
 /* Write every option with its comment and stored value. Written to a
  * temporary file first and moved over the old one, so a failed write never
  * leaves half a file. */
+static void write_binds(FILE *f);
+
 static int write_file(void)
 {
     const char *section = "";
@@ -974,12 +1056,97 @@ static int write_file(void)
         }
         fprintf(f, "%s = %s\n", o->key, s_value[i]);
     }
+    write_binds(f);
     if (fclose(f) || !MoveFileExA(tmp, s_path, MOVEFILE_REPLACE_EXISTING)) {
         fprintf(stderr, "[SETTINGS] could not write %s\n", s_path);
         DeleteFileA(tmp);
         return 0;
     }
     return 1;
+}
+
+/* ---- key binds (--debug console, to-do 157) ------------------------------------
+ *
+ * settings.ini's last section, [binds]: "<key> = <console command>", any number
+ * of them (key names as in F3). Kept apart from the options table: written after
+ * it by write_file, read by settings_load. Executor thread, as every write. */
+#define MAX_BINDS 48
+#define BIND_CMD 200
+
+static char s_bind_key[MAX_BINDS][24];
+static char s_bind_cmd[MAX_BINDS][BIND_CMD];
+static int s_nbinds;
+
+int settings_bind_count(void)
+{
+    return s_nbinds;
+}
+
+const char *settings_bind_key(int i)
+{
+    return i >= 0 && i < s_nbinds ? s_bind_key[i] : NULL;
+}
+
+const char *settings_bind_command(int i)
+{
+    return i >= 0 && i < s_nbinds ? s_bind_cmd[i] : NULL;
+}
+
+static int bind_find(const char *key)
+{
+    for (int i = 0; i < s_nbinds; i++)
+        if (!_stricmp(s_bind_key[i], key))
+            return i;
+    return -1;
+}
+
+static void bind_put(const char *key, const char *cmd)
+{
+    int i = bind_find(key);
+
+    if (i < 0) {
+        if (s_nbinds == MAX_BINDS)
+            return;
+        i = s_nbinds++;
+        strncpy_s(s_bind_key[i], sizeof s_bind_key[i], key, _TRUNCATE);
+    }
+    strncpy_s(s_bind_cmd[i], sizeof s_bind_cmd[i], cmd, _TRUNCATE);
+}
+
+/* cmd NULL = unbind. 0 when the list is full or the file could not be written. */
+int settings_bind_set(const char *key, const char *cmd)
+{
+    int i = bind_find(key);
+
+    if (!cmd) {
+        if (i < 0)
+            return 1;
+        for (; i + 1 < s_nbinds; i++) {
+            memcpy(s_bind_key[i], s_bind_key[i + 1], sizeof s_bind_key[i]);
+            memcpy(s_bind_cmd[i], s_bind_cmd[i + 1], sizeof s_bind_cmd[i]);
+        }
+        s_nbinds--;
+    } else {
+        if (i < 0 && s_nbinds == MAX_BINDS)
+            return 0;
+        bind_put(key, cmd);
+    }
+    return write_file();
+}
+
+/* The defaults: none. */
+int settings_binds_reset(void)
+{
+    s_nbinds = 0;
+    return write_file();
+}
+
+static void write_binds(FILE *f)
+{
+    fputs("\n[binds]\n; Keys that run a console command (--debug): bind <key> <command>\n"
+          "; in the console, unbind <key>, bind reset; or here as key = command.\n", f);
+    for (int i = 0; i < s_nbinds; i++)
+        fprintf(f, "%s = %s\n", s_bind_key[i], s_bind_cmd[i]);
 }
 
 int settings_set(const char *key, const char *value)
@@ -1049,6 +1216,10 @@ void settings_load(const char *save_dir)
             }
             *eq = '\0';
             key = trim(s);
+            if (!_stricmp(section, "binds")) {
+                bind_put(key, trim(eq + 1));
+                continue;
+            }
             for (i = 0; i < NUM_OPTIONS; i++)
                 if (!_stricmp(s_options[i].section, section)
                         && !_stricmp(s_options[i].key, key))

@@ -22,8 +22,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         // First: it decides where SaveFolder is, which the other tabs read.
         UserFiles = new UserFilesViewModel(folder, IsGameRunning);
         Files = new FilesViewModel(folder, picker, UserFiles, IsGameRunning, Pad);
-        Settings = new SettingsViewModel(folder, LaunchDebugCommand);
+        Settings = new SettingsViewModel(folder);
         Controls = new ControlsViewModel(folder);
+        Debug = new DebugViewModel(folder, IsGameRunning);
         UserFiles.StateChanged += (_, _) =>
         {
             if (UserFiles.IsBusy)
@@ -34,12 +35,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 Settings.Reload();
                 Controls.Reload();
+                Debug.Load();
             }
 
             Files.PrecompileShadersCommand.NotifyCanExecuteChanged();
             Files.AskDeleteShadersCommand.NotifyCanExecuteChanged();
             PlayCommand.NotifyCanExecuteChanged();
-            LaunchDebugCommand.NotifyCanExecuteChanged();
             UpdateCommand.NotifyCanExecuteChanged();
             OpenUpdatePromptCommand.NotifyCanExecuteChanged();
         };
@@ -47,7 +48,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             UpdatePadAccepting();
             PlayCommand.NotifyCanExecuteChanged();
-            LaunchDebugCommand.NotifyCanExecuteChanged();
             UpdateCommand.NotifyCanExecuteChanged();
             OpenUpdatePromptCommand.NotifyCanExecuteChanged();
         };
@@ -107,7 +107,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public partial string? UpdateNote { get; set; }
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(UpdateCommand), nameof(PlayCommand), nameof(LaunchDebugCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UpdateCommand), nameof(PlayCommand))]
     public partial bool IsUpdating { get; set; }
 
     public string UpdateButtonText => NewRelease is { } r ? $"Update to v{Updater.TagVersion(r.Tag)}" : "Update";
@@ -120,6 +120,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public SettingsViewModel Settings { get; }
 
     public ControlsViewModel Controls { get; }
+
+    /// <summary>The Debug tab (to-do 144): Debug Mode and the save editor.</summary>
+    public DebugViewModel Debug { get; }
 
     /// <summary>A drag hovering the Welcome pop-up that it won't take: why (in place of its hint line; to-do 122).</summary>
     [ObservableProperty]
@@ -198,6 +201,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Settings.Reload();
             Controls.Reload();
         }
+
+        Debug.Load();
     }
 
     /// <summary>
@@ -312,12 +317,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await Files.ImportGameCommand.ExecuteAsync(null);
     }
 
+    /// <summary>Play: with <c>--debug</c> when the Debug tab's Debug Mode is on (to-do 144).</summary>
     [RelayCommand(CanExecute = nameof(CanPlay))]
-    private void Play() => StartGame(debug: false);
-
-    /// <summary>Settings tab: the game with <c>--debug</c> (debug choices in its F2 menu).</summary>
-    [RelayCommand(CanExecute = nameof(CanPlay))]
-    private void LaunchDebug() => StartGame(debug: true);
+    private void Play() => StartGame(debug: Debug.DebugMode);
 
     private void StartGame(bool debug)
     {
@@ -385,6 +387,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             Settings.Reload();
             Controls.Reload();
+            Debug.Load();
             // A copied-in folder or another version may have left files in the other place.
             _ = UserFiles.MoveInAsync();
         }

@@ -64,6 +64,14 @@ void settings_json_string(FILE *f, const char *s);
 void settings_set_debug(int on);
 int settings_debug(void);
 
+/* Key binds (the console's bind, to-do 157): settings.ini's [binds] section,
+ * "<key> = <command>". Executor thread for the writes. */
+int settings_bind_count(void);
+const char *settings_bind_key(int i);
+const char *settings_bind_command(int i);
+int settings_bind_set(const char *key, const char *command);   /* NULL = unbind */
+int settings_binds_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

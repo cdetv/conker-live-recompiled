@@ -6,8 +6,8 @@
         x:DataType="vm:MainWindowViewModel"
         Title="Conker: Live &amp; Recompiled"
         Icon="/Assets/launcher.ico"
-        Width="760" Height="700"
-        CanResize="False"
+        Width="760" Height="700" MinWidth="760" MinHeight="700"
+        CanResize="True"
         WindowStartupLocation="CenterScreen"
         ExtendClientAreaToDecorationsHint="True"
         Background="#FF0A0E0A">
@@ -295,8 +295,6 @@
                            IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !ConfirmReset}">
                   <Button Content="Reset to defaults" Command="{Binding AskResetCommand}" IsEnabled="{Binding IsEditable}" />
-                  <Button Content="Launch in debug mode" Command="{Binding LaunchDebugCommand}"
-                          ToolTip.Tip="Starts the game with --debug: debug choices in its F2 menu, frame rate in the title bar" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmReset}">
                   <TextBlock Text="Set every setting (all four tabs, not the controls) back to the default?"
@@ -348,6 +346,63 @@
                 </TabControl.ContentTemplate>
               </TabControl>
             </DockPanel>
+          </TabItem>
+          <TabItem Header="DEBUG">
+            <!-- To-do 144 (SPEC 9.3): Debug Mode for Play, and the save editor (to-do 147, conker.exe edit-save). -->
+            <ScrollViewer DataContext="{Binding Debug}" x:DataType="vm:DebugViewModel">
+              <StackPanel Spacing="10" Margin="4,8,16,4">
+                <TextBlock Classes="section" Text="Debug mode" />
+                <Border Classes="row">
+                  <CheckBox Content="Debug Mode" IsChecked="{Binding DebugMode}"
+                            ToolTip.Tip="Play starts the game with --debug: the console (~), the Debug menu (F8), debug choices in F2, the frame rate in the title bar. Remembered" />
+                </Border>
+                <TextBlock Text="Play starts the game with the console, the Debug menu and its tools. Remembered for the next start."
+                           TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" FontSize="12" />
+
+                <TextBlock Classes="section" Text="Edit Save" Margin="0,8,0,0" />
+                <TextBlock Text="Moves a save to the start of a chapter's part, as the Chapters list starts it; loading it then starts there. A copy of the save goes to edit_save_backups in the save folder first."
+                           TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="70,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="6">
+                  <TextBlock Text="Game" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding Games}" SelectedItem="{Binding SelectedGame}"
+                            AutomationProperties.Name="Game" HorizontalAlignment="Stretch" ToolTip.Tip="The save to change">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:GameChoice">
+                        <TextBlock Text="{Binding Label}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <TextBlock Grid.Row="1" Text="Chapter" VerticalAlignment="Center" />
+                  <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Chapters}" SelectedItem="{Binding SelectedChapter}"
+                            AutomationProperties.Name="Chapter" HorizontalAlignment="Stretch" ToolTip.Tip="The chapter, as the Chapters list has them">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ChapterChoice">
+                        <TextBlock Text="{Binding Name}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <TextBlock Grid.Row="2" Text="Part" VerticalAlignment="Center" />
+                  <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding SelectedChapter.Parts}" SelectedItem="{Binding SelectedPart}"
+                            AutomationProperties.Name="Part" HorizontalAlignment="Stretch" ToolTip.Tip="Where the save starts">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:PartChoice">
+                        <TextBlock Text="{Binding Label}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </Grid>
+                <Button Content="Edit Save" Command="{Binding AskEditCommand}" IsVisible="{Binding !IsAsking}"
+                        ToolTip.Tip="Asks first; not while the game runs" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsAsking}">
+                  <TextBlock Text="{Binding Question}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="460" />
+                  <Button Content="Yes" Command="{Binding ConfirmEditCommand}" />
+                  <Button Classes="safe" Content="No" Command="{Binding CancelEditCommand}" />
+                </StackPanel>
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap"
+                           Classes.error="{Binding StatusIsError}" Classes.ok="{Binding !StatusIsError}"
+                           IsVisible="{Binding StatusText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+              </StackPanel>
+            </ScrollViewer>
           </TabItem>
         </TabControl>
       </Border>

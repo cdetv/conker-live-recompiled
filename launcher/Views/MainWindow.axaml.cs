@@ -297,6 +297,28 @@ public sealed partial class MainWindow : Window, IFilePicker
         {
             e.Handled = true;
             controls.TakeKey(e.Key);
+            return;
+        }
+        // F11: full screen and back, as in the game (to-do 143; --fullscreen starts that way).
+        if (e.Key == Key.F11)
+        {
+            e.Handled = true;
+            ToggleFullScreen();
+        }
+    }
+
+    private WindowState _beforeFullScreen = WindowState.Normal;
+
+    public void ToggleFullScreen()
+    {
+        if (WindowState == WindowState.FullScreen)
+        {
+            WindowState = _beforeFullScreen;
+        }
+        else
+        {
+            _beforeFullScreen = WindowState;
+            WindowState = WindowState.FullScreen;
         }
     }
 

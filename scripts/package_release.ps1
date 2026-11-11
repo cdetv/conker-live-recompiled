@@ -13,7 +13,8 @@
     3. Copies only the files a release ships into a staging folder: conker.exe,
        xemu_apu.dll (the xemu audio emulation, LGPL: SPEC 9.5), conker-launcher.exe (not
        the .pdb files dotnet publish drops next to it), the title
-       logo in textures\, LICENSE.txt, THIRD_PARTY_NOTICES.txt, README.txt.
+       logo and the cheat words (fire_imps.journal) in textures\, LICENSE.txt,
+       THIRD_PARTY_NOTICES.txt, README.txt, DEBUG_MODE.txt (release\DEBUG_MODE.md).
     4. Zips it and checks the zip holds exactly that list: never settings.ini or anything
        else from a save folder (SPEC 9.6), never game\ or decensor\ (SPEC 9.1).
 
@@ -24,7 +25,7 @@
     Package what build\Release and the last publish hold, without building.
 
 .PARAMETER Draft
-    Allows LICENSE.txt, THIRD_PARTY_NOTICES.txt and README.txt to be missing (the private
+    Allows LICENSE.txt, THIRD_PARTY_NOTICES.txt, README.txt and DEBUG_MODE.txt to be missing (the private
     test zip before they exist). A public release never uses it.
 
 .EXAMPLE
@@ -56,11 +57,17 @@ $Files = [ordered]@{
     'xemu_apu.dll'                                 = Join-Path $Repo 'build\Release\xemu_apu.dll'
     'conker-launcher.exe'                          = Join-Path $PubDir 'conker-launcher.exe'
     'textures\E761496A53AD4678_title_logo.png'     = $Logo
+    # Every cheat word, tucked away (user 2026-11-08, SPEC 10.3): the words are game text, so the
+    # file stays out of git; only *.png in textures\ are read as textures. Named .journal, not .txt,
+    # so it doesn't stand out (user 2026-11-11; the release notes' riddle: "help him find his journal").
+    'textures\fire_imps.journal'                   = Join-Path $Repo '_work\research\cheat_words_release.txt'
     'LICENSE.txt'                                  = Join-Path $Repo 'LICENSE.txt'
     'THIRD_PARTY_NOTICES.txt'                      = Join-Path $Repo 'THIRD_PARTY_NOTICES.txt'
     'README.txt'                                   = Join-Path $Repo 'README.txt'
+    # The public debug mode page (SPEC 10.3), Markdown read as plain text (user 2026-11-11).
+    'DEBUG_MODE.txt'                               = Join-Path $Repo 'release\DEBUG_MODE.md'
 }
-$Docs = 'LICENSE.txt', 'THIRD_PARTY_NOTICES.txt', 'README.txt'
+$Docs = 'LICENSE.txt', 'THIRD_PARTY_NOTICES.txt', 'README.txt', 'DEBUG_MODE.txt'
 
 function Invoke-Checked([string]$What, [scriptblock]$Command) {
     & $Command

@@ -91,6 +91,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | Screen drops | Always on | Water and blood drops on the screen can be turned off |
 | Picture adjustments | — | Gamma, contrast, saturation |
 | Retro look | — | Scanlines or CRT effect, adjustable |
+| Movies | 4:3 | Kept 4:3 with black bars on a wide screen, or stretched to fill it |
 
 <table>
   <tr>
@@ -188,6 +189,8 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   rumble strength and stick dead zone set per controller.
 - **Slots**: choose which controller, or the keyboard, is which player.
 - Multiplayer keyboard and mouse controls, with a zoom key.
+- **Back + Start** opens a small menu on the controller: settings, controls,
+  photo mode and Report Bug.
 - The [launcher](#the-launcher) works fully with a controller too.
 
 <p align="center">
@@ -215,6 +218,49 @@ Every story cutscene can be skipped, also ones you haven't seen yet and the
 ones the game never lets you skip: hold the skip button (LT; Space, E or the
 left mouse button) for 3 seconds. A cutscene in several parts skips one part
 at a time. Or turn off Hold to Skip to skip on a press.
+
+### On screen and extras
+
+- **Speedrun Timer**: game time without loads from a new game, total and per
+  chapter part, with or without cutscenes.
+- **Input Display**: the controller drawn in a corner, showing what you press.
+- **Hide HUD** and **Hide Speech Bubbles**.
+- **Skip Intro**: straight to the main menu, without the logo, the intro
+  movie or the walk into the bar.
+- **Idle Demo** can be turned off.
+
+### Cheats
+
+Sixteen cheats, from God mode and infinite oxygen to Moon Jump, Big Head and
+walking on water. How to get them?
+
+> You know that fire imp? Actually, you'll find that he's, uh, context
+> sensitive. And, eh, well, actually... You hold this button, and it makes
+> this noise. *Ting!* Ting noise. It goes *ting*... context sensitive. He's
+> sensitive to context.
+>
+> He's a big fan of, uh... BADFURDAY and... Konami games... yeah.
+>
+> In fact, it would seem to me that he can give you just what you need at
+> that moment in time! (But you've gotta help him find his journal first! He lost it
+> wandering through the game's files)
+
+Or turn on [debug mode](#debug-mode), where they are all there from the start.
+
+### Debug mode
+
+Tick **Debug Mode** on the launcher's **Debug** tab (or start
+`conker.exe --debug`) for a Debug menu (F8) and a console (`~`): level warp,
+a cutscene viewer, noclip, freecam, wireframe, game speed, Edit Save (move a
+save to any chapter), a jukebox of the game's sounds and music, Rare's own
+debug pages, and every cheat without its code. Everything it does is in
+[DEBUG_MODE.md](DEBUG_MODE.md). It's a testing tool: back up your saves
+first.
+
+<p align="center">
+  <img src="images/debug-mode.png" alt="The Debug menu over the Training level drawn in wireframe, with Rare's positions page"><br>
+  <i>The Debug menu (F8), with wireframe on and one of Rare's debug pages</i>
+</p>
 
 ### Loading
 
@@ -283,6 +329,9 @@ A few glitches the Xbox version has too are fixed:
   you prefer), and moves saves from older versions over by itself.
 - Buttons to open your saves, photos and logs, and **Report Bug** for a crash
   you notice later.
+- A resizable window, or full screen with **F11** (or `--fullscreen`) for
+  TVs and handhelds.
+- A **Debug** tab: [debug mode](#debug-mode) on or off, and Edit Save.
 
 <table>
   <tr>
@@ -307,7 +356,7 @@ A few glitches the Xbox version has too are fixed:
 - Windows 10 or 11, 64-bit
 - A graphics card with DirectX 11
 - Your own copy of *Conker: Live & Reloaded* (Xbox; PAL or USA)
-- About 5 GB of free space
+- About 6 GB of free space
 - Optional: an Xbox or PlayStation controller (keyboard and mouse work too)
 
 Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
@@ -319,6 +368,9 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 | F2 | Back + LB | Settings menu |
 | F3 | | Controls menu |
 | F4 | Back + RB | Photo mode |
+| | Back + Start | Menu: settings, controls, photo mode, Report Bug |
+| F8 | | Cheat menu, once unlocked (Debug menu in [debug mode](#debug-mode)) |
+| `~` | | Console ([debug mode](#debug-mode) only) |
 | F10 | Report Bug... button in the settings menu | Report a bug |
 | F11 or Alt+Enter | | Full screen on/off |
 | F1 | | Frame rate counter |

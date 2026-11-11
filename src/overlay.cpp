@@ -29,7 +29,9 @@
  * their own too (folder_job), so the picture keeps drawing.
  *
  * Back + LB on the pad (Back + Black on an Xbox pad) opens F2 as the F2 key
- * does (pad_opens_menu, polled at each present while no menu is up).
+ * does (pad_opens_menu, polled at each present while no menu is up). Back +
+ * Start opens a short list of all the menus (MENU_PAD, build_pad_menu; to-do
+ * 125); the game never sees that Start (pad_filter in recomp_manual.c).
  *
  * Report Bug (to-do 12, SPEC 9.2; F10 = F3's report_key, caught in the
  * window hook with its key-up, or F2's "Report Bug..." button) is a menu of
@@ -37,6 +39,18 @@
  * the game frozen as under P, a description and Create Report, the zip
  * written by bug_report.c on a thread of its own, then Open Folder / Open
  * GitHub Issue (build_report and the jobs above it).
+ *
+ * The cheat menu (MENU_CHEATS, build_cheats; to-do 22, SPEC 10.3): F8 = F3's
+ * cheats_key once its unlock code was entered (cheats.c), Back + Start's list,
+ * or the Debug menu's button.
+ *
+ * With --debug only (to-do 14, SPEC 10.3): the console (MENU_CONSOLE, the key
+ * left of 1 by its scan code, any layout; commands in console.c), which takes
+ * the keyboard and leaves the pad to the game; a click outside it gives the
+ * game the keyboard and mouse too while it stays up (s_console_free), and that
+ * key takes them back. And the Debug menu (MENU_DEBUG;
+ * F8 = F3's cheats_key): Cheats, level warp, soak test, Rare's debug pages. F1's top level
+ * then also shows memory (metrics 2; mem_tick).
  *
  * The menu is a small window, top left by default, that can be moved by
  * its title bar and resized by its edges; where it is goes to settings.ini
@@ -96,15 +110,19 @@
 
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgi1_4.h>
+#include <psapi.h>
 #include <wincodec.h>
 #include <xinput.h>
 #include <shobjidl.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <share.h>
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <math.h>
 
 #include "imgui.h"
@@ -112,6 +130,12 @@
 #include "backends/imgui_impl_dx11.h"
 
 #include "settings.h"
+#include "cheats.h"
+#include "debug_tools.h"
+#include "speedrun.h"
+#include "warp.h"
+#include "edit_save.h"
+#include "console.h"
 #include "controls.h"
 #include "photo_mode.h"
 #include "decensor.h"
@@ -167,6 +191,8 @@ float conker_SkipRing(void);
 float conker_SkipCover(void);
 float conker_LoadCover(void);
 int conker_MainMenuBoard(void);
+int conker_CheatScreen(void);
+int overlay_cheat_keys_free(void);
 void conker_SetLoadingScreen(int on);
 void conker_SetFastLoads(int on);
 int xbox_FramebufferWindowIsFullscreen(void);
@@ -182,8 +208,18 @@ void conker_SetVignette(int on);
 void conker_SetScreenDrops(int on);
 void conker_SetUnderwaterOverlay(int on);
 void conker_SetPooFix(int on);
+void xbox_SetMovieStretch(int on);
+void conker_SetIdleDemo(int on);
+void conker_BulletToggle(void);
+void conker_InputDisplayState(unsigned short *buttons, unsigned char analog[8],
+                              short sticks[4]);
+void conker_SetHideHud(int on);
+void conker_SetHideBubbles(int on);
+int conker_HideHud(void);
 void conker_StartSoak(void);
 int conker_SoakState(void);
+void conker_SetDebugPage(int page);
+int conker_DebugPage(void);
 void overlay_init(void);
 }
 
@@ -195,15 +231,63 @@ static volatile LONG s_place_dirty; /* the game window was moved or resized */
 /* MENU_QUIT: only the quit question, from B / Esc on the main menu's
  * boards (to-do 28). */
 /* MENU_REPORT: Report Bug's window (to-do 12; F10 or F2's button). */
+/* MENU_DEBUG and MENU_CONSOLE: --debug only (to-do 14). */
+/* MENU_CHEATS: the cheat menu (to-do 22): once unlocked, or with --debug. */
+/* MENU_PAD: Back + Start's list of the other menus (to-do 125). */
 enum { MENU_NONE, MENU_SETTINGS, MENU_CONTROLS, MENU_PHOTO, MENU_QUIT,
-       MENU_REPORT };
+       MENU_REPORT, MENU_DEBUG, MENU_CONSOLE, MENU_PAD, MENU_CHEATS, MENU_KINDS };
 static volatile LONG s_want_open;   /* F2/F3 state; the executor follows it */
+/* The console's typing line has text: a key that types a letter or digit is
+ * that, not the key that closes it (the key left of 1 is 0 on a Hungarian
+ * keyboard). The executor sets it. */
+static volatile LONG s_console_has_text;
+/* The console is up but the game has the keyboard and mouse (a click outside
+ * it, user 2026-11-08; ~ takes them back): to the input code, no menu is up.
+ * Its window in back-buffer pixels, resize borders included, for that click;
+ * the pointer ImGui asks for over it. The executor sets those two. */
+static volatile LONG s_console_free;
+static volatile LONG s_console_refocus;
+static volatile LONG s_console_rect[4];
+static volatile LONG s_console_cursor;
+
+static bool console_free(void)
+{
+    return s_want_open == MENU_CONSOLE && s_console_free;
+}
+
+/* The console has the keyboard: what would be a key of ours may be typing. */
+static bool console_typing(void)
+{
+    return s_want_open == MENU_CONSOLE && !s_console_free;
+}
+
+static volatile LONG s_keys_to_game; /* a menu is up without the focus: keys
+                                      * pass on to the game (executor sets) */
+
+/* The console or the cheat menu has the keyboard: a key that makes a letter is
+ * typing there, not the key of ours it may also be (P in a code word). */
+static bool s_debug_typing;            /* the jukebox's filter has the keys */
+static bool s_console_copy;            /* Ctrl+C in the console (to-do 185) */
+
+static bool menu_typing(void)
+{
+    return console_typing() || (s_want_open == MENU_CHEATS && !s_keys_to_game)
+           || (s_want_open == MENU_DEBUG && s_debug_typing);
+}
+
+/* A menu asked for by a button or the game, not its own key: opens unless a
+ * menu is up. A console the game has the keys under gives way. */
+static void open_if_free(LONG which)
+{
+    if (console_free())
+        InterlockedExchange(&s_want_open, which);
+    else
+        InterlockedCompareExchange(&s_want_open, which, MENU_NONE);
+}
 static volatile LONG s_want_pause;  /* the pause key's state (P; F4 before
                                      * photo mode), likewise */
 static volatile LONG s_pause_asked; /* GetTickCount when it was asked */
 static volatile LONG s_want_fps;    /* F1 state (0-2, fps_counter), likewise */
-static volatile LONG s_keys_to_game; /* a menu is up without the focus: keys
-                                      * pass on to the game (executor sets) */
 static HWND volatile s_hwnd;        /* the frame window */
 /* Setting a key in F3 (executor; the window hook leaves the pause and
  * photo keys alone meanwhile): this set's action, else -1. */
@@ -261,8 +345,8 @@ static void to_back_buffer(LPARAM l, float *x, float *y)
  * pause, nothing to catch up on afterwards), only where photo mode can
  * freeze. The old pause held the flip: the game stopped at its next frame,
  * then caught up on up to 1 s of time when it resumed, a jump of a few
- * frames, and a cutscene's sound fell behind its pictures. old_pause (F2
- * Debug, --debug only) brings it back: it pauses everywhere. */
+ * frames, and a cutscene's sound fell behind its pictures. old_pause (the F8
+ * Debug menu, --debug only) brings it back: it pauses everywhere. */
 static bool old_pause_on(void)
 {
     return settings_debug() && strcmp(settings_get("old_pause"), "0") != 0;
@@ -294,6 +378,11 @@ extern "C" void overlay_pause_refused(void)
 #define FREEZE_MS 2000
 static volatile LONG64 s_last_present;  /* GetTickCount64 at the last hook call */
 static bool s_report_key_down;          /* the last press was taken by the hook */
+/* Key binds (to-do 157, --debug): the bound keys' codes for the window thread, made
+ * again on the executor when they change; a press asks the executor to run the
+ * key's command (s_bind_hit = its number + 1). */
+#define MAX_BIND_VK 48
+static volatile LONG s_bind_vk[MAX_BIND_VK], s_bind_n, s_bind_hit, s_binds_dirty = 1;
 extern "C" void conker_freeze_report(unsigned stale_ms);    /* main.c */
 
 /* A press less than FREEZE_MS after the last picture asks the next picture for
@@ -392,6 +481,51 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
     if (!s_gpu_seen)
         return 0;
     *result = 0;
+    /* Either Ctrl held on the Options screen or the pause menu: the cheat codes
+     * (cheats.c, SPEC 10.3), and the game gets none of it. */
+    if ((m == WM_KEYDOWN || m == WM_KEYUP || m == WM_SYSKEYDOWN || m == WM_CHAR
+         || m == WM_SYSCHAR || m == WM_DEADCHAR || m == WM_KILLFOCUS)
+        && cheats_key_message(m, w, l, conker_CheatScreen()
+                                       && overlay_cheat_keys_free()))
+        return 1;
+    /* The console (--debug; to-do 14): the key left of 1, by its scan code,
+     * so on any layout. With the typing cursor in the console it closes it;
+     * otherwise it opens it, or takes the keys back from the game. The
+     * character that key makes is taken too, and a dead key's (^ on a German
+     * keyboard) forgotten, or it would land on the next letter typed. Not
+     * while a key is being set or over Report Bug's window; with text on the
+     * typing line a key that makes a letter or digit types it. */
+    if (settings_debug() && ((l >> 16) & 0x1FF) == 0x29
+        && !(s_want_open && s_capture_idx >= 0)
+        && s_want_open != MENU_REPORT) {
+        static bool types;
+        if (m == WM_KEYDOWN) {
+            UINT c = MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) & 0x7FFFFFFFu;
+            types = console_typing() && s_console_has_text
+                    && c < 0x80 && isalnum((int)c);
+            if (!types) {
+                if (!(l & (1L << 30))) {
+                    if (console_typing()) {
+                        InterlockedExchange(&s_want_open, MENU_NONE);
+                    } else {
+                        if (console_free())
+                            InterlockedExchange(&s_console_refocus, 1);
+                        InterlockedExchange(&s_console_free, 0);
+                        InterlockedExchange(&s_want_open, MENU_CONSOLE);
+                    }
+                }
+                return 1;
+            }
+        } else if (m == WM_DEADCHAR || (m == WM_CHAR && !types)) {
+            if (m == WM_DEADCHAR) {
+                BYTE keys[256] = { 0 };
+                WCHAR out[4];
+                ToUnicode(VK_SPACE, MapVirtualKeyA(VK_SPACE, MAPVK_VK_TO_VSC),
+                          keys, out, 4, 0);
+            }
+            return 1;
+        }
+    }
     /* F2 the settings, F3 the controls; the open one's key closes it. Not
      * over Report Bug's window: it is closed by its own buttons. */
     if ((m == WM_KEYDOWN || m == WM_SYSKEYDOWN) && (w == VK_F2 || w == VK_F3)) {
@@ -418,7 +552,7 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         if ((m == WM_KEYDOWN || m == WM_SYSKEYDOWN) && rk > 0 && (int)w == rk
             && !(HIWORD(l) & KF_ALTDOWN)
             && !(s_want_open && s_capture_idx >= 0)
-            && !(s_want_open == MENU_REPORT
+            && !((s_want_open == MENU_REPORT || menu_typing())
                  && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
             s_report_key_down = true;
             if (!(l & (1L << 30)))
@@ -426,12 +560,58 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
             return 1;
         }
     }
+    /* One key (F8, F3's photo table; SPEC 10.3): the Debug menu with --debug,
+     * the cheat menu in a normal game once unlocked. Not over Report Bug's
+     * window, and where keys type a key that types is typing. */
+    if (m == WM_KEYDOWN && cheats_menu_ok() && (int)w == controls_menu_key()
+        && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
+        && !(menu_typing()
+             && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
+        if (!(l & (1L << 30))) {
+            LONG which = settings_debug() ? MENU_DEBUG : MENU_CHEATS;
+            InterlockedExchange(&s_want_open, s_want_open == which ? MENU_NONE
+                                                                   : which);
+        }
+        return 1;
+    }
+    /* Noclip's key (--debug; F3's photo table, default Z). */
+    if (m == WM_KEYDOWN && settings_debug() && (int)w == controls_noclip_key()
+        && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
+        && !(menu_typing()
+             && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
+        if (!(l & (1L << 30)))
+            conker_SetNoclip(!conker_Noclip());
+        return 1;
+    }
+    /* Bullet time's key (to-do 161; F3's photo table, default B since to-do 184,
+     * F7 before): only while the cheat is on, else the key is the game's. Not in
+     * photo mode, whose cutscene blur key is B too. */
+    if (m == WM_KEYDOWN && (int)w == controls_bullet_key() && !photo_active()
+        && (cheats_active() & CHEAT_BIT(CHEAT_BULLET))
+        && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
+        && !menu_typing()) {
+        if (!(l & (1L << 30)))
+            conker_BulletToggle();
+        return 1;
+    }
+    /* A key bound to a console command (to-do 157, --debug). */
+    if (m == WM_KEYDOWN && settings_debug() && !(l & (1L << 30))
+        && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
+        && !menu_typing()) {
+        for (LONG i = 0; i < s_bind_n; i++)
+            if (s_bind_vk[i] == (LONG)w) {
+                InterlockedExchange(&s_bind_hit, i + 1);
+                return 1;
+            }
+    }
     /* The pause key (P) and the photo mode key (F4), from F3's photo
      * table, unless a key is being set (the press is the answer) or Report
-     * Bug's window is up (they are letters to type there). Not
-     * WM_SYSKEYDOWN: Alt+F4 still closes the window. */
+     * Bug's window is up or the console has the keys (they are letters to
+     * type there). Not WM_SYSKEYDOWN: Alt+F4 still closes the window. */
     if (m == WM_KEYDOWN && !(s_want_open && s_capture_idx >= 0)
         && s_want_open != MENU_REPORT
+        && !(menu_typing()
+             && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)
         && ((int)w == controls_pause_key()
             || (int)w == controls_photo_toggle_key())) {
         if (!(l & (1L << 30))) {
@@ -457,12 +637,48 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         return 1;
     }
     /* Photo mode's zoom: the wheel kept from the game's keys. */
-    if (m == WM_MOUSEWHEEL && !s_want_open && photo_active()) {
+    if (m == WM_MOUSEWHEEL && (!s_want_open || console_free()) && photo_active()) {
         photo_wheel(GET_WHEEL_DELTA_WPARAM(w));
         return 1;
     }
-    if (!s_want_open)
+    /* To-do 181: a menu of ours up with the keys the game's (a click back in
+     * the game): a key that presses the game's Start (Esc) still reaches the
+     * menu, which it closes, but not the game, which it paused. Held back until
+     * let go, so its repeats after the menu has closed don't pause either
+     * (with the menu focused too: a held Esc's repeats came after it). */
+    {
+        static bool held_back[256];
+        if (w < 256 && held_back[w]) {
+            if (m == WM_KEYDOWN || m == WM_SYSKEYDOWN)
+                return 1;
+            if (m == WM_KEYUP || m == WM_SYSKEYUP)
+                held_back[w] = false;   /* the key up goes on as usual */
+        }
+        if (m == WM_KEYDOWN && w < 256 && overlay_blocks_pause()
+            && !(s_want_open && s_capture_idx >= 0)
+            && controls_start_key((int)w)) {
+            held_back[w] = true;
+            push_event(m, w, l, 0, 0);
+            return 1;
+        }
+    }
+    /* A console the game has the keys under: everything is the game's. */
+    if (!s_want_open || console_free())
         return 0;
+    /* A left click outside the console: gameplay again, the console staying
+     * up. The keys and mouse change here, not at the next picture, so the
+     * window goes on to use this click up as any click that takes the mouse:
+     * it doesn't fire or take a photo. */
+    if (s_want_open == MENU_CONSOLE && m == WM_LBUTTONDOWN) {
+        to_back_buffer(l, &x, &y);
+        if (x < (float)s_console_rect[0] || y < (float)s_console_rect[1]
+            || x >= (float)s_console_rect[2] || y >= (float)s_console_rect[3]) {
+            InterlockedExchange(&s_console_free, 1);
+            xbox_KbmSetKeysOnly(0);
+            xbox_KbmSetActive(1);
+            return 0;
+        }
+    }
 
     switch (m) {
     case WM_KEYDOWN:
@@ -496,9 +712,19 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         *result = TRUE;
         return 1;
     case WM_SETCURSOR:
-        /* Full screen hides the pointer; the menu wants it. */
+        /* Full screen hides the pointer; the menu wants it. Over the console's
+         * edges it says they can be dragged. */
         if (LOWORD(l) == HTCLIENT) {
-            SetCursor(LoadCursorA(NULL, IDC_ARROW));
+            LPCSTR shape = IDC_ARROW;
+            if (s_want_open == MENU_CONSOLE)
+                switch (s_console_cursor) {
+                case ImGuiMouseCursor_TextInput:  shape = IDC_IBEAM; break;
+                case ImGuiMouseCursor_ResizeNS:   shape = IDC_SIZENS; break;
+                case ImGuiMouseCursor_ResizeEW:   shape = IDC_SIZEWE; break;
+                case ImGuiMouseCursor_ResizeNESW: shape = IDC_SIZENESW; break;
+                case ImGuiMouseCursor_ResizeNWSE: shape = IDC_SIZENWSE; break;
+                }
+            SetCursor(LoadCursorA(NULL, shape));
             *result = TRUE;
             return 1;
         }
@@ -537,6 +763,7 @@ static bool s_report_unfocus; /* Report Bug: Esc / B in the description: the
 static bool s_focus;          /* give the menu the focus next frame */
 static WORD s_pad_prev;       /* pad buttons last frame, for presses */
 static WORD s_pad_latch;      /* held at opening, kept from ImGui until let go */
+static WORD s_opens_prev;     /* pad_opens_menu: the pad at its last look */
 static int s_tab_step;        /* F2's tabs: LB (-1) or RB (+1) this frame */
 static int s_tab_cur;         /* the F2 tab shown */
 static LARGE_INTEGER s_last_frame;
@@ -544,7 +771,7 @@ static char s_error[160];     /* last save failure, shown in the menu */
 static ImVec2 s_win_pos, s_win_size;   /* the menu's window last frame */
 static bool s_win_dragged;    /* moved or resized with the mouse down */
 static unsigned s_style_h;    /* picture height the style was made for */
-static bool s_replace[5];     /* put a menu window back from settings.ini */
+static bool s_replace[MENU_KINDS];   /* put a menu window back from settings.ini */
 static bool s_held;           /* the last call held the flip: this one
                                * presents the same frame again */
 static int s_fps;             /* F1: 0 off, 1 fps, 2 fps and frame times */
@@ -595,6 +822,28 @@ static ImGuiKey key_from_vk(WPARAM vk)
  * keyboard and mouse only). */
 static bool read_pad(XINPUT_STATE *st)
 {
+    /* RECOMP_MENU_PAD=<file> (tests, nobody at the pad): the file's hex
+     * XInput buttons are slot 1's controller for the menus (0030 = Back +
+     * Start, 1000 = A). */
+    static const char *test_file;
+    static bool test_looked;
+    if (!test_looked) {
+        test_file = getenv("RECOMP_MENU_PAD");
+        test_looked = true;
+    }
+    if (test_file) {
+        FILE *f;
+        unsigned b = 0;
+        memset(st, 0, sizeof(*st));
+        f = _fsopen(test_file, "r", _SH_DENYNO);   /* the test writes to it */
+        if (f) {
+            if (fscanf_s(f, "%x", &b) != 1)
+                b = 0;
+            fclose(f);
+        }
+        st->Gamepad.wButtons = (WORD)b;
+        return true;
+    }
     int pad = controls_pad_of_port(0);
     if (pad >= 0 && xbox_InputHostPadRead((DWORD)pad, st) == ERROR_SUCCESS)
         return true;
@@ -637,6 +886,9 @@ static bool init_imgui(ID3D11Device *dev, ID3D11DeviceContext *ctx,
     /* A drag in the window's body is for its widgets, not for moving it. */
     io.ConfigWindowsMoveFromTitleBarOnly = true;
     io.BackendPlatformName = "conker_overlay";
+    /* Lets ImGui offer window edges to drag (ConfigWindowsResizeFromEdges);
+     * only the console takes that (overlay_draw, the pointer in window_hook). */
+    io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;
 
     io.Fonts->AddFontDefaultVector();
     set_style(h);
@@ -659,14 +911,18 @@ static void open_menu(void)
     read_pad(&pad);
     s_pad_prev = pad.Gamepad.wButtons;   /* a held button is not a press */
     s_pad_latch = pad.Gamepad.wButtons;  /* nor a key down for ImGui */
-    xbox_InputSetBlocked(1);
-    s_pad_menu = true;
+    s_menu = (int)s_want_open;
+    /* The console is keyboard only: the pad stays the game's, not even
+     * stopped until its buttons are let go. */
+    if (s_menu != MENU_CONSOLE) {
+        xbox_InputSetBlocked(1);
+        s_pad_menu = true;
+    }
     ImGui::GetIO().ClearInputKeys();
     ImGui::GetIO().ClearInputMouse();
     s_error[0] = '\0';
     s_focus = true;
     s_open = true;
-    s_menu = (int)s_want_open;
     s_ask_quit = s_menu == MENU_QUIT;
     s_capture_idx = -1;
     s_ask_reset = -1;
@@ -674,6 +930,10 @@ static void open_menu(void)
             s_menu == MENU_CONTROLS ? " (controls)"
             : s_menu == MENU_PHOTO ? " (photo panel)"
             : s_menu == MENU_QUIT ? " (quit question)"
+            : s_menu == MENU_DEBUG ? " (Debug menu)"
+            : s_menu == MENU_CHEATS ? " (cheat menu)"
+            : s_menu == MENU_CONSOLE ? " (console)"
+            : s_menu == MENU_PAD ? " (Back + Start menu)"
             : s_menu == MENU_REPORT ? " (Report Bug)" : "");
     if (s_menu == MENU_REPORT)
         report_begin();
@@ -695,6 +955,10 @@ static void switch_menu(void)
             s_menu == MENU_CONTROLS ? "controls"
             : s_menu == MENU_PHOTO ? "photo"
             : s_menu == MENU_QUIT ? "quit question"
+            : s_menu == MENU_DEBUG ? "Debug"
+            : s_menu == MENU_CHEATS ? "cheat"
+            : s_menu == MENU_CONSOLE ? "console"
+            : s_menu == MENU_PAD ? "Back + Start"
             : s_menu == MENU_REPORT ? "Report Bug" : "settings");
     if (s_menu == MENU_REPORT)
         report_begin();
@@ -708,8 +972,15 @@ static void close_menu(void)
     s_capture_idx = -1;
     InterlockedExchange(&s_want_open, MENU_NONE);
     if (s_pad_menu)
-        xbox_InputSetBlocked(photo_frozen());   /* photo mode keeps it */
+        xbox_InputSetBlocked(photo_frozen() && !photo_freecam_game());   /* photo mode keeps it */
     s_pad_menu = false;
+    /* The B that closed this menu is no new press: on the main menu's boards it
+     * opened the quit question at once. */
+    {
+        XINPUT_STATE st;
+        read_pad(&st);
+        s_opens_prev = st.Gamepad.wButtons;
+    }
     fprintf(stderr, "[OVERLAY] closed\n");
 }
 
@@ -721,7 +992,7 @@ static void pad_to_menu(bool on)
     if (on == s_pad_menu)
         return;
     s_pad_menu = on;
-    xbox_InputSetBlocked(on || photo_frozen());   /* photo mode keeps it */
+    xbox_InputSetBlocked(on || (photo_frozen() && !photo_freecam_game()));   /* photo mode keeps it */
     fprintf(stderr, "[OVERLAY] pad to the %s\n", on ? "menu" : "game");
 }
 
@@ -729,7 +1000,19 @@ static void pad_to_menu(bool on)
  * keys are the menu's; the menu has the pad (blocked for the game). */
 extern "C" int overlay_menu_open(void)
 {
-    return s_want_open != 0;
+    return s_want_open != 0 && !console_free();
+}
+
+/* To-do 196 (game thread): the cheat menu is up (the Options page hides under
+ * it), and the Options page's Cheats row opens it. */
+extern "C" int overlay_cheats_up(void)
+{
+    return s_want_open == MENU_CHEATS;
+}
+
+extern "C" void overlay_open_cheats(void)
+{
+    open_if_free(MENU_CHEATS);
 }
 
 extern "C" int overlay_pad_menu(void)
@@ -737,10 +1020,22 @@ extern "C" int overlay_pad_menu(void)
     return s_pad_menu ? 1 : 0;
 }
 
+/* To-do 181 (user 2026-11-10): with a menu up but the keys or the pad the
+ * game's (a click back in the game), Esc closed the menu and paused the game
+ * too. Our menus keep the game's pause from it; the console (the game's while
+ * free) and the photo panel (photo mode's own Esc) don't. */
+extern "C" int overlay_blocks_pause(void)
+{
+    const LONG w = s_want_open;
+    return w == MENU_SETTINGS || w == MENU_CONTROLS || w == MENU_DEBUG
+           || w == MENU_CHEATS || w == MENU_PAD || w == MENU_REPORT
+           || w == MENU_QUIT;
+}
+
 /* Photo mode's panel key (game thread): opens unless a menu is up. */
 extern "C" void overlay_photo_panel(void)
 {
-    InterlockedCompareExchange(&s_want_open, MENU_PHOTO, MENU_NONE);
+    open_if_free(MENU_PHOTO);
 }
 
 static volatile LONG s_shot_want;   /* take a photo at the next present */
@@ -772,6 +1067,17 @@ static void follow_pause(void)
 
 static void save(const char *key, const char *value);
 static void follow_photo_picture(void);
+
+/* The console's metrics command: the F1 counter's level. */
+extern "C" void overlay_set_metrics(int level)
+{
+    InterlockedExchange(&s_want_fps, level);
+}
+
+extern "C" int overlay_metrics(void)
+{
+    return (int)s_want_fps;
+}
 
 /* F1: the counter's level, into settings.ini. Counting starts afresh when
  * it comes on. */
@@ -833,6 +1139,45 @@ static void fps_tick(bool fresh)
     s_fps_t0 = now;
     s_fps_n = 0;
     s_fps_max = 0.0;
+}
+
+/* metrics 2 with --debug (to-do 14): what the process and the video card hold,
+ * twice a second. Zero when a number cannot be had (an old Windows has no
+ * IDXGIAdapter3). */
+static unsigned s_mem_ram, s_mem_gpu, s_mem_gpu_budget;  /* MB */
+
+static void mem_tick(ID3D11Device *dev)
+{
+    static IDXGIAdapter3 *adapter;
+    static bool looked;
+    static DWORD next;
+    PROCESS_MEMORY_COUNTERS pmc;
+    DXGI_QUERY_VIDEO_MEMORY_INFO info;
+
+    if (GetTickCount() - next > 0x80000000u)
+        return;                     /* not yet */
+    next = GetTickCount() + 500;
+    if (!looked) {
+        IDXGIDevice *dx = NULL;
+        IDXGIAdapter *a = NULL;
+        looked = true;
+        if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), (void **)&dx))) {
+            if (SUCCEEDED(dx->GetAdapter(&a))) {
+                if (FAILED(a->QueryInterface(__uuidof(IDXGIAdapter3),
+                                             (void **)&adapter)))
+                    adapter = NULL;
+                a->Release();
+            }
+            dx->Release();
+        }
+    }
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+        s_mem_ram = (unsigned)(pmc.WorkingSetSize >> 20);
+    if (adapter && SUCCEEDED(adapter->QueryVideoMemoryInfo(
+            0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) {
+        s_mem_gpu = (unsigned)(info.CurrentUsage >> 20);
+        s_mem_gpu_budget = (unsigned)(info.Budget >> 20);
+    }
 }
 
 /* Queued keyboard and mouse into ImGui. Escape with no list open closes. */
@@ -897,6 +1242,14 @@ static void drain_events(bool *close)
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
             ImGuiKey k = key_from_vk(e.w);
+            /* Ctrl+C in the console copies its selected lines (to-do 185). */
+            {
+                static bool ctrl;
+                if (e.w == VK_CONTROL)
+                    ctrl = down;
+                if (down && ctrl && e.w == 'C' && s_menu == MENU_CONSOLE)
+                    s_console_copy = true;
+            }
             if (e.w == VK_ESCAPE && down && !s_popup_open && !s_item_active
                 && s_capture_idx < 0)
                 *close = true;
@@ -908,6 +1261,10 @@ static void drain_events(bool *close)
                     s_report_unfocus = true;
                 break;
             }
+            /* Console: Esc closes (above), the typing line kept; ImGui's Esc
+             * would throw it away. */
+            if (s_menu == MENU_CONSOLE && e.w == VK_ESCAPE)
+                break;
             /* The photo panel's own key closes it too (Tab: not ImGui's). */
             if (s_menu == MENU_PHOTO && (int)e.w
                     == controls_key(CONTROLS_PHOTO, PHOTO_PANEL)) {
@@ -997,9 +1354,10 @@ static void remember_game_window(void)
  * XInput is slow on empty slots. */
 static void pad_opens_menu(void)
 {
-    static WORD prev;
+    WORD &prev = s_opens_prev;
     static DWORD retry_at;
     const WORD combo = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_LEFT_SHOULDER;
+    const WORD combo_list = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_START;
     XINPUT_STATE st;
 
     if (retry_at && GetTickCount() - retry_at > 0x80000000u)
@@ -1013,16 +1371,24 @@ static void pad_opens_menu(void)
     }
     retry_at = 0;
     WORD b = st.Gamepad.wButtons;
-    if (!s_want_open && (b & combo) == combo && (prev & combo) != combo) {
-        InterlockedCompareExchange(&s_want_open, MENU_SETTINGS, MENU_NONE);
+    const bool none_up = !s_want_open || console_free();
+    if (none_up && (b & combo) == combo && (prev & combo) != combo) {
+        open_if_free(MENU_SETTINGS);
         fprintf(stderr, "[OVERLAY] Back + LB: settings menu\n");
+    }
+    /* Back + Start (to-do 125): the list of menus. Also in photo mode, which
+     * keeps this combination free. */
+    else if (none_up && (b & combo_list) == combo_list
+             && (prev & combo_list) != combo_list) {
+        open_if_free(MENU_PAD);
+        fprintf(stderr, "[OVERLAY] Back + Start: the list of menus\n");
     }
     /* B on the main menu's boards: the quit question (to-do 28). Slot 1's
      * controller only (read_pad; user 2026-11-07); the keyboard has Esc. */
-    else if (!s_want_open && (b & XINPUT_GAMEPAD_B)
+    else if (none_up && (b & XINPUT_GAMEPAD_B)
              && !(prev & XINPUT_GAMEPAD_B) && !s_paused && !photo_active()
-             && conker_MainMenuBoard()) {
-        InterlockedCompareExchange(&s_want_open, MENU_QUIT, MENU_NONE);
+             && conker_MainMenuBoard() && !cheats_pad_holding()) {
+        open_if_free(MENU_QUIT);
         fprintf(stderr, "[OVERLAY] B on the main menu: quit question\n");
     }
     prev = b;
@@ -1244,6 +1610,15 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetLoadingScreen(on);
         if (!strcmp(key, "fast_loads") && !settings_env_override(key))
             conker_SetFastLoads(on);
+        if (!strcmp(key, "idle_demo") && !settings_env_override(key))
+            conker_SetIdleDemo(on);
+        if (!strcmp(key, "speedrun_cutscenes"))
+            speedrun_set_cutscenes(on);
+        /* Its key switches it whatever the environment said. */
+        if (!strcmp(key, "hide_hud"))
+            conker_SetHideHud(on);
+        if (!strcmp(key, "hide_bubbles"))
+            conker_SetHideBubbles(on);
         if (!strncmp(key, "rumble", 6))
             controls_apply_pad_feel(key[6] - '1', -1.0f, -1.0f);
         if (!strcmp(key, "main_menu_speed") && !settings_env_override(key))
@@ -1276,6 +1651,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetUnderwaterOverlay(on);
         if (!strcmp(key, "poo_fix") && !settings_env_override(key))
             conker_SetPooFix(on);
+        if (!strcmp(key, "stretch_fmv") && !settings_env_override(key))
+            xbox_SetMovieStretch(on);
         if (!strcmp(key, "smooth_world_shadows")
             && !settings_env_override(key))
             conker_SetSmoothLightmaps(on);
@@ -1843,14 +2220,14 @@ static void ask_quit(void)
 }
 
 /* Before Begin: where the menu was left (settings.ini, key), else small at
- * the top left, wide (in text heights) and tall (part of the picture, 0 =
- * fitted to what it holds). On the first opening, and again after the
- * picture's size changed (the window is kept in pixels): otherwise ImGui
+ * the top left (or right), wide (in text heights) and tall (part of the
+ * picture, 0 = fitted to what it holds). On the first opening, and again after
+ * the picture's size changed (the window is kept in pixels): otherwise ImGui
  * keeps the window where the mouse puts it. Focus only on opening:
  * focusing the window again every frame would close a drop-down list as
  * soon as it opened. */
 static void place_window(int which, const char *key, unsigned w, unsigned h,
-                         float wide, float tall)
+                         float wide, float tall, bool right = false)
 {
     float px = ImGui::GetFontSize(), m = h * 0.02f;
     float rx, ry, rw, rh;
@@ -1861,7 +2238,8 @@ static void place_window(int which, const char *key, unsigned w, unsigned h,
         ImGui::SetNextWindowPos(ImVec2(rx * w, ry * h), cond);
         ImGui::SetNextWindowSize(ImVec2(rw * w, rh * h), cond);
     } else {
-        ImGui::SetNextWindowPos(ImVec2(m, m), cond);
+        ImGui::SetNextWindowPos(ImVec2(right ? (float)w - m - px * wide : m, m),
+                                cond);
         ImGui::SetNextWindowSize(ImVec2(px * wide, tall * h), cond);
     }
     ImGui::SetNextWindowSizeConstraints(ImVec2(px * 12.0f, px * 5.0f),
@@ -1984,6 +2362,33 @@ static void display_tab(unsigned w, unsigned h, bool *close)
     choice("Text language", "language", lang_values, lang_names,
            (int)(sizeof(lang_values) / sizeof(lang_values[0])), false);
     note("    Voices are English in every language");
+    /* To-dos 152-154 (user 2026-11-09). */
+    section("On screen");
+    checkbox("Hide HUD", "hide_hud", true,
+             "Energy, lives, money, the counters and the weapon sight hidden "
+             "while playing");
+    /* To-do 183 (user 2026-11-10). */
+    checkbox("Hide Speech Bubbles", "hide_bubbles", true,
+             "Speech bubbles hidden, in cutscenes and in play (photo mode's "
+             "HUD key hides them anyway)");
+    checkbox("Speedrun Timer", "speedrun_timer", true,
+             "Game time without loads from a new game, in the top right "
+             "corner: the total and the current chapter's part");
+    /* Shown while the timer is on (user 2026-11-09); the dump lists it
+     * under its parent. */
+    if (s_dump || strcmp(settings_get("speedrun_timer"), "0")) {
+        ImGui::Indent();
+        s_dump_parent = "speedrun_timer";
+        checkbox("Time cutscenes", "speedrun_cutscenes", true,
+                 "The timer runs while a cutscene plays (off: it stops for "
+                 "them)");
+        s_dump_parent = NULL;
+        ImGui::Unindent();
+    }
+    checkbox("Input Display", "input_display", true,
+             "Controller 1 drawn in the bottom left corner: buttons, sticks "
+             "and triggers as you press them (keys bound to it show as the "
+             "buttons they press)");
 }
 
 static void picture_tab(unsigned w, unsigned h, bool *close)
@@ -2054,6 +2459,10 @@ static void picture_tab(unsigned w, unsigned h, bool *close)
     checkbox("Screen drops", "screen_drops", true,
              "Water and blood drops on the screen and the streaks they "
              "leave. Off = a clean screen");
+    checkbox("Stretch FMV", "stretch_fmv", true,
+             "The movies (boot intro, idle demo, multiplayer briefings) "
+             "stretched to the window. Off = their own 4:3 shape with black "
+             "bars at the sides. Story cutscenes always fill the window");
     checkbox("Underwater Shimmer", "underwater_overlay", true,
              "The shimmering haze round Conker under water, which shows as "
              "a band at eye level. Off = a clear view under water");
@@ -2191,6 +2600,22 @@ static void fixes_tab(unsigned w, unsigned h, bool *close)
     checkbox("Sub-menu Speed", "submenu_speed", true,
              "Above 60 fps game select and the chapter list fade at the "
              "original speed (off: faster, twice as fast at 120)");
+    /* To-dos 150, 151 (user 2026-11-09). */
+    checkbox("Idle Demo", "idle_demo", true,
+             "The demo movie after about 2 minutes on the main menu without a "
+             "press, as the original (off: it never starts)");
+    checkbox("Skip Intro", "skip_intro", false,
+             "Start straight at the main menu, without the logo and the "
+             "intro movie. From the next start");
+    /* To-do 186 (user 2026-11-09): on by default; only with Skip Intro. */
+    ImGui::Indent();
+    ImGui::BeginDisabled(strcmp(settings_get("skip_intro"), "1") != 0);
+    checkbox("Skip Walk In", "skip_walk_in", false,
+             "With Skip Intro: no walk into the bar either, straight to the "
+             "menu as when the movie is skipped (off: Conker walks in). From "
+             "the next start");
+    ImGui::EndDisabled();
+    ImGui::Unindent();
     /* To-do 26 (Fixes tab: user 2026-11-07): the game's own loading
      * screen, which the port drew but never showed. */
     checkbox("Loading Screen", "loading_screen", true,
@@ -2217,30 +2642,6 @@ static void fixes_tab(unsigned w, unsigned h, bool *close)
         checkbox("Physics at 30 Hz (debug)", "physics_30hz", true,
                  "Above 30 fps tails, ragdolls and cloth move at the original "
                  "speed (off: faster, 4x as fast at 120)");
-
-    if (settings_debug()) {
-        section("Debug");
-        note("Started with --debug: debug choices are shown.");
-        /* To-do 117: the pause key as before 0.2.3 (old_pause_on). */
-        checkbox("Old P pause: holds the picture (debug)", "old_pause", true,
-                 "P stops the game at its next frame, everywhere; on resume it "
-                 "catches up on the time (a jump), and cutscene sound falls "
-                 "behind. Off: P freezes the game as photo mode does");
-        /* The game's own soak test (recomp_manual.c, conker_StartSoak). */
-        int soak = conker_SoakState();
-        if (soak == 2) {
-            note("Soak test running (Back hides its text; close the game to stop)");
-        } else {
-            ImGui::BeginDisabled(soak != 1);
-            if (ImGui::Button("Start soak test")) {
-                conker_StartSoak();
-                *close = true;
-            }
-            ImGui::EndDisabled();
-            note(soak == 1 ? "    Every map in turn, then the chapters, over and over"
-                           : "    Only from the main menu");
-        }
-    }
 }
 
 struct MenuTab {
@@ -2300,6 +2701,16 @@ static int wrapped_tabs(const char *id, const Tab *tabs, int n, int cur,
     return chosen;
 }
 
+/* Report Bug (to-do 12) from a menu: its window in place of the menu, with the
+ * picture of the next frame (the game runs under the menu, so that is the game
+ * without menus). */
+static void ask_report(void)
+{
+    InterlockedExchange(&s_report_by_key, 0);
+    InterlockedExchange(&s_report_shot_want, 1);
+    InterlockedExchange(&s_want_open, MENU_REPORT);
+}
+
 static void build_menu(unsigned w, unsigned h, bool *close)
 {
     /* 24 wide: "Ambient Particles (experimental)", indented, is the widest
@@ -2349,14 +2760,8 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         *close = true;
     ImGui::SameLine();
     note("(F2, Esc, B or Start)");
-    /* Report Bug (to-do 12): its window in place of this menu, with the
-     * picture of the next frame (the game runs under this menu, so that is
-     * the game without menus). */
-    if (ImGui::Button("Report Bug...")) {
-        InterlockedExchange(&s_report_by_key, 0);
-        InterlockedExchange(&s_report_shot_want, 1);
-        InterlockedExchange(&s_want_open, MENU_REPORT);
-    }
+    if (ImGui::Button("Report Bug..."))
+        ask_report();
     {
         int rk = controls_report_key();
         if (rk > 0) {
@@ -2372,6 +2777,904 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     ask_quit();
     s_item_active = ImGui::IsAnyItemActive();
     remember_window("menu_window", w, h);
+    ImGui::End();
+}
+
+/* ---- Back + Start's list of menus (to-do 125, SPEC 10.3) -------------------- */
+
+/* The way to every menu with a controller alone: F2's and F3's, photo mode on
+ * or off, the Debug menu with --debug (the cheat menu in a normal game, once
+ * unlocked), Report Bug. The game keeps running under it, as under F2.
+ * Start, Back or B close it (feed_pad). */
+static void build_pad_menu(unsigned w, unsigned h, bool *close)
+{
+    const ImVec2 size(ImGui::GetFontSize() * 13.0f, 0.0f);
+    const bool opening = s_focus;
+
+    ImGui::SetNextWindowPos(ImVec2(w * 0.5f, h * 0.5f), ImGuiCond_Always,
+                            ImVec2(0.5f, 0.5f));
+    if (opening) {
+        ImGui::SetNextWindowFocus();
+        s_focus = false;
+    }
+    ImGui::Begin("Menu", NULL,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove
+                 | ImGuiWindowFlags_NoSavedSettings
+                 | ImGuiWindowFlags_AlwaysAutoResize);
+    /* It always opens on its first row with the cursor showing. With no menu
+     * up this hook draws no ImGui frames at all, so to ImGui the window never
+     * went away and it stays on the row used last; and the first A of a run
+     * would only show the cursor. */
+    if (opening) {
+        ImGui::NavInitWindow(ImGui::GetCurrentWindow(), true);
+        ImGui::SetNavCursorVisible(true);
+    }
+    if (ImGui::Button("Settings", size))
+        InterlockedExchange(&s_want_open, MENU_SETTINGS);
+    if (ImGui::Button("Controls", size))
+        InterlockedExchange(&s_want_open, MENU_CONTROLS);
+    if (ImGui::Button("Photo Mode", size)) {
+        photo_request_toggle();
+        *close = true;
+    }
+    if (settings_debug()) {
+        if (ImGui::Button("Debug", size))
+            InterlockedExchange(&s_want_open, MENU_DEBUG);
+    } else if (cheats_menu_ok() && ImGui::Button("Cheats", size)) {
+        InterlockedExchange(&s_want_open, MENU_CHEATS);
+    }
+    if (ImGui::Button("Report Bug", size))
+        ask_report();
+    s_item_active = false;              /* buttons only: B and Esc close */
+    ImGui::End();
+}
+
+/* ---- the Debug menu and the console (--debug only; to-do 14, SPEC 10.3) ----- */
+
+/* F8. The game keeps running under it, as under F2. What you run lives here,
+ * plus the two debug options of to-do 129. Later: cutscene viewer, freecam,
+ * wireframe, timescale. */
+/* Case-insensitive "has" for the jukebox's filter. */
+static bool has_ci(const char *s, const char *part)
+{
+    size_t n = strlen(part);
+    for (; *s; s++)
+        if (!_strnicmp(s, part, n))
+            return true;
+    return false;
+}
+
+static void build_debug(unsigned w, unsigned h, bool *close)
+{
+    char label[96];
+    int page = conker_DebugPage();
+    int rk = controls_menu_key();
+
+    /* Right of the picture at first: Rare's pages print from the left. */
+    place_window(MENU_DEBUG, "debug_window", w, h, 26.0f, 0.0f, true);
+    ImGui::Begin("Debug", NULL,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+    if (!s_pad_menu)
+        note("Controller: the game. Click this menu to use it.");
+
+    /* Cheats first (to-do 194, the user 2026-11-10). */
+    ImGui::SeparatorText("Cheats");
+    if (ImGui::Button("Cheats"))
+        InterlockedExchange(&s_want_open, MENU_CHEATS);
+    /* To-do 146: the normal game's state (without --debug), as the unlock code sets it. */
+    ImGui::SameLine();
+    if (cheats_menu_unlocked()) {
+        if (ImGui::Button("Reset cheats"))
+            cheats_reset();
+        ImGui::SameLine();
+        note("Locked and hidden, all off");
+    } else {
+        if (ImGui::Button("Unlock cheats"))
+            cheats_unlock_menu();
+        ImGui::SameLine();
+        note("As the unlock code (without --debug)");
+    }
+
+    /* Level warp (to-do 15): a level, then one of its checkpoints if it has any. */
+    ImGui::SeparatorText("Level warp");
+    {
+        static int level = 0x29;        /* Training */
+        static int cp = -2;             /* -1 = Soak, -2 = not looked up yet */
+        const char *no = conker_WarpRefused();
+        char name[80];
+
+        if (cp == -2)
+            cp = conker_WarpFirstCheckpoint(level);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##warp_level", conker_WarpLevelName(level))) {
+            s_popup_open = true;
+            for (int p = 0; p < WARP_LEVELS; p++) {
+                const int i = conker_LevelSorted(p);
+                const char *n = conker_WarpLevelName(i);
+                if (n && ImGui::Selectable(n, i == level)) {
+                    level = i;
+                    cp = conker_WarpFirstCheckpoint(i);
+                }
+                if (n && i == level)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (cp >= 0)
+            conker_WarpCheckpoint(cp, name, sizeof(name));
+        else
+            snprintf(name, sizeof(name), "Soak");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##warp_cp", name)) {
+            s_popup_open = true;
+            if (ImGui::Selectable("Soak", cp < 0))
+                cp = -1;
+            ImGui::SetItemTooltip("The level as the soak test loads it: nothing started, nothing done");
+            for (int i = 0; i < WARP_CHECKPOINTS; i++) {
+                if (conker_WarpCheckpoint(i, name, sizeof(name)) != level)
+                    continue;
+                ImGui::PushID(i);
+                if (ImGui::Selectable(name, i == cp))
+                    cp = i;
+                if (i == cp)
+                    ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::BeginDisabled(no != NULL);
+        if (ImGui::Button("Warp")) {
+            if (cp >= 0)
+                conker_WarpToCheckpoint(cp);
+            else
+                conker_WarpSoak(level);
+            *close = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        note(no ? no : "Nothing is saved until the main menu");
+    }
+
+    /* Cutscene viewer (to-do 99): Watch comes back, Warp stays there. */
+    ImGui::SeparatorText("Cutscene viewer");
+    {
+        static int level = 0x29;        /* Training */
+        static int scene = 1;
+        char name[32];
+
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##cut_level", conker_CutsceneLevelName(level))) {
+            s_popup_open = true;
+            for (int p = 0; p < WARP_LEVELS; p++) {
+                const int i = conker_LevelSorted(p);
+                const char *n = conker_CutsceneLevelName(i);
+                if (n && ImGui::Selectable(n, i == level)) {
+                    unsigned long long s = conker_CutsceneScenes(i);
+                    level = i;
+                    for (scene = 0; scene < 63 && !(s >> scene & 1u); scene++)
+                        ;
+                }
+                if (n && i == level)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        snprintf(name, sizeof(name), "Scene %d", scene);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##cut_scene", name)) {
+            const unsigned long long s = conker_CutsceneScenes(level);
+            s_popup_open = true;
+            for (int i = 0; i < 64; i++) {
+                if (!(s >> i & 1u))
+                    continue;
+                snprintf(name, sizeof(name), "Scene %d", i);
+                if (ImGui::Selectable(name, i == scene))
+                    scene = i;
+                if (i == scene)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        const char *no = conker_CutsceneRefused(level, 0);
+        const char *no_warp = conker_CutsceneRefused(level, 1);
+        ImGui::BeginDisabled(no != NULL);
+        if (ImGui::Button("Watch")) {
+            conker_CutsceneWatch(level, scene);
+            *close = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Plays it, then back to where you were");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(no_warp != NULL);
+        if (ImGui::Button("Warp##cut")) {
+            conker_WarpToCutscene(level, scene);
+            *close = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Goes there and stays; nothing is saved until the main menu");
+        ImGui::SameLine();
+        note(no ? no : no_warp ? no_warp : "Watch comes back, Warp stays. Hold to skip");
+    }
+
+    /* Noclip (to-do 24): its key and RB + A work without this menu. */
+    ImGui::SeparatorText("Tools");
+    {
+        const char *no = conker_NoclipRefused();
+        bool on = conker_Noclip() != 0;
+
+        ImGui::BeginDisabled(no != NULL && !on);
+        snprintf(label, sizeof(label), "Noclip (%s, RB + A)",
+                 controls_key_label(controls_noclip_key()));
+        if (ImGui::Checkbox(label, &on))
+            conker_SetNoclip(on);
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Conker flies through everything: left stick moves, RT up, "
+                              "LT down. Triggers still fire, he can't die, landing "
+                              "does no damage");
+
+        /* Wireframe (to-do 34). */
+        {
+            static const char *const wires[3] = { "Off", "Models", "All" };
+            int wire = conker_Wireframe();
+
+            ImGui::TextUnformatted("Wireframe");
+            for (int i = 0; i < 3; i++) {
+                ImGui::SameLine();
+                if (ImGui::RadioButton(wires[i], wire == i))
+                    conker_SetWireframe(i);
+            }
+            ImGui::SetItemTooltip("Models: characters and objects as lines, the level solid. "
+                                  "All: the whole 3D scene");
+        }
+
+        /* Freecam (to-do 33): photo mode's camera with the world running. */
+        on = photo_freecam() != 0;
+        snprintf(label, sizeof(label), "Freecam (swap: %s, Back + X)",
+                 controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_FREECAM_SWAP)));
+        if (ImGui::Checkbox(label, &on))
+            photo_freecam_set(on);
+        ImGui::SetItemTooltip("Photo mode's fly camera with the world running. Leave: "
+                              "here, its leave key or Back + RB");
+
+        /* Timescale (to-do 21): nothing to save, so not a choice in F2. */
+        int ts = conker_Timescale();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+        if (ImGui::SliderInt("Timescale", &ts, 0, 300, "%d %%"))
+            conker_SetTimescale(ts);
+        ImGui::SameLine();
+        if (ImGui::Button("100 %"))
+            conker_SetTimescale(100);
+        ImGui::SetItemTooltip("The game's speed. Sound stays at normal speed; 0 freezes the "
+                              "game as P does");
+    }
+
+    /* Jukebox (to-do 159): the game's sounds and its music tunes by name, read
+     * from the game; a filter to find one (the keys are the filter's while it
+     * is being typed in, s_debug_typing), Play (or a double click) and Stop.
+     * A tune replaces the music once it plays; Stop brings the music back. */
+    ImGui::SeparatorText("Jukebox");
+    {
+        static char filter[48];
+        static int kind;                /* 0 sounds, 1 tunes */
+        static int sel[2] = { -1, -1 }, sel_number[2] = { -1, -1 };
+        const int n = kind ? conker_TuneCount() : conker_SoundCount();
+        int shown = 0, total = 0;
+
+        ImGui::RadioButton("Sounds", &kind, 0);
+        ImGui::SetItemTooltip("Sound effects and voice lines; they play over everything");
+        ImGui::SameLine();
+        ImGui::RadioButton("Tunes", &kind, 1);
+        ImGui::SetItemTooltip("Music: a tune replaces the level's music; Stop brings it back. "
+                              "Music from another level loads first (a few seconds)");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##jukebox_filter",
+                                 kind ? "Filter: part of a name (windy, boss, pub)"
+                                      : "Filter: part of a name (conk, music, berri)",
+                                 filter, sizeof filter);
+        s_debug_typing = ImGui::IsItemActive();
+        if (ImGui::BeginChild("##jukebox_list", ImVec2(0.0f, h * 0.16f),
+                              ImGuiChildFlags_Borders)) {
+            for (int i = 0; i < n; i++) {
+                int number = i;
+                const char *name = kind ? conker_TuneName(i) : conker_SoundName(i, &number);
+                char row[96];
+                bool bad, hit;
+                if (!name || !*name)
+                    continue;
+                total++;
+                if (filter[0] && !has_ci(name, filter))
+                    continue;
+                if (shown++ >= 500)
+                    continue;           /* counted, not drawn */
+                if (kind && !_strnicmp(name, "AD_SEQ_", 7))
+                    name += 7;
+                bad = kind && conker_TuneBad(i);
+                snprintf(row, sizeof row, "%s  (%d)##jb%d_%d", name, number, kind, i);
+                if (bad)
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                hit = ImGui::Selectable(row, sel[kind] == i, ImGuiSelectableFlags_AllowDoubleClick);
+                if (bad) {
+                    ImGui::PopStyleColor();
+                    ImGui::SetItemTooltip("Didn't play in this level: its music isn't loaded here");
+                }
+                if (hit) {
+                    sel[kind] = i;
+                    sel_number[kind] = number;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                        if (kind)
+                            conker_TunePlay(number);
+                        else
+                            conker_JukeboxPlay(number);
+                    }
+                }
+            }
+            if (!shown)
+                ImGui::TextDisabled(total ? "Nothing with that in its name"
+                                          : kind ? "No tunes" : "No sounds");
+        }
+        ImGui::EndChild();
+        ImGui::BeginDisabled(sel[kind] < 0);
+        if (ImGui::Button("Play")) {
+            if (kind)
+                conker_TunePlay(sel_number[kind]);
+            else
+                conker_JukeboxPlay(sel_number[kind]);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Stop")) {
+            if (kind)
+                conker_TuneStop();
+            else
+                conker_JukeboxStop();
+        }
+        ImGui::SameLine();
+        if (kind) {
+            int failed = 0, st = conker_TuneStatus(&failed), t = conker_TunePlaying();
+            const char *nm = conker_TuneName(st == TUNE_LOADING ? conker_TuneLoading()
+                                             : st != TUNE_NONE ? t : failed);
+            if (nm && !_strnicmp(nm, "AD_SEQ_", 7))
+                nm += 7;
+            if (st == TUNE_LOADING)
+                ImGui::TextDisabled("Loading %s's music...", nm ? nm : "");
+            else if (st == TUNE_STARTING)
+                ImGui::TextDisabled("Starting %s...", nm ? nm : "");
+            else if (st == TUNE_PLAYING)
+                ImGui::TextDisabled("Playing %s", nm ? nm : "");
+            else if (st == TUNE_ENDED)
+                ImGui::TextDisabled("%s ended; Stop brings the music back", nm ? nm : "");
+            else if (failed && nm)
+                ImGui::TextDisabled("%s can't play here", nm);
+            else
+                ImGui::TextDisabled("%d shown of %d", shown < 500 ? shown : 500, total);
+        } else {
+            ImGui::TextDisabled("%d shown of %d", shown < 500 ? shown : 500, total);
+        }
+    }
+
+    ImGui::SeparatorText("Rare's debug pages");
+    note("The developers' own screens, drawn by the game. A page stays up when "
+         "this menu closes.");
+    /* LB / RB step through them, as they do F2's tabs (feed_pad). */
+    if (s_tab_step) {
+        page = console_page_step(page, s_tab_step);
+        s_tab_step = 0;
+        conker_SetDebugPage(page);
+    }
+    snprintf(label, sizeof(label), "%d: %s", page, console_page_name(page));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##debug_page", label)) {
+        s_popup_open = true;
+        for (int i = 0; i < CONSOLE_DEBUG_PAGES; i++) {
+            bool sel = i == page;
+            if (!console_page_name(i))
+                continue;
+            snprintf(label, sizeof(label), "%d: %s", i, console_page_name(i));
+            if (ImGui::Selectable(label, sel) && !sel)
+                conker_SetDebugPage(i);
+            if (sel)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::Button("Previous page"))
+        conker_SetDebugPage(console_page_step(page, -1));
+    ImGui::SameLine();
+    if (ImGui::Button("Next page"))
+        conker_SetDebugPage(console_page_step(page, 1));
+    ImGui::SameLine();
+    note("(LB / RB)");
+
+    /* The game's own soak test (recomp_manual.c, conker_StartSoak). */
+    ImGui::SeparatorText("Soak test");
+    {
+        int soak = conker_SoakState();
+        if (soak == 2) {
+            note("Running (Back hides its text; close the game to stop)");
+        } else {
+            ImGui::BeginDisabled(soak != 1);
+            if (ImGui::Button("Start soak test")) {
+                conker_StartSoak();
+                *close = true;
+            }
+            ImGui::EndDisabled();
+            note(soak == 1 ? "Every map in turn, then the chapters, over and over"
+                           : "Only from the main menu");
+        }
+    }
+
+    ImGui::SeparatorText("Options");
+    /* To-do 117: the pause key as before 0.2.3 (old_pause_on). */
+    checkbox("Old P pause: holds the picture", "old_pause", true,
+             "P stops the game at its next frame, everywhere; on resume it "
+             "catches up on the time (a jump), and cutscene sound falls "
+             "behind. Off: P freezes the game as photo mode does");
+    checkbox("Note after a level warp", "warp_note", true,
+             "Says nothing is saved until the main menu. Saves stay off "
+             "either way");
+
+    /* To-do 147: a save to the start of a chapter's part (recomp_manual.c
+     * conker_EditSave, edit_save.c). Edit Save -> Game 1-3 -> the chapter list ->
+     * yes / no. */
+    ImGui::SeparatorText("Edit Save");
+    {
+        static int step, slot = 1, chapter, part = 1;
+        static bool focus;
+        static char said[256];
+        char label[96];
+
+        if (step == 0) {
+            if (focus)
+                ImGui::SetKeyboardFocusHere();
+            focus = false;
+            if (ImGui::Button("Edit Save")) {
+                step = 1;
+                focus = true;
+                said[0] = '\0';
+            }
+            ImGui::SameLine();
+            note("A save to the start of a chapter's part");
+        } else if (step == 1) {
+            note("Which game?");
+            for (int g = 1; g <= 3; g++) {
+                snprintf(label, sizeof label, "Game %d", g);
+                if (g > 1)
+                    ImGui::SameLine();
+                if (focus && g == 1)
+                    ImGui::SetKeyboardFocusHere();
+                if (ImGui::Button(label)) {
+                    const char *no = conker_EditSaveRefused(g);
+                    if (no) {
+                        snprintf(said, sizeof said, "Game %d: %s", g, no);
+                    } else {
+                        slot = g;
+                        step = 2;
+                        said[0] = '\0';
+                    }
+                }
+            }
+            focus = false;
+            ImGui::SameLine();
+            if (ImGui::Button("Back##es1"))
+                step = 0, focus = true;
+        } else if (step == 2) {
+            snprintf(label, sizeof label, "Game %d: start it at", slot);
+            note(label);
+            if (ImGui::BeginListBox("##es_parts",
+                                    ImVec2(-FLT_MIN, 12.0f * ImGui::GetTextLineHeightWithSpacing()))) {
+                for (int c = 0; c < ES_CHAPTERS; c++) {
+                    ImGui::SeparatorText(edit_save_chapter_name(c));
+                    for (int p = 1; p <= edit_save_parts(c); p++) {
+                        snprintf(label, sizeof label, "%d  %s##es%d_%d", p,
+                                 edit_save_part_name(c, p), c, p);
+                        if (focus && c == chapter && p == part)
+                            ImGui::SetKeyboardFocusHere();
+                        if (ImGui::Selectable(label, c == chapter && p == part)) {
+                            chapter = c;
+                            part = p;
+                            step = 3;
+                        }
+                    }
+                }
+                focus = false;
+                ImGui::EndListBox();
+            }
+            if (ImGui::Button("Back##es2"))
+                step = 1, focus = true;
+            if (step == 3)
+                focus = true;
+        } else {
+            snprintf(label, sizeof label, "Edit Game %d to %s %d, %s?", slot,
+                     edit_save_chapter_name(chapter), part,
+                     edit_save_part_name(chapter, part));
+            ImGui::TextWrapped("%s", label);
+            if (focus)
+                ImGui::SetKeyboardFocusHere();
+            focus = false;
+            if (ImGui::Button("Yes##es")) {
+                conker_EditSave(slot, chapter, part, said, sizeof said);
+                step = 0;
+                focus = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("No##es"))
+                step = 2, focus = true;
+        }
+        if (said[0])
+            note(said);
+    }
+
+    if (s_error[0])
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", s_error);
+    ImGui::Separator();
+    if (ImGui::Button("Back to the game"))
+        *close = true;
+    ImGui::SameLine();
+    snprintf(label, sizeof(label), "(%s%sEsc, B or Start)",
+             rk > 0 ? controls_key_label(rk) : "", rk > 0 ? ", " : "");
+    note(label);
+    s_item_active = ImGui::IsAnyItemActive();
+    remember_window("debug_window", w, h);
+    ImGui::End();
+}
+
+/* ---- the cheat menu (to-do 22, SPEC 10.3) --------------------------------------- */
+
+/* F8 once unlocked, Back + Start's list, or the Debug menu's button. Enter Code at
+ * the top, by the keyboard (the letters go straight here: there is no text box to
+ * get into first, so the pad's cursor and the keyboard never fight over it) or
+ * the letter grid, then the unlocked cheats to toggle. The game runs under it. */
+static void build_cheats(unsigned w, unsigned h, bool *close)
+{
+    static char code[24];
+    static char said[80];
+    static bool said_bad;
+    ImGuiIO &io = ImGui::GetIO();
+    const ImGuiStyle &style = ImGui::GetStyle();
+    const float px = ImGui::GetFontSize();
+    const bool opening = s_focus;
+    int rk = controls_menu_key();
+    size_t len = strlen(code);
+    bool enter = false, any = false;
+    char label[96];
+
+    place_window(MENU_CHEATS, "cheats_window", w, h, 28.0f, 0.0f);
+    /* As tall as what it holds: a code that unlocks a cheat adds a row. */
+    ImGui::SetNextWindowSize(ImVec2(px * 28.0f, 0.0f), ImGuiCond_Always);
+    ImGui::Begin("Cheats", NULL,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+    if (opening) {
+        code[0] = said[0] = '\0';
+        len = 0;
+        ImGui::NavInitWindow(ImGui::GetCurrentWindow(), true);
+    }
+    if (!s_pad_menu)
+        note("Controller: the game. Click this menu to use it.");
+
+    ImGui::SeparatorText("Enter Code");
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        for (int i = 0; i < io.InputQueueCharacters.Size; i++) {
+            unsigned c = io.InputQueueCharacters[i];
+            if (c < 0x80 && isalpha((int)c) && len + 1 < sizeof(code)) {
+                code[len++] = (char)toupper((int)c);
+                code[len] = '\0';
+                ImGui::SetNavCursorVisible(false);
+            }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Backspace) && len)
+            code[--len] = '\0';
+        enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) && len;
+    }
+    {
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float bw = ImGui::GetContentRegionAvail().x;
+        const float bh = ImGui::GetFrameHeight();
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(at, ImVec2(at.x + bw, at.y + bh),
+                          ImGui::GetColorU32(ImGuiCol_FrameBg),
+                          style.FrameRounding);
+        snprintf(label, sizeof(label), "%s_", code);
+        dl->AddText(ImVec2(at.x + style.FramePadding.x, at.y + style.FramePadding.y),
+                    ImGui::GetColorU32(ImGuiCol_Text), label);
+        ImGui::Dummy(ImVec2(bw, bh));
+    }
+    /* QWERTY (user 2026-11-08), each row set in as on a keyboard. */
+    for (int row = 0; row < 3; row++) {
+        static const char *const rows[3] = { "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM" };
+        const float key = px * 1.9f;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+                             + (float)row * 0.5f * (key + style.ItemSpacing.x));
+        for (const char *c = rows[row]; *c; c++) {
+            const char letter[2] = { *c, '\0' };
+            if (c != rows[row])
+                ImGui::SameLine();
+            if (ImGui::Button(letter, ImVec2(key, key)) && !enter
+                && len + 1 < sizeof(code)) {
+                code[len++] = letter[0];
+                code[len] = '\0';
+            }
+        }
+    }
+    if (ImGui::Button("Delete") && !enter && len)
+        code[--len] = '\0';
+    ImGui::SameLine();
+    if (ImGui::Button("Enter") && len)
+        enter = true;
+    if (enter) {
+        int got = cheats_enter_code(code);
+        said_bad = got == CHEAT_CODE_WRONG;
+        if (got == CHEAT_CODE_ALL)
+            snprintf(said, sizeof(said), "All cheats unlocked");
+        else if (said_bad)
+            snprintf(said, sizeof(said), "Wrong code");
+        else
+            snprintf(said, sizeof(said), "Unlocked: %s", cheat_name(got));
+        code[0] = '\0';
+    }
+    if (said[0])
+        ImGui::TextColored(said_bad ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
+                                    : ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", said);
+
+    ImGui::SeparatorText("Cheats");
+    for (int i = 0; i < CHEAT_COUNT; i++) {
+        bool on;
+        if (!cheat_unlocked(i))
+            continue;
+        any = true;
+        on = cheat_is_set(i) != 0;
+        if (ImGui::Checkbox(cheat_name(i), &on))
+            cheat_set(i, on);
+        note(cheat_help(i));
+    }
+    if (any)
+        note("Story only. They stay on until turned off, for every save slot.");
+    else
+        note("None yet: enter a code above.");
+
+    ImGui::Separator();
+    if (ImGui::Button("Back to the game"))
+        *close = true;
+    ImGui::SameLine();
+    snprintf(label, sizeof(label), "(%s%sEsc, B or Start)",
+             rk > 0 && !settings_debug() ? controls_key_label(rk) : "",
+             rk > 0 && !settings_debug() ? ", " : "");
+    note(label);
+    s_item_active = ImGui::IsAnyItemActive();
+    remember_window("cheats_window", w, h);
+    ImGui::End();
+}
+
+/* The typing line got the cursor back: at the end of what is on it. ImGui
+ * would select it all, and the next key would throw away a half-typed line. */
+static bool s_console_unselect;
+
+/* The typing line's Tab and Up / Down (console.c has the lists). */
+static int console_keys(ImGuiInputTextCallbackData *d)
+{
+    if (d->EventFlag == ImGuiInputTextFlags_CallbackAlways) {
+        if (s_console_unselect) {
+            d->CursorPos = d->BufTextLen;
+            d->ClearSelection();
+            s_console_unselect = false;
+        }
+    } else if (d->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s", d->Buf);
+        if (console_complete(buf, sizeof(buf))) {
+            d->DeleteChars(0, d->BufTextLen);
+            d->InsertChars(0, buf);
+        }
+    } else if (d->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
+        const char *line = console_history(
+            d->EventKey == ImGuiKey_UpArrow ? -1 : 1);
+        if (line) {
+            d->DeleteChars(0, d->BufTextLen);
+            d->InsertChars(0, line);
+        }
+    }
+    return 0;
+}
+
+/* The console: at first a band over the top of the picture, its edges and
+ * corners can be dragged and where it ends up goes to settings.ini
+ * (console_window). The game runs under it and the F1 counter stays above it
+ * (metrics is typed here). Keyboard only; the pad stays the game's. A click
+ * outside it gives the keyboard and mouse to the game with the console still
+ * showing (window_hook); ~ takes them back, ~ again closes it. */
+static void build_console(unsigned w, unsigned h)
+{
+    static char input[256];
+    static int last_count;
+    static bool to_end = true, was_free;
+    const bool free_now = s_console_free != 0;
+    const float px = ImGui::GetFontSize();
+    const ImGuiWindowFlags no_input = free_now
+        ? ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoResize : 0;
+    bool enter;
+
+    console_poll_log();
+    if (s_focus || s_replace[MENU_CONSOLE]) {
+        float rx, ry, rw, rh;
+        if (sscanf(settings_get("console_window"), "%f,%f,%f,%f", &rx, &ry, &rw,
+                   &rh) != 4) {
+            rx = ry = 0.0f;
+            rw = 1.0f;
+            rh = 0.45f;
+        }
+        ry *= (float)h;
+        ImGui::SetNextWindowPos(ImVec2(rx * (float)w,
+                                       ry < s_fps_bottom ? s_fps_bottom : ry),
+                                ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(rw * (float)w, rh * (float)h),
+                                 ImGuiCond_Always);
+        s_replace[MENU_CONSOLE] = false;
+    } else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        /* The F1 counter came on over it. */
+        ImGuiWindow *win = ImGui::FindWindowByName("##console");
+        if (win && win->Pos.y < s_fps_bottom)
+            ImGui::SetNextWindowPos(ImVec2(win->Pos.x, s_fps_bottom),
+                                    ImGuiCond_Always);
+    }
+    ImGui::SetNextWindowSizeConstraints(ImVec2(px * 16.0f, px * 5.0f),
+                                        ImVec2((float)w, (float)h));
+    ImGui::SetNextWindowBgAlpha(free_now ? 0.6f : 0.85f);
+    if (s_focus)
+        to_end = true;                  /* just opened */
+    s_focus = false;
+    if (free_now != was_free) {
+        fprintf(stderr, "[OVERLAY] console: %s\n",
+                free_now ? "keys to the game" : "keys back");
+        if (free_now) {
+            ImGui::ClearActiveID();
+            ImGui::SetWindowFocus(NULL);
+        }
+        was_free = free_now;
+    }
+    /* While typing, always the focus: a press on the picture is caught in
+     * window_hook, and a click anywhere else must not take the keys away. */
+    if (!free_now)
+        ImGui::SetNextWindowFocus();
+    ImGui::Begin("##console", NULL,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar
+                 | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove
+                 | ImGuiWindowFlags_NoSavedSettings | no_input);
+    static ImGuiTextBuffer copy_buf;
+    static bool copy_now;
+    ImGui::BeginChild("##console_out",
+                      ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()),
+                      ImGuiChildFlags_None,
+                      ImGuiWindowFlags_HorizontalScrollbar | no_input);
+    {
+        int n = console_shown();
+        ImGuiListClipper clip;
+        const ImGuiStyle &st = ImGui::GetStyle();
+        /* To-do 185: drag over lines to select them (whole lines), Ctrl+C or a
+         * right click's Copy puts them on the clipboard; Ctrl+V pastes into the
+         * typing line (ImGui's own, the Windows clipboard). */
+        static int sel_a = -1, sel_b = -1;
+        static bool selecting;
+        const float line_h = ImGui::GetTextLineHeightWithSpacing();
+        const ImU32 sel_col = ImGui::GetColorU32(ImGuiCol_TextSelectedBg);
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        clip.Begin(n);
+        while (clip.Step())
+            for (int i = clip.DisplayStart; i < clip.DisplayEnd; i++) {
+                int kind = CONSOLE_REPLY;
+                const char *text = console_shown_line(i, &kind);
+                ImVec4 col = st.Colors[ImGuiCol_Text];
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                const int lo = sel_a < sel_b ? sel_a : sel_b, hi = sel_a < sel_b ? sel_b : sel_a;
+                if (sel_a >= 0 && i >= lo && i <= hi)
+                    dl->AddRectFilled(at, ImVec2(at.x + ImGui::GetContentRegionAvail().x
+                                                     + ImGui::GetScrollX(), at.y + line_h),
+                                      sel_col);
+                if (kind == CONSOLE_COMMAND)
+                    col = ImVec4(0.55f, 0.8f, 1.0f, 1.0f);
+                else if (kind == CONSOLE_ERROR)
+                    col = ImVec4(1.0f, 0.75f, 0.3f, 1.0f);
+                else if (kind == CONSOLE_PLAIN || kind == CONSOLE_TAGGED)
+                    col = st.Colors[ImGuiCol_TextDisabled];
+                ImGui::PushStyleColor(ImGuiCol_Text, col);
+                ImGui::TextUnformatted(text);
+                ImGui::PopStyleColor();
+                {
+                    const ImVec2 mp = ImGui::GetMousePos();
+                    const bool over = ImGui::IsWindowHovered() && mp.y >= at.y
+                                      && mp.y < at.y + line_h;
+                    if (over && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                        sel_a = sel_b = i;
+                        selecting = true;
+                    } else if (selecting && mp.y >= at.y && mp.y < at.y + line_h) {
+                        sel_b = i;
+                    }
+                }
+            }
+        clip.End();
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            selecting = false;
+        /* Dragging past the top or bottom scrolls. */
+        if (selecting) {
+            const float my = ImGui::GetMousePos().y, wy = ImGui::GetWindowPos().y;
+            if (my < wy)
+                ImGui::SetScrollY(ImGui::GetScrollY() - line_h);
+            else if (my > wy + ImGui::GetWindowHeight())
+                ImGui::SetScrollY(ImGui::GetScrollY() + line_h);
+        }
+        if (sel_a >= n || sel_b >= n)
+            sel_a = sel_b = -1;
+        if (sel_a >= 0 && ImGui::IsWindowHovered()
+            && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+            ImGui::OpenPopup("##console_copy");
+        bool copy = s_console_copy && sel_a >= 0;
+        s_console_copy = false;
+        if (ImGui::BeginPopup("##console_copy")) {
+            if (ImGui::MenuItem("Copy", "Ctrl+C"))
+                copy = true;
+            ImGui::EndPopup();
+        }
+        if (copy) {
+            const int lo = sel_a < sel_b ? sel_a : sel_b, hi = sel_a < sel_b ? sel_b : sel_a;
+            copy_buf.clear();
+            for (int i = lo; i <= hi; i++) {
+                int kind;
+                copy_buf.append(console_shown_line(i, &kind));
+                if (i < hi)
+                    copy_buf.append("\r\n");
+            }
+            copy_now = true;
+        }
+        /* Page Up / Down read back; on the last line it follows new ones. */
+        if (ImGui::IsKeyPressed(ImGuiKey_PageUp))
+            ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetWindowHeight() * 0.8f);
+        if (ImGui::IsKeyPressed(ImGuiKey_PageDown))
+            ImGui::SetScrollY(ImGui::GetScrollY() + ImGui::GetWindowHeight() * 0.8f);
+        if (to_end || (n != last_count
+                       && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f))
+            ImGui::SetScrollHereY(1.0f);
+        to_end = false;
+        last_count = n;
+    }
+    ImGui::EndChild();
+
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    enter = ImGui::InputTextWithHint(
+        "##console_in",
+        free_now ? "The game has the keys: ~ to type here"
+                 : "help lists the commands",
+        input, sizeof(input),
+        ImGuiInputTextFlags_EnterReturnsTrue
+        | ImGuiInputTextFlags_CallbackCompletion
+        | ImGuiInputTextFlags_CallbackHistory
+        | ImGuiInputTextFlags_CallbackAlways,
+        console_keys);
+    if (enter) {
+        console_run(input);
+        input[0] = '\0';
+        to_end = true;
+    }
+    if (!free_now && (enter || (!ImGui::IsItemActive()
+                                && !ImGui::IsMouseDown(ImGuiMouseButton_Left)))) {
+        ImGui::SetKeyboardFocusHere(-1);
+        s_console_unselect = true;
+    }
+    /* After the typing line: its own Ctrl+C (the whole line when nothing in it
+     * is selected) would otherwise overwrite the lines copied above. */
+    if (copy_now) {
+        ImGui::SetClipboardText(copy_buf.c_str());
+        copy_now = false;
+    }
+    InterlockedExchange(&s_console_has_text, input[0] != '\0');
+    s_item_active = false;              /* Esc is the console's own */
+    {
+        const ImVec2 pos = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+        const float pad = ImGui::GetStyle().WindowBorderHoverPadding + 1.0f;
+        InterlockedExchange(&s_console_rect[0], (LONG)(pos.x - pad));
+        InterlockedExchange(&s_console_rect[1], (LONG)(pos.y - pad));
+        InterlockedExchange(&s_console_rect[2], (LONG)(pos.x + size.x + pad));
+        InterlockedExchange(&s_console_rect[3], (LONG)(pos.y + size.y + pad));
+    }
+    InterlockedExchange(&s_console_cursor, (LONG)ImGui::GetMouseCursor());
+    remember_window("console_window", w, h);
     ImGui::End();
 }
 
@@ -2527,6 +3830,22 @@ static bool shows_button(const ControlAction *a)
                            && strcmp(a->section, "Bat (Count Batula)"));
 }
 
+/* The Debug menu's key with --debug, the cheat menu's once unlocked; before
+ * that a normal game doesn't show it (SPEC 10.3). */
+static bool row_hidden(int set, int i)
+{
+    return set == CONTROLS_PHOTO
+           && ((i == PHOTO_MENU && !cheats_menu_ok())
+               || ((i == PHOTO_NOCLIP || i == PHOTO_FREECAM_SWAP) && !settings_debug())
+               || (i == PHOTO_BULLET && !cheat_unlocked(CHEAT_BULLET)));
+}
+
+static const char *row_label(int set, int i, const ControlAction *a)
+{
+    return set == CONTROLS_PHOTO && i == PHOTO_MENU && !settings_debug()
+               ? "Cheat menu" : a->label;
+}
+
 /* keys_table for --dump-settings: every row of the set's table, single
  * player's with the scheme it belongs to (the launcher shows the chosen
  * scheme's), a section heading where keys_table starts a table. A row's
@@ -2540,6 +3859,8 @@ static void dump_keys(int set)
     int scheme;
 
     for (int i = 0; (a = controls_table_row(set, i, &scheme)); i++) {
+        if (row_hidden(set, i))
+            continue;
         if (!same_section(a->section, cur)) {
             cur = a->section;
             section(cur);
@@ -2555,7 +3876,7 @@ static void dump_keys(int set)
         }
         if (scheme_name[scheme])
             fprintf(s_dump, ", \"scheme\": \"%s\"", scheme_name[scheme]);
-        if (set == CONTROLS_PHOTO && i <= PHOTO_REPORT)
+        if (set == CONTROLS_PHOTO && i <= PHOTO_ANYWHERE_LAST)
             fputs(", \"clashes_all\": true", s_dump);
         fputs(" }", s_dump);
     }
@@ -2581,6 +3902,8 @@ static void keys_table(int set)
         bool open = begin_keys("##keys");
         for (int i = 0; i < n; i++) {
             const ControlAction *a = controls_action(set, i);
+            if (row_hidden(set, i))
+                continue;
             if (!same_section(a->section, section)) {
                 if (open)
                     ImGui::EndTable();
@@ -2593,15 +3916,22 @@ static void keys_table(int set)
                 continue;
             int input = controls_key(set, i);
             const char *also = NULL;
-            /* Photo mode's three "anywhere" keys (photo mode, pause,
-             * Report Bug) clash with all its rows. */
+            /* Photo mode's "anywhere" keys (photo mode, pause, Report Bug,
+             * Debug menu) clash with all its rows. */
             for (int j = 0; j < n && input > 0; j++)
-                if (j != i && controls_key(set, j) == input
+                if (j != i && !row_hidden(set, j)
+                    && controls_key(set, j) == input
                     && (same_section(controls_action(set, j)->section,
                                      a->section)
                         || (set == CONTROLS_PHOTO
-                            && (i <= PHOTO_REPORT || j <= PHOTO_REPORT)))
-                    && strcmp(controls_action(set, j)->button, a->button))
+                            && (i <= PHOTO_ANYWHERE_LAST || j <= PHOTO_ANYWHERE_LAST)
+                            /* Bullet time (B) does nothing in photo mode:
+                             * sharing a photo mode key (its blur) is no clash
+                             * (to-do 184). */
+                            && !(i == PHOTO_BULLET && j > PHOTO_ANYWHERE_LAST)
+                            && !(j == PHOTO_BULLET && i > PHOTO_ANYWHERE_LAST)))
+                    && (strcmp(controls_action(set, j)->button, a->button)
+                        || !strcmp(a->button, "none")))
                     also = controls_action(set, j)->label;
 
             ImGui::TableNextRow();
@@ -2612,7 +3942,7 @@ static void keys_table(int set)
             snprintf(btn, sizeof(btn), "(%s)", a->button);
             ImGui::AlignTextToFramePadding();
             if (!shows_button(a)) {
-                ImGui::TextWrapped("%s", a->label);
+                ImGui::TextWrapped("%s", row_label(set, i, a));
             } else if (ImGui::CalcTextSize(a->label).x + gap
                 + ImGui::CalcTextSize(btn).x
                 <= ImGui::GetContentRegionAvail().x) {
@@ -4260,6 +5590,204 @@ static void pause_label(unsigned h, bool photo)
     ImGui::End();
 }
 
+/* Input display (to-do 153, SPEC 10.1): slot 1's controller as the player
+ * works it (the keyboard's keys bound to it show as the buttons they press),
+ * bottom left, small: the sticks with their dots (bright when clicked), the
+ * D-pad, A B X Y in their colours, White and Black, the triggers as bars,
+ * Back and Start. From recomp_manual.c's pad filter, before any of our
+ * changes to what the game gets. Not over photo mode or a menu of ours. */
+/* To-do 182: the input display and the speedrun timer move with the mouse while
+ * F2 is open (a see-through window over each takes the drag), their place saved
+ * as parts of the picture (input_display_window, speedrun_window: left, top,
+ * width, height, as menu_window); empty = the default corner. Fixed otherwise. */
+static bool overlay_drag_on(void)
+{
+    return s_open && s_menu == MENU_SETTINGS;
+}
+
+/* Where a movable overlay's top left goes: its saved place, else def; kept in
+ * the picture. */
+static ImVec2 overlay_place(const char *key, unsigned w, unsigned h, ImVec2 def,
+                            float pw, float ph)
+{
+    float rx, ry, rw, rh;
+    ImVec2 p = def;
+    if (sscanf(settings_get(key), "%f,%f,%f,%f", &rx, &ry, &rw, &rh) == 4)
+        p = ImVec2(rx * w, ry * h);
+    p.x = p.x > (float)w - pw ? (float)w - pw : p.x;
+    p.y = p.y > (float)h - ph ? (float)h - ph : p.y;
+    p.x = p.x < 0.0f ? 0.0f : p.x;
+    p.y = p.y < 0.0f ? 0.0f : p.y;
+    return p;
+}
+
+/* Under F2: a see-through window over the panel takes the drag, saved when
+ * let go. Returns the panel's top left this frame. */
+static ImVec2 overlay_drag(const char *id, const char *key, unsigned w, unsigned h,
+                           ImVec2 at, float pw, float ph)
+{
+    ImVec2 p;
+    if (!overlay_drag_on())
+        return at;
+    ImGui::SetNextWindowPos(at, ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(pw, ph), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::Begin(id, NULL,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings
+                 | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
+    p = ImGui::GetWindowPos();
+    if (ImGui::IsWindowHovered())
+        ImGui::SetTooltip("Drag to move (kept when let go)");
+    ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + pw, p.y + ph),
+                                        IM_COL32(255, 255, 255, 140), 6.0f, 0, 1.5f);
+    ImGui::End();
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)
+        && (fabsf(p.x - at.x) > 0.5f || fabsf(p.y - at.y) > 0.5f)) {
+        char v[64];
+        snprintf(v, sizeof v, "%.3f,%.3f,%.3f,%.3f", p.x / w, p.y / h,
+                 pw / w > 1.0f ? 1.0f : pw / w, ph / h > 1.0f ? 1.0f : ph / h);
+        save(key, v);
+    }
+    return p;
+}
+
+static void input_display(unsigned w, unsigned h)
+{
+    unsigned short buttons = 0;
+    unsigned char an[8] = { 0 };
+    short st[4] = { 0 };
+    (void)w;
+    conker_InputDisplayState(&buttons, an, st);
+
+    const float u = (float)h / 1080.0f;           /* one unit: a pixel at 1080 */
+    const float m = h * 0.015f;
+    const float pw = 330.0f * u, ph = 150.0f * u;
+    /* Top left of the panel: bottom left, or where it was dragged (to-do 182). */
+    const ImVec2 o = overlay_drag("##drag_input", "input_display_window", w, h,
+                                  overlay_place("input_display_window", w, h,
+                                                ImVec2(m, (float)h - m - ph), pw, ph),
+                                  pw, ph);
+    ImDrawList *dl = ImGui::GetBackgroundDrawList();
+    const ImU32 off = IM_COL32(255, 255, 255, 70), on = IM_COL32(255, 255, 255, 230);
+    auto P = [&](float x, float y) { return ImVec2(o.x + x * u, o.y + y * u); };
+    auto pressed = [&](int i) { return an[i] > 30; };
+
+    dl->AddRectFilled(o, ImVec2(o.x + pw, o.y + ph), IM_COL32(0, 0, 0, 110), 10.0f * u);
+
+    /* Triggers: bars filled by how far they are pulled. */
+    for (int t = 0; t < 2; t++) {
+        const float x0 = t ? 220.0f : 20.0f, x1 = x0 + 90.0f;
+        const float f = an[6 + t] / 255.0f;
+        dl->AddRect(P(x0, 10), P(x1, 22), off, 3.0f * u, 0, 1.5f * u);
+        if (f > 0.0f)
+            dl->AddRectFilled(P(t ? x1 - 90.0f * f : x0, 10), P(t ? x1 : x0 + 90.0f * f, 22),
+                              on, 3.0f * u);
+        dl->AddText(P(t ? x1 + 4 : x0 - 14, 8), off, t ? "R" : "L");
+    }
+
+    /* A stick: its ring, the dot where it points, bright when clicked. */
+    auto stick = [&](float cx, float cy, short sx, short sy, bool click) {
+        const float r = 30.0f;
+        dl->AddCircle(P(cx, cy), r * u, click ? on : off, 32, 2.0f * u);
+        dl->AddCircleFilled(P(cx + sx / 32767.0f * (r - 8), cy - sy / 32767.0f * (r - 8)),
+                            8.0f * u, click ? on : IM_COL32(255, 255, 255, 170));
+    };
+    stick(60, 70, st[0], st[1], (buttons & 0x0040) != 0);
+    stick(205, 112, st[2], st[3], (buttons & 0x0080) != 0);
+
+    /* D-pad. */
+    {
+        const float cx = 115, cy = 115, a = 9, b = 3;
+        const struct { unsigned short bit; float x, y; } d[4] = {
+            { 0x0001, 0, -1 }, { 0x0002, 0, 1 }, { 0x0004, -1, 0 }, { 0x0008, 1, 0 } };
+        for (const auto &k : d) {
+            const float x = cx + k.x * 2 * a, y = cy + k.y * 2 * a;
+            dl->AddRectFilled(P(x - a + b, y - a + b), P(x + a - b, y + a - b),
+                              (buttons & k.bit) ? on : off, 2.0f * u);
+        }
+    }
+
+    /* Back and Start. */
+    dl->AddRectFilled(P(122, 52), P(144, 62), (buttons & 0x0020) ? on : off, 4.0f * u);
+    dl->AddRectFilled(P(154, 52), P(176, 62), (buttons & 0x0010) ? on : off, 4.0f * u);
+
+    /* A B X Y in their colours, and White / Black. */
+    {
+        const float cx = 275, cy = 70, d = 22, r = 11;
+        const struct { int i; float x, y; ImU32 c; const char *t; } f[4] = {
+            { 0, 0, 1, IM_COL32(60, 200, 60, 255), "A" },
+            { 1, 1, 0, IM_COL32(220, 50, 50, 255), "B" },
+            { 2, -1, 0, IM_COL32(60, 110, 230, 255), "X" },
+            { 3, 0, -1, IM_COL32(230, 200, 40, 255), "Y" } };
+        for (const auto &k : f) {
+            const ImVec2 c = P(cx + k.x * d, cy + k.y * d);
+            if (pressed(k.i))
+                dl->AddCircleFilled(c, r * u, k.c);
+            else
+                dl->AddCircle(c, r * u, k.c, 24, 2.0f * u);
+            const ImVec2 ts = ImGui::CalcTextSize(k.t);
+            dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f),
+                        pressed(k.i) ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 200), k.t);
+        }
+        dl->AddCircleFilled(P(262, 122), 7.0f * u, pressed(5) ? IM_COL32(255, 255, 255, 240)
+                                                             : IM_COL32(255, 255, 255, 60));
+        dl->AddCircleFilled(P(290, 122), 7.0f * u, pressed(4) ? IM_COL32(20, 20, 20, 255)
+                                                             : IM_COL32(0, 0, 0, 120));
+        dl->AddCircle(P(290, 122), 7.0f * u, off, 16, 1.5f * u);
+    }
+}
+
+/* The speedrun timer (to-do 154): top right, the total game time without
+ * loads and the current part's, from a new game (speedrun.c). */
+static void fmt_time(char *out, size_t n, double ms)
+{
+    long long cs = (long long)(ms / 10.0);
+    int h = (int)(cs / 360000), m = (int)(cs / 6000 % 60), s = (int)(cs / 100 % 60);
+    if (h)
+        snprintf(out, n, "%d:%02d:%02d.%02d", h, m, s, (int)(cs % 100));
+    else
+        snprintf(out, n, "%d:%02d.%02d", m, s, (int)(cs % 100));
+}
+
+static void speedrun_label(unsigned w, unsigned h)
+{
+    double total, part;
+    int chapter, partno;
+    char t[32], pt[32];
+    const float m = h * 0.015f;
+    const bool on = conker_Speedrun(&total, &part, &chapter, &partno) != 0;
+    static ImVec2 size(200.0f, 60.0f);  /* last frame's: the drag window's size */
+    ImVec2 at;
+
+    /* Top right, or where it was dragged (to-do 182). */
+    at = overlay_place("speedrun_window", w, h, ImVec2((float)w - m - size.x, m), size.x, size.y);
+    at = overlay_drag("##drag_speedrun", "speedrun_window", w, h, at, size.x, size.y);
+    ImGui::SetNextWindowPos(at, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGui::Begin("##speedrun", NULL,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs
+                 | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove
+                 | ImGuiWindowFlags_NoFocusOnAppearing
+                 | ImGuiWindowFlags_NoSavedSettings
+                 | ImGuiWindowFlags_AlwaysAutoResize);
+    if (!on) {
+        ImGui::TextUnformatted("0:00.00");
+        ImGui::TextDisabled("starts with a game");
+    } else {
+        fmt_time(t, sizeof t, total);
+        ImGui::SetWindowFontScale(1.4f);
+        ImGui::TextUnformatted(t);
+        ImGui::SetWindowFontScale(1.0f);
+        if (chapter >= 0) {
+            fmt_time(pt, sizeof pt, part);
+            ImGui::Text("%s: %s  %s", edit_save_chapter_name(chapter),
+                        edit_save_part_name(chapter, partno + 1), pt);
+        }
+    }
+    size = ImGui::GetWindowSize();
+    ImGui::End();
+}
+
 /* F1: the frame rate in the top left corner, like the pause label (which
  * then goes under it). Level 1 the fps alone, 2 with the frame times. */
 static void fps_label(unsigned h)
@@ -4280,6 +5808,9 @@ static void fps_label(unsigned h)
     else
         ImGui::Text("%.1f fps  %.1f ms  (max %.1f)", s_fps_rate, s_fps_ms,
                     s_fps_long);
+    if (s_fps == 2 && settings_debug())
+        ImGui::Text("RAM %u MB  GPU %u of %u MB", s_mem_ram, s_mem_gpu,
+                    s_mem_gpu_budget);
     s_fps_bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
     ImGui::End();
 }
@@ -4495,6 +6026,8 @@ static void precompile_screen(unsigned w, unsigned h)
     ImGui::End();
 }
 
+static void warp_note(unsigned w, unsigned h);
+
 /* The menu, the pause label and the FPS counter, whichever are on. Nonzero
  * holds the flip: the game stays paused at this frame (F4). */
 static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
@@ -4522,9 +6055,12 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
      * running. With a menu up the keys follow its focus as the pad does
      * (user 2026-10-28): a click outside it gives them back to the game;
      * the mouse stays free for the menu. */
-    xbox_KbmSetActive(!s_paused && (!s_want_open || !s_pad_menu));
-    xbox_KbmSetKeysOnly(s_want_open != 0);
-    InterlockedExchange(&s_keys_to_game, s_want_open && s_open && !s_pad_menu);
+    /* The console keeps the keys, though the pad is the game's, until a click
+     * outside it: then the keys and the mouse are the game's, as with no menu. */
+    const bool menu_keys = s_pad_menu || console_typing();
+    xbox_KbmSetActive(!s_paused && (!s_want_open || !menu_keys));
+    xbox_KbmSetKeysOnly(s_want_open != 0 && !console_free());
+    InterlockedExchange(&s_keys_to_game, s_want_open && s_open && !menu_keys);
     /* The photo first: the picture as it is, before any text of ours. */
     if (s_shot_want && InterlockedExchange(&s_shot_want, 0))
         take_shot(dev, ctx, rtv);
@@ -4538,7 +6074,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         close_menu();
     /* A pre-compile pass: its screen only, nothing remembered. */
     const bool precompiling = precompile_on() != 0;
-    if (!s_want_open && !precompiling)
+    if ((!s_want_open || console_free()) && !precompiling)
         pad_opens_menu();
     if (!precompiling)
         remember_game_window();
@@ -4549,8 +6085,20 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         if (load > cover)
             cover = load;
     }
+    const bool warped = conker_Warped() != 0
+                        && strcmp(settings_get("warp_note"), "0") != 0;
+    /* RECOMP_INPUT_DISPLAY=1 turns it on for script runs. */
+    static const char *pad_env = getenv("RECOMP_INPUT_DISPLAY");
+    const bool pad_shown = (strcmp(settings_get("input_display"), "0") != 0
+                            || (pad_env && *pad_env == '1'))
+                           && !photo_active() && !precompiling;
+    /* RECOMP_SPEEDRUN_TIMER=1 turns it on for script runs. */
+    static const char *sr_env = getenv("RECOMP_SPEEDRUN_TIMER");
+    const bool sr_shown = (strcmp(settings_get("speedrun_timer"), "0") != 0
+                           || (sr_env && *sr_env == '1'))
+                          && !photo_active() && !precompiling;
     if (!s_want_open && !s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
-        && cover <= 0.0f && !precompiling)
+        && cover <= 0.0f && !precompiling && !warped && !pad_shown && !sr_shown)
         return 0;
     if (!s_ready) {
         if (!init_imgui(dev, ctx, h)) {
@@ -4572,7 +6120,8 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     if (h != s_style_h) {
         set_style(h);
         s_replace[MENU_SETTINGS] = s_replace[MENU_CONTROLS]
-            = s_replace[MENU_PHOTO] = true;
+            = s_replace[MENU_PHOTO] = s_replace[MENU_DEBUG]
+            = s_replace[MENU_CONSOLE] = s_replace[MENU_CHEATS] = true;
     }
     if (s_want_open && !s_open)
         open_menu();
@@ -4580,6 +6129,14 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         switch_menu();
 
     ImGuiIO &io = ImGui::GetIO();
+    /* The console's edges can be dragged, not the other windows' (their
+     * corner grip only, as before). */
+    io.ConfigWindowsResizeFromEdges = s_open && s_menu == MENU_CONSOLE;
+    /* ~ took the keys back from the game: what ImGui last saw is old. */
+    if (InterlockedExchange(&s_console_refocus, 0) && s_open) {
+        io.ClearInputKeys();
+        io.ClearInputMouse();
+    }
     QueryPerformanceCounter(&now);
     QueryPerformanceFrequency(&freq);
     io.DeltaTime = (float)(now.QuadPart - s_last_frame.QuadPart)
@@ -4598,7 +6155,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         if (close) {
             close_menu();
             if (!s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
-                && cover <= 0.0f)
+                && cover <= 0.0f && !warped)
                 return 0;
             close = false;
         }
@@ -4608,8 +6165,16 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     ImGui::NewFrame();
     s_popup_open = false;
     s_fps_bottom = 0.0f;
+    if (s_fps == 2 && settings_debug())
+        mem_tick(dev);
     if (s_fps)
         fps_label(h);
+    if (warped)
+        warp_note(w, h);
+    if (pad_shown)
+        input_display(w, h);
+    if (sr_shown)
+        speedrun_label(w, h);
     /* After a skip of ours: black until what follows draws (recomp_manual.c
      * conker_SkipCover); under any menu. */
     if (cover > 0.0f)
@@ -4626,6 +6191,14 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         build_photo(w, h, &close);
     else if (s_open && s_menu == MENU_REPORT)
         build_report(w, h, &close);
+    else if (s_open && s_menu == MENU_DEBUG)
+        build_debug(w, h, &close);
+    else if (s_open && s_menu == MENU_CHEATS)
+        build_cheats(w, h, &close);
+    else if (s_open && s_menu == MENU_CONSOLE)
+        build_console(w, h);
+    else if (s_open && s_menu == MENU_PAD)
+        build_pad_menu(w, h, &close);
     else if (s_open && s_menu == MENU_QUIT) {
         /* The question alone; its No (or Esc / B) closes it all. */
         ask_quit();
@@ -4634,15 +6207,17 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     } else if (s_open)
         s_menu == MENU_CONTROLS ? build_controls(w, h, &close)
                                 : build_menu(w, h, &close);
-    else if (s_paused || photo_frozen())
+    else if ((s_paused || photo_frozen()) && !photo_freecam())
         pause_label(h, photo_active() != 0);
     /* A click outside the menu takes its focus (ImGui's own rule), and the
      * pad goes with it. The quit question and Report Bug's window keep the
      * pad: they want an answer (the quit modal is not "focused" on its
      * first frame), and the game is frozen under the report. */
     if (s_open)
-        pad_to_menu(s_menu == MENU_QUIT || s_menu == MENU_REPORT
-                    || ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow));
+        pad_to_menu(s_menu != MENU_CONSOLE
+                    && (s_menu == MENU_QUIT || s_menu == MENU_REPORT
+                        || s_menu == MENU_PAD
+                        || ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow)));
     ImGui::Render();
 
     /* The back end does not touch the render targets; we put back ours. */
@@ -4662,6 +6237,100 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     return s_paused ? 1 : 0;
 }
 
+/* No menu of ours is up, the game isn't held and photo mode is off: the cheat
+ * unlock code may listen (cheats.c). Any thread. */
+extern "C" int overlay_cheat_keys_free(void)
+{
+    return !s_want_open && !s_want_pause && !photo_active();
+}
+
+/* Noclip and freecam read the pad and keys themselves: not while a menu holds them. */
+/* Timescale 0 (recomp_manual.c): the pause key's freeze. */
+extern "C" void overlay_timescale_pause(int on)
+{
+    want_pause(on != 0);
+}
+
+extern "C" int overlay_fly_input_free(void)
+{
+    return !s_pad_menu && !menu_typing() && (!photo_active() || photo_freecam_game());
+}
+
+/* After a warp (SPEC 10.3): nothing saves until the main menu. Bottom right, out
+ * of the way (user 2026-11-08), and the Debug menu can turn it off (warp_note);
+ * no photo gets it, photos are taken before anything of ours draws. */
+static void warp_note(unsigned w, unsigned h)
+{
+    const float m = h * 0.015f;
+
+    ImGui::SetNextWindowPos(ImVec2((float)w - m, (float)h - m), ImGuiCond_Always,
+                            ImVec2(1.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.45f);
+    ImGui::Begin("##warped", NULL,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs
+                 | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove
+                 | ImGuiWindowFlags_NoFocusOnAppearing
+                 | ImGuiWindowFlags_NoSavedSettings
+                 | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextUnformatted("Warped: nothing is saved until the main menu");
+    ImGui::End();
+}
+
+/* Key binds and autoexec.txt (to-do 157, --debug), on the executor (console_run's
+ * thread). autoexec.txt in the save folder runs once, 2 s after the main menu is
+ * first up; # or ; starts a comment line. */
+extern "C" void overlay_binds_changed(void)
+{
+    InterlockedExchange(&s_binds_dirty, 1);
+}
+
+static void binds_frame(void)
+{
+    static ULONGLONG menu_at;
+    static bool autoexec_done;
+    LONG hit;
+
+    if (InterlockedExchange(&s_binds_dirty, 0)) {
+        LONG n = 0;
+        for (int i = 0; i < settings_bind_count() && n < MAX_BIND_VK; i++) {
+            int vk = controls_parse_key(settings_bind_key(i));
+            if (vk > 0)
+                InterlockedExchange(&s_bind_vk[n++], vk);
+        }
+        InterlockedExchange(&s_bind_n, n);
+    }
+    hit = InterlockedExchange(&s_bind_hit, 0);
+    if (hit > 0) {
+        int vk = (int)s_bind_vk[hit - 1];
+        for (int i = 0; i < settings_bind_count(); i++)
+            if (controls_parse_key(settings_bind_key(i)) == vk) {
+                console_run(settings_bind_command(i));
+                break;
+            }
+    }
+    if (!autoexec_done && conker_Level() == 0x1D) {
+        if (!menu_at)
+            menu_at = GetTickCount64();
+        else if (GetTickCount64() - menu_at >= 2000) {
+            char path[MAX_PATH], line[256];
+            FILE *f;
+            autoexec_done = true;
+            snprintf(path, sizeof path, "%s\\autoexec.txt", settings_save_dir());
+            if (!fopen_s(&f, path, "r") && f) {
+                fprintf(stderr, "[CONSOLE] running %s\n", path);
+                while (fgets(line, sizeof line, f)) {
+                    char *e = line + strlen(line);
+                    while (e > line && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' '))
+                        *--e = '\0';
+                    if (line[0] && line[0] != '#' && line[0] != ';')
+                        console_run(line);
+                }
+                fclose(f);
+            }
+        }
+    }
+}
+
 /* The back end's overlay hook: once per present, held ones too, executor
  * thread. Only this hook holds the flip, so a call after one that held is
  * the same frame again, not a present of the game's. */
@@ -4669,6 +6338,9 @@ static int overlay_frame(void *dev, void *ctx, void *rtv, unsigned w,
                          unsigned h)
 {
     InterlockedExchange64(&s_last_present, (LONG64)GetTickCount64());
+    cheats_poll();
+    if (settings_debug())
+        binds_frame();
     follow_fps();
     fps_tick(!s_held);
     s_held = overlay_draw(dev, ctx, rtv, w, h) != 0;

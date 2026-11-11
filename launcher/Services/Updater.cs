@@ -98,6 +98,11 @@ public sealed class Updater(GameFolder folder)
             UseShellExecute = false,
         };
         start.ArgumentList.Add("--updated");
+        // Started full screen (to-do 143): the new one is too.
+        if (Environment.GetCommandLineArgs().Contains("--fullscreen"))
+        {
+            start.ArgumentList.Add("--fullscreen");
+        }
         Process.Start(start)?.Dispose();
     }
 

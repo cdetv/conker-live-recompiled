@@ -100,6 +100,9 @@ set(GAME_SOURCES
     src/recomp_manual.c
     src/sample_profiler.c
     src/settings.c
+    src/console.c
+    src/cheats.c
+    src/edit_save.c
     src/controls.c
     src/photo_mode.c
     src/decensor.c
@@ -110,6 +113,8 @@ set(GAME_SOURCES
     src/padfeed.c
     src/bug_report.c
     src/bug_report_win.c
+    src/debug_tools.c
+    src/speedrun.c
     src/overlay.cpp
     # Add game-specific sources here, e.g.:
     # src/asset_loader.c

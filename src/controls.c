@@ -346,6 +346,7 @@ static const Action s_pause[] = {
     { { "", "Confirm quit", "A" }, { XBOX_KBM_A } },
     { { "", "Open / close options", "Y" }, { XBOX_KBM_Y } },
     { { "", "Open / close options", "Y" }, { XBOX_KBM_Y } },
+    { { "", "Open / close options", "Y" }, { XBOX_KBM_Y } },
     { { "", "Navigate", "Left stick" }, { LST(UP) } },
     { { "", "Navigate", "Left stick" }, { LST(DOWN) } },
     { { "", "Navigate", "Left stick" }, { LST(LEFT) } },
@@ -354,10 +355,14 @@ static const Action s_pause[] = {
     { { "", "Navigate", "D-pad" }, { XBOX_KBM_DPAD_DOWN } },
     { { "", "Navigate", "D-pad" }, { XBOX_KBM_DPAD_LEFT } },
     { { "", "Navigate", "D-pad" }, { XBOX_KBM_DPAD_RIGHT } },
+    /* To-do 196: X opens the cheat menu from the Options page once it is
+     * unlocked; the X key (user 2026-11-11, was Tab; Tab is now Y, Options).
+     * No label: F3 doesn't list it. */
+    { { "", "", "X" }, { XBOX_KBM_X } },
 };
 static const int s_pause_keys[] = {
-    VK_ESCAPE, VK_BACK, 'Q', 'E', VK_SPACE, VK_RETURN, 'Y', 'O',
-    'W', 'S', 'A', 'D', VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT,
+    VK_ESCAPE, VK_BACK, 'Q', 'E', VK_SPACE, VK_RETURN, 'Y', 'O', VK_TAB,
+    'W', 'S', 'A', 'D', VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, 'X',
 };
 
 /* Cutscenes (user 2026-10-25): Space skips one seen before (the left
@@ -382,6 +387,12 @@ static const Action s_photo[] = {
     { { "pause_key", "Pause (hold the picture)", "none", PHOTO_ANYWHERE } },
     /* To-do 12 (SPEC 9.2): the pad reaches it through F2's button. */
     { { "report_key", "Report Bug", "none", PHOTO_ANYWHERE } },
+    /* To-do 14 (SPEC 10.3): the pad reaches it through Back + Start. */
+    { { "cheats_key", "Debug menu", "none", PHOTO_ANYWHERE } },
+    /* To-do 24 (SPEC 10.3): --debug only; the pad has RB + A. */
+    { { "noclip_key", "Noclip", "RB + A", PHOTO_ANYWHERE } },
+    /* To-do 161: shown once the cheat is unlocked; the pad has both sticks clicked. */
+    { { "bullet_key", "Bullet time (cheat)", "LS + RS click", PHOTO_ANYWHERE } },
     { { "photo_forward", "Fly forward", "Left stick up", PHOTO_IN } },
     { { "photo_back", "Fly back", "Left stick down", PHOTO_IN } },
     { { "photo_left", "Fly left", "Left stick left", PHOTO_IN } },
@@ -406,6 +417,8 @@ static const Action s_photo[] = {
     { { "photo_panel", "Photo settings", "Start", PHOTO_IN } },
     /* B was "leave" until 2026-10-29 (user): Back + RB leaves too. */
     { { "photo_cutscene_blur", "Cutscene blur on / off", "B", PHOTO_IN } },
+    /* To-do 33: --debug only, freecam: the pad and keys go to the camera or Conker. */
+    { { "freecam_swap", "Freecam: camera or Conker", "Back + X", PHOTO_IN } },
 };
 
 static const Action *set_table(int set, int *n)
@@ -523,11 +536,15 @@ void controls_mouse(int set, float *sx, float *sy, int *invert)
 }
 
 /* Is input bound to a swimming or bat action that works here? */
-static volatile LONG s_photo_toggle_key, s_pause_key, s_report_key;
+static volatile LONG s_photo_toggle_key, s_pause_key, s_report_key, s_menu_key, s_noclip_key,
+                     s_bullet_key;
 
 int controls_photo_toggle_key(void) { return (int)s_photo_toggle_key; }
 int controls_pause_key(void) { return (int)s_pause_key; }
 int controls_report_key(void) { return (int)s_report_key; }
+int controls_menu_key(void) { return (int)s_menu_key; }
+int controls_noclip_key(void) { return (int)s_noclip_key; }
+int controls_bullet_key(void) { return (int)s_bullet_key; }
 
 /* Photo mode's profile: nothing bound and the mouse not looking, so the
  * game gets a pad at rest; photo_mode.c reads the keys itself. */
@@ -543,6 +560,9 @@ static void apply_photo(void)
                         controls_key(CONTROLS_PHOTO, PHOTO_TOGGLE));
     InterlockedExchange(&s_pause_key, controls_key(CONTROLS_PHOTO, PHOTO_PAUSE));
     InterlockedExchange(&s_report_key, controls_key(CONTROLS_PHOTO, PHOTO_REPORT));
+    InterlockedExchange(&s_menu_key, controls_key(CONTROLS_PHOTO, PHOTO_MENU));
+    InterlockedExchange(&s_noclip_key, controls_key(CONTROLS_PHOTO, PHOTO_NOCLIP));
+    InterlockedExchange(&s_bullet_key, controls_key(CONTROLS_PHOTO, PHOTO_BULLET));
 }
 
 static int place_key(const Action *t, const int *map, int n, int set,
@@ -614,6 +634,9 @@ static int key_latched(int input)
             return 1;
     return 0;
 }
+
+/* Per set, a bit per Windows key that presses Start (controls_start_key). */
+static volatile LONG s_start_bits[CONTROLS_PHOTO][8];
 
 static void apply_set(int set)
 {
@@ -764,6 +787,24 @@ static void apply_set(int set)
     m.right.dead = 15.0f / 99.0f;
     m.right.full = 74.0f / 99.0f;
     xbox_KbmSetProfile(set, b, k, &m);
+    /* The keys that press Start in this set (to-do 181). */
+    {
+        LONG bits[8] = { 0 };
+        for (j = 0; j < k; j++)
+            if ((b[j].output & ~XBOX_KBM_TOGGLE) == XBOX_KBM_START
+                && b[j].input < 256)
+                bits[b[j].input >> 5] |= (LONG)(1u << (b[j].input & 31));
+        for (j = 0; j < 8; j++)
+            InterlockedExchange(&s_start_bits[set][j], bits[j]);
+    }
+}
+
+int controls_start_key(int vk)
+{
+    const int set = controls_mode();
+    if (vk <= 0 || vk >= 256 || set < 0 || set >= CONTROLS_PHOTO)
+        return 0;
+    return (s_start_bits[set][vk >> 5] >> (vk & 31)) & 1;
 }
 
 /* ---- controller ports (F3 > Slots) -----------------------------
