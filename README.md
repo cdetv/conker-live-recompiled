@@ -258,8 +258,8 @@ debug pages, and every cheat without its code. Everything it does is in
 first.
 
 <p align="center">
-  <img src="images/debug-mode.png" alt="The Debug menu over the Training level drawn in wireframe, with Rare's positions page"><br>
-  <i>The Debug menu (F8), with wireframe on and one of Rare's debug pages</i>
+  <img src="images/debug-mode.png" alt="The Debug menu over Conker and the Training level drawn in wireframe"><br>
+  <i>The Debug menu (F8), with the whole scene in wireframe</i>
 </p>
 
 ### Loading
