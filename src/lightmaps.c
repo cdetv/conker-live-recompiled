@@ -40,6 +40,7 @@
  * light maps found and their names), for surveys with RECOMP_SOAK.
  */
 
+#include "dev_logs.h"
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -71,16 +72,11 @@ static ULONGLONG s_rescan_at;           /* GetTickCount64 of the 2nd walk */
 static uint32_t s_ch_seen[8];           /* characters' records added */
 static int      s_ch_n;
 static uint32_t s_ch_last;
-static int      s_log = -1;
 static uint32_t s_stack[4096];
 
 static int lm_logging(void)
 {
-    if (s_log < 0) {
-        const char *e = getenv("RECOMP_LIGHTMAP_LOG");
-        s_log = e && e[0] == '1';
-    }
-    return s_log;
+    return dev_log(DLOG_LIGHTMAP);
 }
 
 /* A guest pointer into main memory or the heap, where the level lives. */

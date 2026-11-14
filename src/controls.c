@@ -393,6 +393,8 @@ static const Action s_photo[] = {
     { { "noclip_key", "Noclip", "RB + A", PHOTO_ANYWHERE } },
     /* To-do 161: shown once the cheat is unlocked; the pad has both sticks clicked. */
     { { "bullet_key", "Bullet time (cheat)", "LS + RS click", PHOTO_ANYWHERE } },
+    /* To-do 168: --debug only; a [MARK] line and a shot (the console's mark). */
+    { { "mark_key", "Mark (log line + shot)", "none", PHOTO_ANYWHERE } },
     { { "photo_forward", "Fly forward", "Left stick up", PHOTO_IN } },
     { { "photo_back", "Fly back", "Left stick down", PHOTO_IN } },
     { { "photo_left", "Fly left", "Left stick left", PHOTO_IN } },
@@ -537,7 +539,7 @@ void controls_mouse(int set, float *sx, float *sy, int *invert)
 
 /* Is input bound to a swimming or bat action that works here? */
 static volatile LONG s_photo_toggle_key, s_pause_key, s_report_key, s_menu_key, s_noclip_key,
-                     s_bullet_key;
+                     s_bullet_key, s_mark_key;
 
 int controls_photo_toggle_key(void) { return (int)s_photo_toggle_key; }
 int controls_pause_key(void) { return (int)s_pause_key; }
@@ -545,6 +547,7 @@ int controls_report_key(void) { return (int)s_report_key; }
 int controls_menu_key(void) { return (int)s_menu_key; }
 int controls_noclip_key(void) { return (int)s_noclip_key; }
 int controls_bullet_key(void) { return (int)s_bullet_key; }
+int controls_mark_key(void) { return (int)s_mark_key; }
 
 /* Photo mode's profile: nothing bound and the mouse not looking, so the
  * game gets a pad at rest; photo_mode.c reads the keys itself. */
@@ -563,6 +566,7 @@ static void apply_photo(void)
     InterlockedExchange(&s_menu_key, controls_key(CONTROLS_PHOTO, PHOTO_MENU));
     InterlockedExchange(&s_noclip_key, controls_key(CONTROLS_PHOTO, PHOTO_NOCLIP));
     InterlockedExchange(&s_bullet_key, controls_key(CONTROLS_PHOTO, PHOTO_BULLET));
+    InterlockedExchange(&s_mark_key, controls_key(CONTROLS_PHOTO, PHOTO_MARK));
 }
 
 static int place_key(const Action *t, const int *map, int n, int set,

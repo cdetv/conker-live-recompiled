@@ -64,6 +64,7 @@ static ProfEntry s_table[PROF_TABLE_SIZE];
 static uint32_t s_dropped, s_ticks;
 static int s_window_on;      /* RECOMP_SAMPLE_PROFILE given: [PROF] reports */
 static uint32_t s_top = PROF_TOP_PER_THREAD;  /* RECOMP_SAMPLE_TOP: lines a thread */
+static double s_min_pct = 0.5;                /* RECOMP_SAMPLE_MIN: smallest share printed, % */
 
 /* ── Long frames (RECOMP_HITCH_MS) ─────────────────────────────
  *
@@ -124,6 +125,29 @@ static int s_callers;
 static uint64_t s_text_lo, s_text_hi;    /* the .exe's code section */
 #define PROF_STACK_COPY 65536
 static uint64_t s_stack_copy[PROF_STACK_COPY / 8];
+
+/* Copies a stopped thread's stack from rsp up to stack_base (at most
+ * PROF_STACK_COPY bytes) into dst; returns the bytes copied. Only the region
+ * rsp is in: past its end can be another stack's guard page, and touching
+ * that raised 0x80000001 in the profiler (2026-11-11, It's War bench with
+ * RECOMP_SAMPLE_CALLERS), and would break that stack's growth. */
+static size_t prof_copy_stack(void *dst, uint64_t rsp, uint64_t stack_base)
+{
+    MEMORY_BASIC_INFORMATION mi;
+    size_t n = (size_t)(stack_base - rsp);
+    uint64_t end;
+
+    if (n > PROF_STACK_COPY)
+        n = PROF_STACK_COPY;
+    if (!VirtualQuery((LPCVOID)rsp, &mi, sizeof mi) || mi.State != MEM_COMMIT
+        || (mi.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
+        return 0;
+    end = (uint64_t)mi.BaseAddress + mi.RegionSize;
+    if (end - rsp < n)
+        n = (size_t)(end - rsp);
+    memcpy(dst, (const void *)rsp, n);
+    return n;
+}
 
 /* Unwind c (taken from a thread whose stack [lo, hi) was copied to
  * s_stack_copy) to its first two frames in our code. The copy stands in for
@@ -287,10 +311,7 @@ static void prof_sample_all(void)
         }
         if (s_callers && (s_callers == 2 || !prof_in_text(c.Rip))
                 && t->stack_base > c.Rsp && !(c.Rsp & 7)) {
-            copied = (size_t)(t->stack_base - c.Rsp);
-            if (copied > PROF_STACK_COPY)
-                copied = PROF_STACK_COPY;
-            memcpy(s_stack_copy, (const void *)c.Rsp, copied);
+            copied = prof_copy_stack(s_stack_copy, c.Rsp, t->stack_base);
         }
         ResumeThread(t->h);
         if (copied) {
@@ -433,7 +454,7 @@ static void prof_print_window(double secs)
         for (i = 0; i < n && shown < s_top; i++) {
             if (f[i].slot != (uint32_t)k)
                 continue;
-            if (f[i].count * 200u < t->samples)   /* under 0.5% */
+            if (100.0 * f[i].count < s_min_pct * t->samples)
                 break;
             fprintf(stderr, "[PROF]     %5.1f%%  %s\n",
                     100.0 * f[i].count / t->samples,
@@ -445,7 +466,7 @@ static void prof_print_window(double secs)
         for (i = 0, shown = 0; g && i < ng && shown < s_top; i++) {
             if (g[i].slot != (uint32_t)k)
                 continue;
-            if (g[i].count * 200u < t->samples)
+            if (100.0 * g[i].count < s_min_pct * t->samples)
                 break;
             fprintf(stderr, "[PROF]       %5.1f%%  %s <- %s <- %s\n",
                     100.0 * g[i].count / t->samples,
@@ -856,10 +877,7 @@ void sample_profiler_dump_threads(void)
                 continue;
             }
             if (stack_base > c.Rsp && !(c.Rsp & 7)) {
-                copied = (size_t)(stack_base - c.Rsp);
-                if (copied > PROF_STACK_COPY)
-                    copied = PROF_STACK_COPY;
-                memcpy(s_dump_stack, (const void *)c.Rsp, copied);
+                copied = prof_copy_stack(s_dump_stack, c.Rsp, stack_base);
             }
             ResumeThread(h);
             CloseHandle(h);
@@ -907,6 +925,8 @@ void sample_profiler_start(void)
     }
     if (getenv("RECOMP_SAMPLE_TOP") && atoi(getenv("RECOMP_SAMPLE_TOP")) > 0)
         s_top = (uint32_t)atoi(getenv("RECOMP_SAMPLE_TOP"));
+    if (getenv("RECOMP_SAMPLE_MIN") && atof(getenv("RECOMP_SAMPLE_MIN")) > 0.0)
+        s_min_pct = atof(getenv("RECOMP_SAMPLE_MIN"));
     if (getenv("RECOMP_SAMPLE_CALLERS")) {
         prof_find_text();
         s_callers = s_text_hi > s_text_lo

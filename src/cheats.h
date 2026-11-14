@@ -36,6 +36,8 @@ enum {
     CHEAT_IRONBOOTS,        /* to-do 190 */
     CHEAT_HOLY,             /* to-do 191 */
     CHEAT_DIVE,             /* to-do 195 */
+    CHEAT_MOUSE,            /* to-do 212: Conker the Mouse */
+    CHEAT_BEAR,             /* to-do 212: Conker the Bear */
     CHEAT_COUNT
 };
 

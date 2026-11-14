@@ -23,6 +23,11 @@ enum {
 /* New lines of the log, once a frame while the console is open. */
 void console_poll_log(void);
 
+/* Once a frame on the executor with --debug, the console open or not: the
+ * command pipe's lines (to-do 174), running scripts (exec, 166), shots'
+ * outcomes (167). */
+void console_frame(void);
+
 /* Runs one typed line. */
 void console_run(const char *line);
 

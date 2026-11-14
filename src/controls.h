@@ -46,18 +46,18 @@ extern "C" {
  * PHOTO_MENU the Debug menu with --debug, to-do 14, and later the cheat menu,
  * SPEC 10.3: shown in F3 only with --debug for now); the rest only in photo
  * mode. Every row up to PHOTO_ANYWHERE_LAST works everywhere (PHOTO_NOCLIP
- * with --debug; PHOTO_BULLET while its cheat is on). Hide HUD had a key here
+ * and PHOTO_MARK with --debug; PHOTO_BULLET while its cheat is on). Hide HUD had a key here
  * too (hud_key, to-do 152) until to-do 188 left it to F2's checkbox. */
 enum {
     PHOTO_TOGGLE, PHOTO_PAUSE, PHOTO_REPORT, PHOTO_MENU, PHOTO_NOCLIP,
-    PHOTO_BULLET,
+    PHOTO_BULLET, PHOTO_MARK,
     PHOTO_FORWARD, PHOTO_BACK, PHOTO_LEFT, PHOTO_RIGHT, PHOTO_UP, PHOTO_DOWN,
     PHOTO_ROLL_LEFT, PHOTO_ROLL_RIGHT, PHOTO_SLOW, PHOTO_FAST,
     PHOTO_ZOOM_IN, PHOTO_ZOOM_OUT, PHOTO_TAKE, PHOTO_LEAVE, PHOTO_RESET,
     PHOTO_HUD, PHOTO_CONKER, PHOTO_STEP, PHOTO_RESUME, PHOTO_PANEL,
     PHOTO_CUT_BLUR, PHOTO_FREECAM_SWAP, PHOTO_ROWS
 };
-#define PHOTO_ANYWHERE_LAST PHOTO_BULLET
+#define PHOTO_ANYWHERE_LAST PHOTO_MARK
 
 /* One action: its settings.ini key ("story_jump"), what the menu calls it,
  * and the Xbox button it presses, for the menu ("A", "Right trigger").
@@ -125,6 +125,7 @@ int controls_report_key(void);
 int controls_menu_key(void);
 int controls_noclip_key(void);
 int controls_bullet_key(void);
+int controls_mark_key(void);
 /* Is this Windows key one the set in use presses Start with (the game's
  * pause: Esc, story_pause / mp_pause)? For the window's message hook, which
  * keeps it from the game while a menu of ours is up (to-do 181). */

@@ -24,6 +24,7 @@ extra choices in the settings menu.
 | Console | `~` (the key left of 1, on any keyboard layout) | |
 | Noclip on / off | Z | RB + A |
 | Freecam: control the camera or Conker | G | Back + X |
+| Mark (a numbered note in the log + a screenshot) | F7 | |
 
 - Every cheat is available without its code (the Debug menu's **Cheats** row).
 - The settings menu (F2) gets a few extra choices, marked "(debug)": see
@@ -41,6 +42,8 @@ A small window over the game, which keeps running under it. It remembers where y
 - **Level warp**: pick a level, then its first checkpoint, any checkpoint, or **Soak**
   (the level as the game's soak test loads it). Nothing is saved until you go back to the
   main menu; a small note on screen says so (it can be turned off under Options).
+  **MainMenu** is the main menu's own pub as a place to walk: Conker starts just inside, as
+  big as the menu's characters. Quit from the pause menu to go back to the real main menu.
 - **Cutscene viewer**: pick a level and one of its scenes and watch it. Afterwards you are
   back where you were; the story doesn't move on and nothing is saved. Hold the skip button
   to skip any scene.
@@ -51,7 +54,8 @@ A small window over the game, which keeps running under it. It remembers where y
   from the Chapters list would. A copy of the old save goes to `edit_save_backups\` first.
   Not for the save being played: go back to the main menu first.
 - **Jukebox**: the game's sounds by name, and its music tunes. A tune from another level
-  loads its music first (about 2 seconds).
+  loads its music first (about 2 seconds). Tunes that can't play where you are are greyed out;
+  hover one to see where it plays.
 - **Rare's debug pages**: the developers' own pages printed over the picture (memory,
   performance, positions, camera, character, effects, ...). Previous / Next, or LB / RB on the
   controller. A page stays up when the menu closes.
@@ -143,6 +147,8 @@ only, except Multiplayer unlocks.
 | `ironboots` | Iron Boots | Conker doesn't swim: he sinks and walks on the bottom. His air still runs out. |
 | `holysquirrel` | Holy Squirrel | Conker walks on water. Wins over Iron Boots when both are on. |
 | `diveanywhere` | Dive Anywhere | Conker can dive in any water, also before he has learnt to dive. |
+| `mouse` | Conker the Mouse | Conker at half his size, his voice higher; turns Conker the Bear off. |
+| `bear` | Conker the Bear | Conker at twice his size, his voice lower; turns Conker the Mouse off. |
 
 ### The game and the picture
 
@@ -152,7 +158,7 @@ only, except Multiplayer unlocks.
 | `wireframe [models\|all\|off]` | `models`: characters, what they hold and placed objects as lines; `all`: the whole scene as lines on black. |
 | `soak` | Starts the game's soak test (from the main menu; close the game to stop it). |
 | `debugpage [<number>\|next\|prev\|off]` | Rare's debug pages over the picture; no value lists them. |
-| `metrics [0\|1\|2]` | The F1 counter: off, fps, or fps with frame times and memory. |
+| `metrics [0\|1\|2\|3]` | The F1 counter: off, fps, fps with frame times and memory, or also what limits the frame rate. |
 
 ### Sounds
 
@@ -160,8 +166,50 @@ only, except Multiplayer unlocks.
 |---|---|
 | `cue <number>` | Plays one of the game's sounds (1 to `0xDD9`). The Debug menu's Jukebox lists them by name. |
 | `tune list [part of a name]` | Lists the game's music tunes with their numbers. |
-| `tune <number\|name>` | Plays a tune in place of the music playing (a tune from another level loads its music first). A few only play in their own level. |
+| `tune <number\|name>` | Plays a tune in place of the music playing (a tune from another level loads its music first). One that can't play where you are says where it plays. |
 | `tune stop` | Brings the replaced music back. |
+
+### Scripts, screenshots and marks
+
+| Command | What it does |
+|---|---|
+| `exec <file>` | Runs a script: a text file of console commands (a full path, or a file in your save folder; `.txt` may be left out), one line at a time. `wait`, `waitload` and `shot` wait until they are done; the first error stops it. Lines starting with `#` or `;` are comments. |
+| `exec` / `exec stop` | Which script runs, at which line / stops it. |
+| `wait <seconds>` | In a script: waits that long (0.5 works). |
+| `waitload [most seconds]` | In a script: waits until a level has loaded (a load starting within 10 s, then finished; at most 120 s unless you say). |
+| `pad <press> ...` | Presses buttons on the game's controller: `a`, `a:100` (held 100 ms), `lup:2000` (left stick up for 2 s), `lt+rt:500` (together), `&rt:300` (on top of one still held), `p2-start` (controller 2). Buttons: up down left right start back lthumb rthumb a b x y black white lt rt; sticks lleft lright lup ldown rleft rright rup rdown. |
+| `shot [name]` | Saves the picture as you see it, without the console or any menu, as `shots\<name>.png` in your save folder (no name: the date and time). |
+| `mark [note]` | Writes a numbered `[MARK]` line in the log with where you are, and saves a screenshot. The **F7** key does the same: press it the moment something looks wrong, then send the log and the picture. |
+| `waitscene [most seconds]` | In a script: waits until the cutscene playing has ended (with none playing, one starting within 10 s; at most 600 s unless you say). |
+| `state` | Where the game is: level, checkpoint, the furthest story part, Conker's place, the cutscene playing, what he is doing, the weapon out and what B does where he stands (by name), vehicle, camera, frame rate, loading, timescale, noclip, freecam / photo mode, cheats on. |
+| `echo <text>` | Prints the text (notes in a script). |
+
+### Story flags, logs and memory
+
+| Command | What it does |
+|---|---|
+| `flag list [text\|on\|off]` | The story's flags (the game's 238 tasks, as a save names them), each on or off; `text` keeps the names holding it. |
+| `flag <name> on\|off` | Marks one done or not. The level sees it from its next load (a warp, or a death's reload). Try a story state without a save made for it; back up your saves first. |
+| `log list` / `log <name> on\|off` | Switches a log on or off while the game runs (`audio`, `char`, `skip`, `volume`, `dof` ...; the list says what each prints). The lines go to the game's log. |
+| `peek <address> [bytes \| type [count]]` | Reads the game's memory (hex address; types u8 u16 u32 s8 s16 s32 f32; `[0x008470DC]+0x3E0` reads the pointer there first). |
+| `poke <address> <value> [type]` | Writes it. Easy to crash the game with: for people who know what the address is. |
+| `watch <address>` / `watch off` | Logs which game code changes a value (`[WATCH]` lines). One at a time; slows the game while on. |
+
+```
+# warp to the windmill, skip its scene, walk, take a picture
+warp cp 10
+waitload
+pad lt:4000
+wait 4
+pad lup:2000
+wait 2.5
+shot windmill_walk
+```
+
+**Commands from other programs:** in debug mode the game also listens on the named pipe
+`\\.\pipe\conker-console` (this PC only). A program writes a command line and reads back
+what the console printed, then a line `= ok` or `= error`. Handy for macro tools. If two games
+run in debug mode, the second one's log names its own pipe.
 
 ### Key binds and autoexec
 

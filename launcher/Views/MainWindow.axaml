@@ -39,6 +39,22 @@
     <DataTemplate DataType="vm:NoteItem">
       <TextBlock Text="{Binding Label}" TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}" Margin="0,2,0,4" />
     </DataTemplate>
+    <!-- Quality presets (to-do 202): a drop-down at the top of Graphics, as in F2. -->
+    <DataTemplate DataType="vm:PresetItem">
+      <Border Classes="row">
+      <StackPanel Spacing="4" Margin="0,4" ToolTip.Tip="{Binding Tip}" Background="Transparent">
+        <TextBlock Text="{Binding Label}" />
+        <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}" AutomationProperties.Name="{Binding Label}"
+                  HorizontalAlignment="Stretch">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:PresetOption">
+              <TextBlock Text="{Binding Name}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+      </StackPanel>
+      </Border>
+    </DataTemplate>
     <DataTemplate DataType="vm:CheckItem">
       <Border Classes="row" IsVisible="{Binding IsShown}">
         <CheckBox Content="{Binding Label}" IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}"

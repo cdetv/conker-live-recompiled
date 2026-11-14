@@ -8,7 +8,7 @@ using ConkerLauncher.Services;
 namespace ConkerLauncher.ViewModels;
 
 /// <summary>
-/// The Settings tab (SPEC 9.3): the F2 menu's entries and tabs (Display, Picture, Sound, Recomp),
+/// The Settings tab (SPEC 9.3): the F2 menu's entries and tabs (Display, Graphics, Sound, Fixes),
 /// built from <c>conker.exe --dump-settings</c>. A change is written to settings.ini shortly after it is made (a moving slider writes once it
 /// stops), only the option's own line.
 /// </summary>
@@ -18,6 +18,8 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     private readonly DecensorPatch decensor;
     private readonly Dictionary<string, string> pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SettingItem> items = [];
+    private readonly Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
+    private PresetItem? presetRow;
     private bool haveDecensor;
     private readonly DispatcherTimer saveTimer;
     private SettingsSchema? schema;
@@ -67,6 +69,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         TopItems.Clear();
         Tabs.Clear();
         items.Clear();
+        presetRow = null;
         MenuTab? tab = null;
         foreach (MenuEntry entry in schema.Menu)
         {
@@ -84,6 +87,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
                 "checkbox" => new CheckItem(this, entry),
                 "choice" => new ChoiceItem(this, entry),
                 "slider" => new SliderItem(this, entry),
+                "presets" when schema.Presets.Count > 0 => presetRow = new PresetItem(entry, schema.Presets, ApplyPreset),
                 _ => null,
             };
             if (item is not null)
@@ -128,6 +132,16 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         }
 
         haveDecensor = decensor.IsInstalled;
+        // No settings.ini yet: what the game would write on this PC (Low on a weak one, to-do 203).
+        bool fresh = !File.Exists(SaveFolder.SettingsIni);
+        values.Clear();
+        foreach (SettingOption option in schema.Options)
+        {
+            values[option.Key] = file.TryGetValue(option.Key, out string? fv) && schema.Normalize(option, fv) is { } fok
+                ? fok
+                : fresh ? schema.NewFileValue(option) : option.Default;
+        }
+
         foreach (SettingItem item in items)
         {
             if (item.Key is not { } key || !schema.ByKey.TryGetValue(key, out SettingOption? option))
@@ -136,9 +150,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             }
 
             // A value the game would ignore shows as the default it uses instead.
-            string value = file.TryGetValue(key, out string? v) && schema.Normalize(option, v) is { } ok
-                ? ok
-                : option.Default;
+            string value = values[key];
             item.Show(value);
             if (item is SliderItem { MuteKey: { } muteKey } slider && schema.ByKey.TryGetValue(muteKey, out SettingOption? mute))
             {
@@ -173,6 +185,27 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
                 item.IsShown = check.IsOn && check.IsShown;
             }
         }
+
+        presetRow?.Update(values);
+    }
+
+    /// <summary>A quality preset's button: every option it sets, shown and saved shortly.</summary>
+    private void ApplyPreset(QualityPreset preset)
+    {
+        foreach ((string key, string value) in preset.Values)
+        {
+            foreach (SettingItem item in items.Where(i => string.Equals(i.Key, key, StringComparison.OrdinalIgnoreCase)))
+            {
+                item.Show(value);
+            }
+
+            pending[key] = value;
+            values[key] = value;
+        }
+
+        saveTimer.Stop();
+        saveTimer.Start();
+        ShowChildren();
     }
 
     /// <summary>Writes the changes not saved yet (Play calls this before the game starts).</summary>
@@ -201,6 +234,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     public void Changed(string key, string value)
     {
         pending[key] = value;
+        values[key] = value;
         saveTimer.Stop();
         saveTimer.Start();
         ShowChildren();
@@ -228,6 +262,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             {
                 item.Show(option.Default);
                 pending[key] = option.Default;
+                values[key] = option.Default;
             }
 
             if (item is SliderItem { MuteKey: { } muteKey } slider && schema.ByKey.TryGetValue(muteKey, out SettingOption? mute))

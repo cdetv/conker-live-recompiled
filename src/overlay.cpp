@@ -124,6 +124,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <intrin.h>
 
 #include "imgui.h"
 #include "imgui_internal.h"         /* ClearActiveID: Report Bug's Esc */
@@ -161,6 +162,9 @@ void xbox_InputSetBackgroundPads(int on);
 void xbox_ApuSetPaused(int on);
 int xbox_SetRenderRes(unsigned w, unsigned h);
 int xbox_SetTextureFilter(int mode);
+void xbox_SetGpuFrameTiming(int on);
+double xbox_GpuFrameMs(unsigned *frames);
+unsigned long conker_GameThreadId(void);
 int xbox_SetPicture(float gamma, float contrast, float saturation);
 int xbox_SetSharpen(float percent);
 int xbox_SetAntiAlias(int mode);
@@ -209,6 +213,7 @@ void conker_SetScreenDrops(int on);
 void conker_SetUnderwaterOverlay(int on);
 void conker_SetPooFix(int on);
 void xbox_SetMovieStretch(int on);
+void conker_SetCutscene43(int on);
 void conker_SetIdleDemo(int on);
 void conker_BulletToggle(void);
 void conker_InputDisplayState(unsigned short *buttons, unsigned char analog[8],
@@ -287,7 +292,7 @@ static void open_if_free(LONG which)
 static volatile LONG s_want_pause;  /* the pause key's state (P; F4 before
                                      * photo mode), likewise */
 static volatile LONG s_pause_asked; /* GetTickCount when it was asked */
-static volatile LONG s_want_fps;    /* F1 state (0-2, fps_counter), likewise */
+static volatile LONG s_want_fps;    /* F1 state (0-3, fps_counter), likewise */
 static HWND volatile s_hwnd;        /* the frame window */
 /* Setting a key in F3 (executor; the window hook leaves the pause and
  * photo keys alone meanwhile): this set's action, else -1. */
@@ -383,6 +388,7 @@ static bool s_report_key_down;          /* the last press was taken by the hook 
  * key's command (s_bind_hit = its number + 1). */
 #define MAX_BIND_VK 48
 static volatile LONG s_bind_vk[MAX_BIND_VK], s_bind_n, s_bind_hit, s_binds_dirty = 1;
+static volatile LONG s_mark_hit;    /* the mark key was pressed (to-do 168) */
 extern "C" void conker_freeze_report(unsigned stale_ms);    /* main.c */
 
 /* A press less than FREEZE_MS after the last picture asks the next picture for
@@ -583,6 +589,16 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
             conker_SetNoclip(!conker_Noclip());
         return 1;
     }
+    /* The mark key (to-do 168, --debug; F3's photo table, default F7): the
+     * console's mark, run on the executor (overlay_frame). */
+    if (m == WM_KEYDOWN && settings_debug() && (int)w == controls_mark_key()
+        && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
+        && !(menu_typing()
+             && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
+        if (!(l & (1L << 30)))
+            InterlockedExchange(&s_mark_hit, 1);
+        return 1;
+    }
     /* Bullet time's key (to-do 161; F3's photo table, default B since to-do 184,
      * F7 before): only while the cheat is on, else the key is the game's. Not in
      * photo mode, whose cutscene blur key is B too. */
@@ -630,10 +646,10 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
             InterlockedCompareExchange(&s_want_open, MENU_QUIT, MENU_NONE);
         return 1;
     }
-    /* Off, fps, fps and frame times, off again. */
+    /* Off, fps, fps and frame times, what limits, off again. */
     if (m == WM_KEYDOWN && w == VK_F1) {
         if (!(l & (1L << 30)))
-            InterlockedExchange(&s_want_fps, (s_want_fps + 1) % 3);
+            InterlockedExchange(&s_want_fps, (s_want_fps + 1) % 4);
         return 1;
     }
     /* Photo mode's zoom: the wheel kept from the game's keys. */
@@ -774,7 +790,8 @@ static unsigned s_style_h;    /* picture height the style was made for */
 static bool s_replace[MENU_KINDS];   /* put a menu window back from settings.ini */
 static bool s_held;           /* the last call held the flip: this one
                                * presents the same frame again */
-static int s_fps;             /* F1: 0 off, 1 fps, 2 fps and frame times */
+static int s_fps;             /* F1: 0 off, 1 fps, 2 fps and frame times,
+                               * 3 also what limits (to-do 204) */
 static bool s_fps_restart;    /* start counting afresh at the next present */
 static LARGE_INTEGER s_fps_prev, s_fps_t0;
 static unsigned s_fps_n;      /* presents since s_fps_t0 */
@@ -782,6 +799,22 @@ static double s_fps_max;      /* longest of them, ms */
 static bool s_fps_have;       /* the three below are made */
 static double s_fps_rate, s_fps_ms, s_fps_long;
 static float s_fps_bottom;    /* the label's lower edge, for the pause label */
+
+/* F1 level 3, "what's limiting me" (to-do 204, #22): each frame's time on the
+ * game thread (game logic), on the executor thread (graphics translation:
+ * this hook's thread) and on the GPU, per fps window. CPU time from the
+ * threads' cycle counts (they sleep while they wait, so that is work),
+ * turned into ms by the TSC's rate over the window; GPU time from the
+ * toolkit's first-to-last timestamps of each frame. */
+static bool s_lim_have, s_lim_started;
+static double s_lim_game, s_lim_exec, s_lim_gpu;      /* ms a frame */
+static const char *s_lim_verdict, *s_lim_hint;
+static HANDLE s_lim_game_h;
+static unsigned long s_lim_game_tid;
+static ULONG64 s_lim_game_c0, s_lim_exec_c0;
+static unsigned __int64 s_lim_tsc0;
+static LARGE_INTEGER s_lim_qpc0;
+static ULONGLONG s_lim_logged;
 
 static ImGuiKey key_from_vk(WPARAM vk)
 {
@@ -1083,7 +1116,8 @@ extern "C" int overlay_metrics(void)
  * it comes on. */
 static void follow_fps(void)
 {
-    static const char *const names[] = { "off", "fps", "fps + frame times" };
+    static const char *const names[] = { "off", "fps", "fps + frame times",
+                                         "fps + what limits" };
     int level = (int)s_want_fps;
     char v[2] = { (char)('0' + level), '\0' };
 
@@ -1094,9 +1128,112 @@ static void follow_fps(void)
         s_fps_have = false;
     }
     s_fps = level;
+    xbox_SetGpuFrameTiming(level == 3);
+    s_lim_started = false;
+    s_lim_have = false;
     if (strcmp(settings_get("fps_counter"), v))
         save("fps_counter", v);
     fprintf(stderr, "[OVERLAY] fps counter: %s\n", names[level]);
+}
+
+/* The game thread's and this thread's cycle counts now; false when the game
+ * thread is not known yet or changed (counting starts again). */
+static bool lim_sample(ULONG64 *game, ULONG64 *exec)
+{
+    unsigned long tid = conker_GameThreadId();
+
+    if (tid != s_lim_game_tid) {
+        if (s_lim_game_h)
+            CloseHandle(s_lim_game_h);
+        s_lim_game_h = tid ? OpenThread(THREAD_QUERY_LIMITED_INFORMATION,
+                                        FALSE, tid) : NULL;
+        s_lim_game_tid = tid;
+        s_lim_started = false;
+    }
+    *game = *exec = 0;
+    if (!s_lim_game_h || !QueryThreadCycleTime(s_lim_game_h, game)
+        || !QueryThreadCycleTime(GetCurrentThread(), exec))
+        return false;
+    return true;
+}
+
+static void lim_begin(void)
+{
+    s_lim_started = lim_sample(&s_lim_game_c0, &s_lim_exec_c0);
+    s_lim_tsc0 = __rdtsc();
+    QueryPerformanceCounter(&s_lim_qpc0);
+    xbox_GpuFrameMs(NULL);              /* from now */
+}
+
+/* An fps window ended: frames presents in it, frame_ms their mean. */
+static void lim_window(unsigned frames, double frame_ms)
+{
+    ULONG64 g, e;
+    unsigned __int64 tsc;
+    LARGE_INTEGER now, freq;
+    unsigned gpu_n;
+    double wall, per_ms, gs, es, us;
+
+    if (!s_lim_started || !frames) {
+        lim_begin();
+        return;
+    }
+    if (!lim_sample(&g, &e) || !s_lim_started) {
+        lim_begin();
+        return;
+    }
+    tsc = __rdtsc();
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    wall = (double)(now.QuadPart - s_lim_qpc0.QuadPart) * 1000.0
+         / (double)freq.QuadPart;
+    per_ms = wall > 0.0 ? (double)(tsc - s_lim_tsc0) / wall : 0.0;
+    if (per_ms <= 0.0) {
+        lim_begin();
+        return;
+    }
+    s_lim_game = (double)(g - s_lim_game_c0) / per_ms / frames;
+    s_lim_exec = (double)(e - s_lim_exec_c0) / per_ms / frames;
+    s_lim_gpu = xbox_GpuFrameMs(&gpu_n);
+    s_lim_game_c0 = g;
+    s_lim_exec_c0 = e;
+    s_lim_tsc0 = tsc;
+    s_lim_qpc0 = now;
+
+    /* Shares of the frame. A thread near 100 % is what the frame waits for;
+     * the two CPU threads also take turns (the game waits for the executor at
+     * its flushes), so together near 100 % is a CPU limit too. The GPU span
+     * counts its idle gaps, so it is believed only when the CPU side has
+     * room. Nothing near 100 %: the frame rate cap or VSync sets the pace. */
+    gs = s_lim_game / frame_ms;
+    es = s_lim_exec / frame_ms;
+    us = s_lim_gpu > 0.0 ? s_lim_gpu / frame_ms : 0.0;
+    if (gs >= 0.85) {
+        s_lim_verdict = "CPU (game logic)";
+        s_lim_hint = "a lower resolution won't help; a lower frame rate will";
+    } else if (es >= 0.85) {
+        s_lim_verdict = "CPU (graphics translation)";
+        s_lim_hint = "a lower resolution won't help; a lower frame rate will";
+    } else if (gs + es >= 0.9) {
+        s_lim_verdict = "CPU (game and graphics in turn)";
+        s_lim_hint = "a lower resolution won't help; a lower frame rate will";
+    } else if (us >= 0.85) {
+        s_lim_verdict = "GPU";
+        s_lim_hint = "a lower render scale, resolution or the Low preset helps";
+    } else {
+        s_lim_verdict = "nothing (frame rate cap / VSync)";
+        s_lim_hint = "the PC keeps up with this frame rate";
+    }
+    s_lim_have = true;
+    if (GetTickCount64() - s_lim_logged >= 10000) {
+        s_lim_logged = GetTickCount64();
+        fprintf(stderr, "[LIMIT] %.1f fps, frame %.1f ms: game %.1f ms (%.0f %%),"
+                " graphics %.1f ms (%.0f %%), GPU %.1f ms (%.0f %%, %u frames)"
+                " -> limited by %s\n", 1000.0 / frame_ms, frame_ms, s_lim_game,
+                100.0 * gs, s_lim_exec, 100.0 * es, s_lim_gpu, 100.0 * us,
+                gpu_n, s_lim_verdict);
+        fflush(stderr);
+    }
 }
 
 /* Once per call of the hook: fresh is a game present, not a held frame
@@ -1119,6 +1256,8 @@ static void fps_tick(bool fresh)
         s_fps_prev = s_fps_t0 = now;
         s_fps_n = 0;
         s_fps_max = 0.0;
+        if (s_fps == 3)
+            lim_begin();
         return;
     }
     QueryPerformanceFrequency(&freq);
@@ -1136,6 +1275,8 @@ static void fps_tick(bool fresh)
     s_fps_ms = span / s_fps_n;
     s_fps_long = s_fps_max;
     s_fps_have = true;
+    if (s_fps == 3)
+        lim_window(s_fps_n, s_fps_ms);
     s_fps_t0 = now;
     s_fps_n = 0;
     s_fps_max = 0.0;
@@ -1653,6 +1794,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetPooFix(on);
         if (!strcmp(key, "stretch_fmv") && !settings_env_override(key))
             xbox_SetMovieStretch(on);
+        if (!strcmp(key, "cutscenes_43") && !settings_env_override(key))
+            conker_SetCutscene43(on);
         if (!strcmp(key, "smooth_world_shadows")
             && !settings_env_override(key))
             conker_SetSmoothLightmaps(on);
@@ -2270,26 +2413,6 @@ static void display_tab(unsigned w, unsigned h, bool *close)
         "2560x1440 (16:9)", "3840x2160 (16:9, slow)",
         "1440x1080 (4:3)", "1920x1440 (4:3)",
     };
-    static const char *const filter_values[] = {
-        "off", "original", "aniso2", "aniso4", "aniso8", "aniso16",
-    };
-    static const char *const filter_names[] = {
-        "Off (sharpest, shimmers far away)", "Original (as on the Xbox)",
-        "Anisotropic 2x", "Anisotropic 4x", "Anisotropic 8x",
-        "Anisotropic 16x (sharpest steady)",
-    };
-    /* As multiples (user 2026-11-07); settings.ini keeps the percent.
-     * 5x-10x only with --debug (to-do 30). */
-    static const char *const scale_values[] = {
-        "50", "67", "75", "100", "125", "150", "200", "250", "300", "400",
-        "500", "600", "700", "800", "900", "1000",
-    };
-    static const char *const scale_names[] = {
-        "0.5x (fastest, softest)", "0.67x", "0.75x", "1x (default)",
-        "1.25x", "1.5x", "2x", "2.5x", "3x", "4x (sharpest, slowest)",
-        "5x (debug)", "6x (debug)", "7x (debug)", "8x (debug)", "9x (debug)",
-        "10x (debug)",
-    };
     static const char *const mode_values[] = {
         "windowed", "borderless", "fullscreen",
     };
@@ -2311,10 +2434,6 @@ static void display_tab(unsigned w, unsigned h, bool *close)
         "30 fps (original)", "60 fps", "90 fps", "120 fps",
         "240 fps (debug)", "Uncapped (debug)",
     };
-    static const char *const up_values[] = { "bilinear", "fsr" };
-    static const char *const up_names[] = {
-        "Bilinear (plain, soft)", "AMD FSR 1 (sharper edges)",
-    };
     /* RECOMP_LANGUAGE: the toolkit's answer to XGetLanguage, read once. */
     static const char *const lang_values[] = { "english", "french", "german",
                                                "italian", "spanish",
@@ -2328,26 +2447,6 @@ static void display_tab(unsigned w, unsigned h, bool *close)
            (int)(sizeof(mode_values) / sizeof(mode_values[0])), true);
     choice("Render resolution", "render_resolution", res_values, res_names,
            (int)(sizeof(res_values) / sizeof(res_values[0])), true);
-    choice("Render scale", "render_scale", scale_values, scale_names,
-           settings_debug() ? 16 : 10, true);
-    {
-        /* The size the game is drawn at, and when the toolkit capped it
-         * (texture size, video memory), the multiple that is. */
-        unsigned dw, dh;
-        int pct = xbox_RenderScaleSize(&dw, &dh);
-        char buf[160];
-        if (pct < atoi(settings_get("render_scale")))
-            snprintf(buf, sizeof(buf), "    Drawn at %ux%u: capped at %.2gx,"
-                     " the largest the renderer and this graphics card take"
-                     " here", dw, dh, pct / 100.0);
-        else
-            snprintf(buf, sizeof(buf), "    Drawn at %ux%u", dw, dh);
-        note(buf);
-    }
-    choice("Upscaler (render scale below 1x)", "upscaler", up_values,
-           up_names, (int)(sizeof(up_values) / sizeof(up_values[0])), true);
-    choice("Texture filtering", "texture_filter", filter_values, filter_names,
-           (int)(sizeof(filter_values) / sizeof(filter_values[0])), true);
     choice("Frame rate", "frame_rate", fps_values, fps_names,
            settings_debug() ? 6 : 4, true);
     /* The dip fix at 30 is on by default and a debug choice (user
@@ -2391,8 +2490,36 @@ static void display_tab(unsigned w, unsigned h, bool *close)
              "buttons they press)");
 }
 
-static void picture_tab(unsigned w, unsigned h, bool *close)
+static void presets_choice(void);
+
+/* Was "Picture" until 0.3.1 (user 2026-11-11): render scale, upscaler and
+ * texture filtering came over from Display, under the quality preset. */
+static void graphics_tab(unsigned w, unsigned h, bool *close)
 {
+    static const char *const filter_values[] = {
+        "off", "original", "aniso2", "aniso4", "aniso8", "aniso16",
+    };
+    static const char *const filter_names[] = {
+        "Off (sharpest, shimmers far away)", "Original (as on the Xbox)",
+        "Anisotropic 2x", "Anisotropic 4x", "Anisotropic 8x",
+        "Anisotropic 16x (sharpest steady)",
+    };
+    /* As multiples (user 2026-11-07); settings.ini keeps the percent.
+     * 5x-10x only with --debug (to-do 30). */
+    static const char *const scale_values[] = {
+        "50", "67", "75", "100", "125", "150", "200", "250", "300", "400",
+        "500", "600", "700", "800", "900", "1000",
+    };
+    static const char *const scale_names[] = {
+        "0.5x (fastest, softest)", "0.67x", "0.75x", "1x (default)",
+        "1.25x", "1.5x", "2x", "2.5x", "3x", "4x (sharpest, slowest)",
+        "5x (debug)", "6x (debug)", "7x (debug)", "8x (debug)", "9x (debug)",
+        "10x (debug)",
+    };
+    static const char *const up_values[] = { "bilinear", "fsr" };
+    static const char *const up_names[] = {
+        "Bilinear (plain, soft)", "AMD FSR 1 (sharper edges)",
+    };
     static const char *const aa_values[] = { "off", "fxaa", "smaa" };
     static const char *const aa_names[] = {
         "Off (original)", "FXAA (quick, slightly soft)",
@@ -2419,6 +2546,27 @@ static void picture_tab(unsigned w, unsigned h, bool *close)
     };
     (void)w; (void)close;
 
+    presets_choice();
+    choice("Render scale", "render_scale", scale_values, scale_names,
+           settings_debug() ? 16 : 10, true);
+    {
+        /* The size the game is drawn at, and when the toolkit capped it
+         * (texture size, video memory), the multiple that is. */
+        unsigned dw, dh;
+        int pct = xbox_RenderScaleSize(&dw, &dh);
+        char buf[160];
+        if (pct < atoi(settings_get("render_scale")))
+            snprintf(buf, sizeof(buf), "    Drawn at %ux%u: capped at %.2gx,"
+                     " the largest the renderer and this graphics card take"
+                     " here", dw, dh, pct / 100.0);
+        else
+            snprintf(buf, sizeof(buf), "    Drawn at %ux%u", dw, dh);
+        note(buf);
+    }
+    choice("Upscaler (render scale below 1x)", "upscaler", up_values,
+           up_names, (int)(sizeof(up_values) / sizeof(up_values[0])), true);
+    choice("Texture filtering", "texture_filter", filter_values, filter_names,
+           (int)(sizeof(filter_values) / sizeof(filter_values[0])), true);
     choice("Anti-aliasing", "antialiasing", aa_values, aa_names,
            (int)(sizeof(aa_values) / sizeof(aa_values[0])), true);
     choice("Shadows", "shadow_resolution", shadow_values, shadow_names,
@@ -2462,7 +2610,10 @@ static void picture_tab(unsigned w, unsigned h, bool *close)
     checkbox("Stretch FMV", "stretch_fmv", true,
              "The movies (boot intro, idle demo, multiplayer briefings) "
              "stretched to the window. Off = their own 4:3 shape with black "
-             "bars at the sides. Story cutscenes always fill the window");
+             "bars at the sides. Story cutscenes: Cutscenes in 4:3");
+    checkbox("Cutscenes in 4:3", "cutscenes_43", true,
+             "Story cutscenes in the original 4:3 shape with black bars at "
+             "the sides. Off = they fill the window as gameplay does");
     checkbox("Underwater Shimmer", "underwater_overlay", true,
              "The shimmering haze round Conker under water, which shows as "
              "a band at eye level. Off = a clear view under water");
@@ -2650,7 +2801,7 @@ struct MenuTab {
 };
 static const MenuTab s_menu_tabs[] = {
     { "Display", display_tab },
-    { "Picture", picture_tab },
+    { "Graphics", graphics_tab },
     { "Sound", sound_tab },
     { "Fixes", fixes_tab },
 };
@@ -2709,6 +2860,134 @@ static void ask_report(void)
     InterlockedExchange(&s_report_by_key, 0);
     InterlockedExchange(&s_report_shot_want, 1);
     InterlockedExchange(&s_want_open, MENU_REPORT);
+}
+
+/* One preset key, just saved by a preset: to the running game as its own
+ * F2 row would (the rows' own code above), unless the environment decides
+ * it. hrtf waits for the next start (its row says so too). */
+static void apply_preset_key(const char *key)
+{
+    static const char *const dof[] = { "off", "original", "updated",
+                                       "cinematic" };
+    const char *v = settings_get(key);
+
+    if (!strcmp(key, "render_scale"))
+        apply_render_scale();
+    else if (!strcmp(key, "upscaler"))
+        apply_upscaler();
+    else if (!strcmp(key, "texture_filter"))
+        apply_tex_filter();
+    else if (!strcmp(key, "antialiasing"))
+        apply_aa();
+    else if (settings_env_override(key))
+        return;
+    else if (!strcmp(key, "frame_rate"))
+        conker_SetFrameRate(atoi(v));
+    else if (!strcmp(key, "shadow_resolution"))
+        conker_SetShadowRes((unsigned)atoi(v));
+    else if (!strcmp(key, "grass_full_detail"))
+        conker_SetGrassFull(strcmp(v, "0") != 0);
+    else if (!strcmp(key, "smooth_world_shadows"))
+        conker_SetSmoothLightmaps(strcmp(v, "0") != 0);
+    else if (!strcmp(key, "cutscene_blur")) {
+        for (int i = 0; i < 4; i++)
+            if (!_stricmp(v, dof[i]))
+                conker_SetCutsceneBlur(i);
+    }
+}
+
+/* What a preset sets, for its button's tooltip: "Frame rate 30, ...". */
+static void preset_tip(int p, char *out, size_t n)
+{
+    static const struct { const char *key, *name; } names[] = {
+        { "frame_rate", "Frame rate" }, { "render_scale", "Render scale" },
+        { "upscaler", "Upscaler" }, { "antialiasing", "Anti-aliasing" },
+        { "shadow_resolution", "Shadows" },
+        { "grass_full_detail", "Pop-in Fix" },
+        { "smooth_world_shadows", "Smooth world shadows" },
+        { "cutscene_blur", "Cutscene blur" },
+        { "texture_filter", "Texture filtering" },
+        { "hrtf", "3D sound (HRTF)" },
+    };
+    size_t len = 0;
+    out[0] = '\0';
+    for (int k = 0; k < settings_preset_key_count(); k++) {
+        const char *key = settings_preset_key(k);
+        const char *v = settings_preset_value(p, k);
+        const char *name = key;
+        char val[32];
+        for (const auto &e : names)
+            if (!strcmp(e.key, key))
+                name = e.name;
+        if (!strcmp(v, "0") || !strcmp(v, "1"))
+            snprintf(val, sizeof(val), "%s", v[0] == '1' ? "on" : "off");
+        else if (!strcmp(key, "render_scale"))
+            snprintf(val, sizeof(val), "%.3gx", atoi(v) / 100.0);
+        else if (!strcmp(key, "frame_rate"))
+            snprintf(val, sizeof(val), "%s fps", v);
+        else
+            snprintf(val, sizeof(val), "%s", v);
+        int wrote = snprintf(out + len, n - len, "%s%s: %s", k ? "\n" : "",
+                             name, val);
+        if (wrote < 0 || (size_t)wrote >= n - len)
+            break;
+        len += (size_t)wrote;
+    }
+}
+
+/* Quality presets (to-do 202): a drop-down at the top of the Graphics tab
+ * (four buttons above the tabs until the user's layout, 2026-11-11);
+ * "Custom" when a preset option was changed by hand. */
+static void presets_choice(void)
+{
+    const char *names[SETTINGS_PRESETS];
+    int cur = settings_preset_current();
+    char tip[512];
+
+    for (int p = 0; p < SETTINGS_PRESETS; p++)
+        names[p] = settings_preset_name(p);
+    if (dump_item("presets", "Quality preset", NULL)) {
+        dump_list("names", names, SETTINGS_PRESETS);
+        fputs(", \"tip\": ", s_dump);
+        settings_json_string(s_dump, "Sets render scale, texture filtering, "
+                             "anti-aliasing, shadows, smooth world shadows, "
+                             "cutscene blur, frame rate, the Pop-in Fix and "
+                             "3D sound at once. High is the default; Low "
+                             "suits a weak PC.");
+        fputs(" }", s_dump);
+    }
+    ImGui::TextUnformatted("Quality preset");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##quality_preset", cur >= 0 ? names[cur]
+                                                       : "Custom")) {
+        s_popup_open = true;
+        for (int p = 0; p < SETTINGS_PRESETS; p++) {
+            bool sel = p == cur;
+            if (ImGui::Selectable(names[p], sel) && !sel) {
+                if (settings_preset_apply(p)) {
+                    s_error[0] = '\0';
+                    for (int k = 0; k < settings_preset_key_count(); k++)
+                        apply_preset_key(settings_preset_key(k));
+                    fprintf(stderr, "[OVERLAY] quality preset %s\n",
+                            names[p]);
+                } else {
+                    snprintf(s_error, sizeof(s_error), "Could not save the "
+                             "%s preset (see the log)", names[p]);
+                }
+            }
+            preset_tip(p, tip, sizeof(tip));
+            ImGui::SetItemTooltip("%s", tip);
+            if (sel)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    } else {
+        ImGui::SetItemTooltip("Sets the options below and the frame rate, "
+                              "the Pop-in Fix and 3D sound at once. High is "
+                              "the default; Low suits a weak PC.");
+    }
+    if (strcmp(settings_get("hrtf"), settings_started("hrtf")))
+        note("    3D sound applies when the game is started again");
 }
 
 static void build_menu(unsigned w, unsigned h, bool *close)
@@ -3078,6 +3357,7 @@ static void build_debug(unsigned w, unsigned h, bool *close)
                 int number = i;
                 const char *name = kind ? conker_TuneName(i) : conker_SoundName(i, &number);
                 char row[96];
+                const char *where;
                 bool bad, hit;
                 if (!name || !*name)
                     continue;
@@ -3088,14 +3368,21 @@ static void build_debug(unsigned w, unsigned h, bool *close)
                     continue;           /* counted, not drawn */
                 if (kind && !_strnicmp(name, "AD_SEQ_", 7))
                     name += 7;
-                bad = kind && conker_TuneBad(i);
+                /* Known not to play here (to-do 193): greyed and not playable,
+                 * the tooltip says where it does. One that failed here: greyed. */
+                where = kind ? conker_TuneWhere(i) : NULL;
+                bad = kind && (where || conker_TuneBad(i));
                 snprintf(row, sizeof row, "%s  (%d)##jb%d_%d", name, number, kind, i);
-                if (bad)
+                if (bad && !where)      /* a disabled row is dimmed already */
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-                hit = ImGui::Selectable(row, sel[kind] == i, ImGuiSelectableFlags_AllowDoubleClick);
+                hit = ImGui::Selectable(row, sel[kind] == i,
+                                        ImGuiSelectableFlags_AllowDoubleClick
+                                            | (where ? ImGuiSelectableFlags_Disabled : 0));
                 if (bad) {
-                    ImGui::PopStyleColor();
-                    ImGui::SetItemTooltip("Didn't play in this level: its music isn't loaded here");
+                    if (!where)
+                        ImGui::PopStyleColor();
+                    ImGui::SetItemTooltip("%s", where ? where
+                                                      : "Didn't play in this level: its music isn't loaded here");
                 }
                 if (hit) {
                     sel[kind] = i;
@@ -3113,7 +3400,8 @@ static void build_debug(unsigned w, unsigned h, bool *close)
                                           : kind ? "No tunes" : "No sounds");
         }
         ImGui::EndChild();
-        ImGui::BeginDisabled(sel[kind] < 0);
+        /* A tune picked before the level changed may not play here now. */
+        ImGui::BeginDisabled(sel[kind] < 0 || (kind && conker_TuneWhere(sel_number[kind])));
         if (ImGui::Button("Play")) {
             if (kind)
                 conker_TunePlay(sel_number[kind]);
@@ -3836,7 +4124,8 @@ static bool row_hidden(int set, int i)
 {
     return set == CONTROLS_PHOTO
            && ((i == PHOTO_MENU && !cheats_menu_ok())
-               || ((i == PHOTO_NOCLIP || i == PHOTO_FREECAM_SWAP) && !settings_debug())
+               || ((i == PHOTO_NOCLIP || i == PHOTO_MARK || i == PHOTO_FREECAM_SWAP)
+                   && !settings_debug())
                || (i == PHOTO_BULLET && !cheat_unlocked(CHEAT_BULLET)));
 }
 
@@ -4511,8 +4800,11 @@ struct Shot {
     BYTE *bgr;
     unsigned w, h;
     wchar_t path[MAX_PATH];
-    char name[64];
+    char name[MAX_PATH];
+    long seq;                       /* a console shot's number (0 = a photo) */
 };
+
+static void dev_shot_result(long seq, int state, const char *msg);
 
 static char s_shot_msg[160];        /* the last photo's outcome (s_lock) */
 static DWORD s_shot_msg_at;         /* GetTickCount when it was set */
@@ -4602,7 +4894,18 @@ static DWORD WINAPI write_shot(void *arg)
     HRESULT hr = write_png(s->path, s->bgr, s->w, s->h);
     char msg[160];
 
-    if (SUCCEEDED(hr)) {
+    if (s->seq) {
+        if (SUCCEEDED(hr)) {
+            snprintf(msg, sizeof(msg), "Shot saved: %s (%ux%u)", s->name, s->w, s->h);
+            fprintf(stderr, "[SHOT] saved %s (%ux%u)\n", s->name, s->w, s->h);
+        } else {
+            snprintf(msg, sizeof(msg), "Shot %s could not be written (0x%08lX)", s->name,
+                     (unsigned long)hr);
+            fprintf(stderr, "[SHOT] %s could not be written: 0x%08lX\n", s->name,
+                    (unsigned long)hr);
+        }
+        dev_shot_result(s->seq, SUCCEEDED(hr) ? 1 : -1, msg);
+    } else if (SUCCEEDED(hr)) {
         snprintf(msg, sizeof(msg), "Photo saved: %s", s->name);
         fprintf(stderr, "[PHOTO] saved %s (%ux%u)\n", s->name, s->w, s->h);
     } else {
@@ -4611,7 +4914,8 @@ static DWORD WINAPI write_shot(void *arg)
         fprintf(stderr, "[PHOTO] %s could not be written: 0x%08lX\n",
                 s->name, (unsigned long)hr);
     }
-    shot_message(msg);
+    if (!s->seq)
+        shot_message(msg);
     free(s->bgr);
     delete s;
     if (SUCCEEDED(com))
@@ -4899,6 +5203,108 @@ static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
         snprintf(msg, sizeof(msg), "The photo could not be taken (%s)", why);
         shot_message(msg);
         fprintf(stderr, "[PHOTO] no photo: %s\n", why);
+    }
+}
+
+/* Console shots (shot, mark; to-dos 167, 168, --debug): the same picture as
+ * a photo (the back buffer before any menu of ours), to the path the
+ * console chose, no message on screen (it would be in the next shot). Each
+ * has a number; the console asks for its outcome (DEV_SHOTS kept). The
+ * request and the grab are on the executor, the outcome comes from the
+ * writer thread (s_lock). */
+#define DEV_SHOTS 16
+
+struct DevShot {
+    long seq;
+    int state;                      /* 0 waits, 1 saved, -1 failed */
+    char msg[200];
+};
+
+static DevShot s_dev_res[DEV_SHOTS];
+static long s_dev_seq;              /* the last number handed out */
+static volatile LONG s_dev_want;    /* one waits for the next present */
+static long s_dev_want_seq;
+static char s_dev_path[MAX_PATH];
+
+static void dev_shot_result(long seq, int state, const char *msg)
+{
+    EnterCriticalSection(&s_lock);
+    DevShot *d = &s_dev_res[seq % DEV_SHOTS];
+    d->seq = seq;
+    d->state = state;
+    snprintf(d->msg, sizeof(d->msg), "%s", msg);
+    LeaveCriticalSection(&s_lock);
+}
+
+extern "C" long overlay_dev_shot(const char *path, char *why, size_t why_size)
+{
+    if (s_dev_want) {
+        snprintf(why, why_size, "a shot already waits for the picture");
+        return 0;
+    }
+    if (!s_gpu_seen) {
+        snprintf(why, why_size, "no picture yet");
+        return 0;
+    }
+    s_dev_want_seq = ++s_dev_seq;
+    snprintf(s_dev_path, sizeof(s_dev_path), "%s", path);
+    dev_shot_result(s_dev_want_seq, 0, "");
+    InterlockedExchange(&s_dev_want, 1);
+    return s_dev_want_seq;
+}
+
+extern "C" int overlay_dev_shot_result(long seq, char *msg, size_t size)
+{
+    int state = 0;
+
+    if (seq < 1 || seq > s_dev_seq)
+        return 0;
+    EnterCriticalSection(&s_lock);
+    const DevShot *d = &s_dev_res[seq % DEV_SHOTS];
+    if (d->seq == seq && d->state) {
+        state = d->state;
+        snprintf(msg, size, "%s", d->msg);
+    }
+    LeaveCriticalSection(&s_lock);
+    return state;
+}
+
+static void take_dev_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
+                          ID3D11RenderTargetView *rtv)
+{
+    const char *why = NULL;
+    const long seq = s_dev_want_seq;
+    unsigned w = 0, h = 0;
+    BYTE *bgr = grab_back_buffer(dev, ctx, rtv, &w, &h, &why);
+    char msg[200];
+
+    if (bgr) {
+        Shot *s = new Shot();
+        s->bgr = bgr;
+        s->w = w;
+        s->h = h;
+        s->seq = seq;
+        snprintf(s->name, sizeof(s->name), "%s", s_dev_path);
+        if (MultiByteToWideChar(CP_ACP, 0, s_dev_path, -1, s->path, MAX_PATH) <= 0) {
+            why = "the path is too long";
+        } else {
+            HANDLE t = CreateThread(NULL, 0, write_shot, s, 0, NULL);
+            if (t) {
+                CloseHandle(t);
+                s = NULL;               /* the thread's now */
+            } else {
+                why = "no writer thread";
+            }
+        }
+        if (s) {
+            free(s->bgr);
+            delete s;
+        }
+    }
+    if (why) {
+        snprintf(msg, sizeof(msg), "No shot (%s)", why);
+        fprintf(stderr, "[SHOT] %s\n", msg);
+        dev_shot_result(seq, -1, msg);
     }
 }
 
@@ -5808,7 +6214,17 @@ static void fps_label(unsigned h)
     else
         ImGui::Text("%.1f fps  %.1f ms  (max %.1f)", s_fps_rate, s_fps_ms,
                     s_fps_long);
-    if (s_fps == 2 && settings_debug())
+    if (s_fps == 3) {
+        if (s_lim_have) {
+            ImGui::Text("game %.1f ms  graphics %.1f ms  GPU %.1f ms",
+                        s_lim_game, s_lim_exec, s_lim_gpu);
+            ImGui::Text("limited by: %s", s_lim_verdict);
+            ImGui::TextDisabled("%s", s_lim_hint);
+        } else {
+            ImGui::TextUnformatted("limited by: measuring...");
+        }
+    }
+    if (s_fps >= 2 && settings_debug())
         ImGui::Text("RAM %u MB  GPU %u of %u MB", s_mem_ram, s_mem_gpu,
                     s_mem_gpu_budget);
     s_fps_bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
@@ -6064,6 +6480,9 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     /* The photo first: the picture as it is, before any text of ours. */
     if (s_shot_want && InterlockedExchange(&s_shot_want, 0))
         take_shot(dev, ctx, rtv);
+    /* A console shot (to-do 167) likewise. */
+    if (s_dev_want && InterlockedExchange(&s_dev_want, 0))
+        take_dev_shot(dev, ctx, rtv);
     /* Report Bug's picture likewise (F10 or F2's button asked for it). */
     if (s_report_shot_want && InterlockedExchange(&s_report_shot_want, 0))
         report_grab(dev, ctx, rtv);
@@ -6165,7 +6584,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     ImGui::NewFrame();
     s_popup_open = false;
     s_fps_bottom = 0.0f;
-    if (s_fps == 2 && settings_debug())
+    if (s_fps >= 2 && settings_debug())
         mem_tick(dev);
     if (s_fps)
         fps_label(h);
@@ -6331,6 +6750,41 @@ static void binds_frame(void)
     }
 }
 
+/* Frames shown a second for the console's state (to-do 169): counted always
+ * (F1's counter only while it shows), held presents left out, a second at a
+ * time; 0 when none came in the last two seconds. */
+static volatile LONG s_state_fps10;     /* fps x 10 */
+static volatile LONG64 s_state_fps_at;  /* GetTickCount64 of that */
+
+static void state_fps_tick(bool fresh)
+{
+    static ULONGLONG t0;
+    static unsigned n;
+    ULONGLONG now = GetTickCount64();
+
+    if (!fresh)
+        return;
+    if (!t0 || now - t0 > 3000) {
+        t0 = now;
+        n = 0;
+        return;
+    }
+    n++;
+    if (now - t0 >= 1000) {
+        InterlockedExchange(&s_state_fps10, (LONG)(n * 10000.0 / (double)(now - t0) + 0.5));
+        InterlockedExchange64(&s_state_fps_at, (LONG64)now);
+        t0 = now;
+        n = 0;
+    }
+}
+
+extern "C" double overlay_fps_now(void)
+{
+    if (GetTickCount64() - (ULONGLONG)s_state_fps_at > 2000)
+        return 0.0;
+    return s_state_fps10 / 10.0;
+}
+
 /* The back end's overlay hook: once per present, held ones too, executor
  * thread. Only this hook holds the flip, so a call after one that held is
  * the same frame again, not a present of the game's. */
@@ -6339,10 +6793,15 @@ static int overlay_frame(void *dev, void *ctx, void *rtv, unsigned w,
 {
     InterlockedExchange64(&s_last_present, (LONG64)GetTickCount64());
     cheats_poll();
-    if (settings_debug())
+    if (settings_debug()) {
         binds_frame();
+        if (s_mark_hit && InterlockedExchange(&s_mark_hit, 0))
+            console_run("mark");
+        console_frame();
+    }
     follow_fps();
     fps_tick(!s_held);
+    state_fps_tick(!s_held);
     s_held = overlay_draw(dev, ctx, rtv, w, h) != 0;
     return s_held ? 1 : 0;
 }
@@ -6378,6 +6837,8 @@ extern "C" void overlay_dump_settings(FILE *f)
 
     fputs("{\n", f);
     settings_dump_options(f);
+    fputs(",\n", f);
+    settings_dump_presets(f);
     fputs(",\n  \"menu\": [\n", f);
     s_dump = f;
     s_dump_first = true;

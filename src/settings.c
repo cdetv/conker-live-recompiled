@@ -28,7 +28,9 @@
  * the debug switches stay environment-only.
  */
 
+#define COBJMACROS
 #include <windows.h>
+#include <dxgi1_6.h>     /* IDXGIFactory6: the weak-PC check's fast chip */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -98,13 +100,15 @@ static const Option s_options[] = {
       "(plain, soft) or fsr (default; AMD FidelityFX Super Resolution 1:\n"
       "keeps edges sharp; the sharpen setting then sets FSR's own\n"
       "sharpening)." },
-    { "display", "texture_filter", OPT_CHOICE, "original", "original",
+    /* Default aniso8 since 0.3.1 (user 2026-11-11: the High preset's). */
+    { "display", "texture_filter", OPT_CHOICE, "aniso8", "original",
       "RECOMP_TEX_FILTER", "off original aniso2 aniso4 aniso8 aniso16",
-      "How textures far away or at an angle are drawn: original (default;\n"
-      "smaller copies of each texture far away, as on the Xbox: steady,\n"
-      "slightly soft in the distance), off (always the full-size texture:\n"
-      "sharpest, but shimmers when moving), aniso2/aniso4/aniso8/aniso16\n"
-      "(original plus anisotropic filtering: also sharp at a low angle)." },
+      "How textures far away or at an angle are drawn: original (smaller\n"
+      "copies of each texture far away, as on the Xbox: steady, slightly\n"
+      "soft in the distance), off (always the full-size texture: sharpest,\n"
+      "but shimmers when moving), aniso2/aniso4/aniso8/aniso16 (original\n"
+      "plus anisotropic filtering: also sharp at a low angle; aniso8 is\n"
+      "the default)." },
     { "display", "grass_full_detail", OPT_BOOL, "1", "1", "RECOMP_GRASS_FULL",
       NULL,
       "Pop-in Fix (grass, flowers, fur and characters): 1 = full detail\n"
@@ -133,10 +137,12 @@ static const Option s_options[] = {
       "How many ambient particles popin_particles adds beyond the game's\n"
       "own box round the camera, 0 to 100 percent (default 15; fewer the\n"
       "further away; 0 = only the game's own).", 0.0f, 100.0f },
-    { "display", "fps_counter", OPT_CHOICE, "0", "0", NULL, "0 1 2",
+    { "display", "fps_counter", OPT_CHOICE, "0", "0", NULL, "0 1 2 3",
       "Frame rate in the top left corner: 0 = off (default), 1 = frames\n"
-      "per second, 2 = also how long a frame takes (average and longest).\n"
-      "F1 steps through them in the game." },
+      "per second, 2 = also how long a frame takes (average and longest),\n"
+      "3 = also what limits the frame rate (each frame's time on the game\n"
+      "logic, the graphics translation and the graphics card, and which one\n"
+      "the frame waits for). F1 steps through them in the game." },
     /* 144 and up work through RECOMP_FRAME_RATE but are left out until the
      * game's whole-tick code is fixed for them (user 2026-11-03;
      * conker-notes "drunk walk loses its turning"); 240 and uncapped are
@@ -346,7 +352,11 @@ static const Option s_options[] = {
       "The movies (the boot intro, the idle demo, the multiplayer\n"
       "briefings and win screens): 0 = in their own 4:3 shape with black\n"
       "bars at the sides on a wide window (default), 1 = stretched to the\n"
-      "window. Story cutscenes are drawn by the game and always fill it." },
+      "window. Story cutscenes: cutscenes_43." },
+    { "picture", "cutscenes_43", OPT_BOOL, "0", "0", "RECOMP_CUTSCENE_43", NULL,
+      "Story cutscenes (the ones the game draws, not the movies) on a wide\n"
+      "window: 0 = they fill the window as gameplay does (default), 1 = in\n"
+      "the original 4:3 shape with black bars at the sides." },
     { "picture", "poo_fix", OPT_BOOL, "1", "1", "RECOMP_POO_FIX", NULL,
       "Under the poo after the Bull fight, that haze drawn brown to match\n"
       "the poo instead of the original's blue band: 1 = on (default),\n"
@@ -657,6 +667,7 @@ static const Option s_options[] = {
     { "controls_photo", "cheats_key", OPT_KEY, "f8", "f8", NULL, NULL, NULL },
     { "controls_photo", "noclip_key", OPT_KEY, "z", "z", NULL, NULL, NULL },
     { "controls_photo", "bullet_key", OPT_KEY, "b", "b", NULL, NULL, NULL },
+    { "controls_photo", "mark_key", OPT_KEY, "f7", "f7", NULL, NULL, NULL },
     { "controls_photo", "photo_forward", OPT_KEY, "w", "w", NULL, NULL, NULL },
     { "controls_photo", "photo_back", OPT_KEY, "s", "s", NULL, NULL, NULL },
     { "controls_photo", "photo_left", OPT_KEY, "a", "a", NULL, NULL, NULL },
@@ -691,10 +702,12 @@ static const Option s_options[] = {
       "next to the .exe. Applies when the game is started again." },
     { "game", "cheat_menu", OPT_BOOL, "0", "0", NULL, NULL,
       "Kept by the game (SPEC 10.3)." },
+    /* One bit a cheat (cheats.h): room for 24, the most a float range
+     * holds exactly (65535 lost the Mouse and Bear, bits 16-17). */
     { "game", "cheats_unlocked", OPT_NUM, "0", "0", NULL, NULL, NULL,
-      0.0f, 65535.0f },
+      0.0f, 16777215.0f },
     { "game", "cheats_on", OPT_NUM, "0", "0", NULL, NULL, NULL,
-      0.0f, 65535.0f },
+      0.0f, 16777215.0f },
     { "game", "cheat_cash_1", OPT_NUM, "-1", "-1", NULL, NULL, NULL,
       -1.0f, 2000000000.0f },
     { "game", "cheat_cash_2", OPT_NUM, "-1", "-1", NULL, NULL, NULL,
@@ -704,6 +717,30 @@ static const Option s_options[] = {
     { "game", "cheats_window", OPT_RECT, "", "", NULL, NULL, NULL },
 };
 #define NUM_OPTIONS (sizeof(s_options) / sizeof(s_options[0]))
+
+/* Quality presets (to-do 202, #22; values the user's, 2026-11-11): the costly
+ * options set at once from F2 or the launcher. High is the defaults above
+ * (checked at start-up), so a new file shows High. Any of these changed by
+ * hand and no preset matches: "Custom". */
+static const char *const s_preset_names[SETTINGS_PRESETS] = {
+    "Low", "Medium", "High", "Ultra",
+};
+static const struct {
+    const char *key;
+    const char *v[SETTINGS_PRESETS];
+} s_presets[] = {
+    { "frame_rate",           { "30",       "60",      "60",     "60"      } },
+    { "render_scale",         { "67",       "100",     "100",    "200"     } },
+    { "upscaler",             { "fsr",      "fsr",     "fsr",    "fsr"     } },
+    { "antialiasing",         { "fxaa",     "fxaa",    "smaa",   "smaa"    } },
+    { "shadow_resolution",    { "original", "2x",      "4x",     "8x"      } },
+    { "grass_full_detail",    { "0",        "1",       "1",      "1"       } },
+    { "smooth_world_shadows", { "0",        "1",       "1",      "1"       } },
+    { "cutscene_blur",        { "original", "updated", "updated", "updated" } },
+    { "texture_filter",       { "original", "aniso4",  "aniso8", "aniso16" } },
+    { "hrtf",                 { "0",        "1",       "1",      "1"       } },
+};
+#define NUM_PRESET_KEYS ((int)(sizeof(s_presets) / sizeof(s_presets[0])))
 
 static char s_path[MAX_PATH];                    /* settings.ini */
 static char s_dir[MAX_PATH];                     /* the save folder */
@@ -1166,6 +1203,174 @@ int settings_set(const char *key, const char *value)
     return 1;
 }
 
+const char *settings_preset_name(int p)
+{
+    return p >= 0 && p < SETTINGS_PRESETS ? s_preset_names[p] : "Custom";
+}
+
+int settings_preset_key_count(void)
+{
+    return NUM_PRESET_KEYS;
+}
+
+const char *settings_preset_key(int k)
+{
+    return k >= 0 && k < NUM_PRESET_KEYS ? s_presets[k].key : NULL;
+}
+
+const char *settings_preset_value(int p, int k)
+{
+    if (p < 0 || p >= SETTINGS_PRESETS || k < 0 || k >= NUM_PRESET_KEYS)
+        return NULL;
+    return s_presets[k].v[p];
+}
+
+int settings_preset_current(void)
+{
+    for (int p = 0; p < SETTINGS_PRESETS; p++) {
+        int k;
+        for (k = 0; k < NUM_PRESET_KEYS; k++) {
+            int i = find(s_presets[k].key);
+            if (i < 0 || _stricmp(s_value[i], s_presets[k].v[p]))
+                break;
+        }
+        if (k == NUM_PRESET_KEYS)
+            return p;
+    }
+    return -1;
+}
+
+/* Every value the preset sets, then the file written once. */
+int settings_preset_apply(int p)
+{
+    if (p < 0 || p >= SETTINGS_PRESETS)
+        return 0;
+    for (int k = 0; k < NUM_PRESET_KEYS; k++) {
+        int i = find(s_presets[k].key);
+        if (i >= 0)
+            strcpy_s(s_value[i], MAX_PATH, s_presets[k].v[p]);
+    }
+    if (!write_file())
+        return 0;
+    fprintf(stderr, "[SETTINGS] quality preset %s saved to %s\n",
+            s_preset_names[p], s_path);
+    fflush(stderr);
+    return 1;
+}
+
+/* Weak-PC defaults (to-do 203, #22): the preset a first start takes on this
+ * PC, -1 = the defaults (High). why: what decided it, for the log. A PC that
+ * gives the game 4 threads or fewer (the process's affinity, so a test can
+ * hold the game to fewer), or whose main graphics card (the high-performance
+ * chip where Windows 10 1803+ can name it, else DXGI adapter 0: the one the
+ * renderer's D3D11CreateDevice(NULL) takes, which a laptop with two chips
+ * moves to the fast one for the .exe's NvOptimusEnablement /
+ * AmdPowerXpressRequestHighPerformance exports, to-do 205) has under 2 GB of its own
+ * video memory (integrated graphics: Intel reports ~128 MB, AMD APUs their
+ * shared frame buffer) or is the software renderer, gets Low. The Steam Deck
+ * (AMD 1002:163F LCD, 1002:1435 OLED) gets Low too (user 2026-11-11), named in
+ * the line. RECOMP_WEAK_PC=1 / 0 forces it either way (tests). */
+int settings_first_start_preset(char *why, size_t n)
+{
+    typedef HRESULT (WINAPI *CreateFactoryFn)(REFIID, void **);
+    static const GUID iid_factory1 = { 0x770aae78, 0xf26f, 0x4dba,
+        { 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87 } };
+    static const GUID iid_factory6 = { 0xc1b6694f, 0xff09, 0x44a9,
+        { 0xb0, 0x3c, 0x77, 0x90, 0x0a, 0x0a, 0x1d, 0x17 } };
+    static const GUID iid_adapter1 = { 0x29038f61, 0x3839, 0x4626,
+        { 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05 } };
+    IDXGIFactory6 *fac6 = NULL;
+    const char *force = getenv("RECOMP_WEAK_PC");
+    DWORD_PTR mask = 0, sys = 0;
+    int threads = 0, low = 0;
+    char gpu[160] = "graphics card unknown";
+    HMODULE dx;
+    CreateFactoryFn create;
+    IDXGIFactory1 *fac = NULL;
+    IDXGIAdapter1 *ad = NULL;
+
+    if (force && *force) {
+        snprintf(why, n, "RECOMP_WEAK_PC=%s", force);
+        return strcmp(force, "0") ? 0 : -1;
+    }
+    if (GetProcessAffinityMask(GetCurrentProcess(), &mask, &sys))
+        for (; mask; mask &= mask - 1)
+            threads++;
+    if (threads <= 0)
+        threads = (int)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+
+    dx = LoadLibraryA("dxgi.dll");
+    create = dx ? (CreateFactoryFn)(void *)GetProcAddress(dx, "CreateDXGIFactory1")
+                : NULL;
+    if (create && SUCCEEDED(create(&iid_factory1, (void **)&fac)) && fac) {
+        /* The fast chip first (a laptop's NVIDIA / AMD one), else adapter 0. */
+        if (SUCCEEDED(IDXGIFactory1_QueryInterface(fac, &iid_factory6, (void **)&fac6))
+            && fac6) {
+            if (FAILED(IDXGIFactory6_EnumAdapterByGpuPreference(fac6, 0,
+                    DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, &iid_adapter1, (void **)&ad)))
+                ad = NULL;
+            IDXGIFactory6_Release(fac6);
+        }
+        if (ad || IDXGIFactory1_EnumAdapters1(fac, 0, &ad) == S_OK) {
+            DXGI_ADAPTER_DESC1 d;
+            if (SUCCEEDED(IDXGIAdapter1_GetDesc1(ad, &d))) {
+                char name[128];
+                double gb = (double)d.DedicatedVideoMemory
+                            / (1024.0 * 1024.0 * 1024.0);
+                int deck = d.VendorId == 0x1002
+                           && (d.DeviceId == 0x163F || d.DeviceId == 0x1435);
+                WideCharToMultiByte(CP_UTF8, 0, d.Description, -1, name,
+                                    sizeof name, NULL, NULL);
+                snprintf(gpu, sizeof gpu, "%s%s, %.1f GB video memory",
+                         deck ? "Steam Deck: " : "", name, gb);
+                if (deck || (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+                    || d.DedicatedVideoMemory < (SIZE_T)2048 << 20)
+                    low = 1;
+            }
+            IDXGIAdapter1_Release(ad);
+        }
+        IDXGIFactory1_Release(fac);
+    }
+    if (threads <= 4)
+        low = 1;
+    snprintf(why, n, "%d threads, %s", threads, gpu);
+    return low ? 0 : -1;
+}
+
+/* The "presets" member of --dump-settings: each preset's name and the
+ * values it sets, for the launcher's preset buttons; then "first_start":
+ * the preset a new settings.ini takes on this PC (null = the defaults), so
+ * a file the launcher writes first gets it too. */
+void settings_dump_presets(FILE *f)
+{
+    char why[256];
+    int first = settings_first_start_preset(why, sizeof why);
+
+    fputs("  \"presets\": [\n", f);
+    for (int p = 0; p < SETTINGS_PRESETS; p++) {
+        fputs("    { \"name\": ", f);
+        settings_json_string(f, s_preset_names[p]);
+        fputs(", \"values\": {", f);
+        for (int k = 0; k < NUM_PRESET_KEYS; k++) {
+            fputs(k ? ", " : " ", f);
+            settings_json_string(f, s_presets[k].key);
+            fputs(": ", f);
+            settings_json_string(f, s_presets[k].v[p]);
+        }
+        fprintf(f, " } }%s\n", p + 1 < SETTINGS_PRESETS ? "," : "");
+    }
+    fputs("  ],\n  \"first_start\": ", f);
+    if (first >= 0) {
+        fputs("{ \"preset\": ", f);
+        settings_json_string(f, s_preset_names[first]);
+        fputs(", \"why\": ", f);
+        settings_json_string(f, why);
+        fputs(" }", f);
+    } else {
+        fputs("null", f);
+    }
+}
+
 void settings_load(const char *save_dir)
 {
     char buf[1024], section[64] = "";
@@ -1183,7 +1388,21 @@ void settings_load(const char *save_dir)
     sprintf_s(s_path, MAX_PATH, "%s\\settings.ini", save_dir);
     if (fopen_s(&f, s_path, "r") || !f) {
         /* The save folder itself may not exist yet on a first start. */
+        char why[256];
+        int first = settings_first_start_preset(why, sizeof why);
         CreateDirectoryA(save_dir, NULL);
+        if (first >= 0) {
+            for (int k = 0; k < NUM_PRESET_KEYS; k++) {
+                int o = find(s_presets[k].key);
+                if (o >= 0)
+                    strcpy_s(s_value[o], MAX_PATH, s_presets[k].v[first]);
+            }
+            fprintf(stderr, "[SETTINGS] first start on a weak PC (%s): the "
+                    "%s preset\n", why, s_preset_names[first]);
+        } else {
+            fprintf(stderr, "[SETTINGS] first start (%s): the defaults\n",
+                    why);
+        }
         if (write_file())
             fprintf(stderr, "[SETTINGS] wrote defaults to %s\n", s_path);
         else
@@ -1260,6 +1479,14 @@ void settings_load(const char *save_dir)
         strcpy_s(s_started[i], MAX_PATH, s_value[i]);
         apply_env(i);
     }
+    for (int k = 0; k < NUM_PRESET_KEYS; k++) {
+        int o = find(s_presets[k].key);
+        if (o < 0 || _stricmp(s_options[o].def, s_presets[k].v[2]))
+            fprintf(stderr, "[SETTINGS] BUG: the High preset's %s is not "
+                    "the default\n", s_presets[k].key);
+    }
+    fprintf(stderr, "[SETTINGS] quality preset: %s\n",
+            settings_preset_name(settings_preset_current()));
 }
 
 void settings_use_defaults(const char *save_dir)

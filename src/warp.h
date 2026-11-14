@@ -27,6 +27,9 @@ int conker_WarpCheckpoint(int cp, char *name, int size);
 /* Why a warp can't happen now, or NULL. */
 const char *conker_WarpRefused(void);
 
+/* A level is loading, or a warp waits to start (waitload). */
+int conker_LevelLoading(void);
+
 void conker_WarpToCheckpoint(int cp);
 void conker_WarpToLevel(int level);
 

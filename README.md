@@ -72,6 +72,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 
 | | Xbox | Live & Recompiled |
 |---|---|---|
+| Quality preset | — | **Low, Medium, High or Ultra** sets the main picture options in one go; a weaker PC starts on Low |
 | Resolution | 640×480 | Any resolution and shape (16:9, 21:9, 4:3, ...); by default your monitor's size, up to 1440p (or native, e.g. 4K) |
 | Render scale | — | 0.5x–4x (10x in debug mode): supersampling above 1x, FSR 1 upscaling below |
 | Frame rate | 30 fps | **30, 60, 90 or 120 fps** with the game running at its correct speed (30 fps as the original) |
@@ -92,6 +93,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | Picture adjustments | — | Gamma, contrast, saturation |
 | Retro look | — | Scanlines or CRT effect, adjustable |
 | Movies | 4:3 | Kept 4:3 with black bars on a wide screen, or stretched to fill it |
+| Cutscenes | 4:3 | As wide as your screen, or in their original 4:3 with black bars |
 
 <table>
   <tr>
@@ -172,8 +174,8 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 </table>
 
 <p align="center">
-  <img src="images/settings-menu.png" alt="The F2 settings menu over the game"><br>
-  <i>The F2 settings menu (Picture tab), with the game running under it</i>
+  <img src="images/graphics-menu.png" alt="The F2 settings menu's Graphics tab over the game"><br>
+  <i>The F2 settings menu (Graphics tab), with the game running under it</i>
 </p>
 
 ### Controls
@@ -219,6 +221,9 @@ ones the game never lets you skip: hold the skip button (LT; Space, E or the
 left mouse button) for 3 seconds. A cutscene in several parts skips one part
 at a time. Or turn off Hold to Skip to skip on a press.
 
+On a wide screen, cutscenes fill it like the rest of the game, or turn on
+**Cutscenes in 4:3** to watch them in their original shape with black bars.
+
 ### On screen and extras
 
 - **Speedrun Timer**: game time without loads from a new game, total and per
@@ -231,8 +236,8 @@ at a time. Or turn off Hold to Skip to skip on a press.
 
 ### Cheats
 
-Sixteen cheats, from God mode and infinite oxygen to Moon Jump, Big Head and
-walking on water. How to get them?
+Eighteen cheats, from God mode and infinite oxygen to Moon Jump, Big Head,
+walking on water, and Conker as a tiny mouse or a big bear. How to get them?
 
 > You know that fire imp? Actually, you'll find that he's, uh, context
 > sensitive. And, eh, well, actually... You hold this button, and it makes
@@ -253,7 +258,8 @@ Tick **Debug Mode** on the launcher's **Debug** tab (or start
 `conker.exe --debug`) for a Debug menu (F8) and a console (`~`): level warp,
 a cutscene viewer, noclip, freecam, wireframe, game speed, Edit Save (move a
 save to any chapter), a jukebox of the game's sounds and music, Rare's own
-debug pages, and every cheat without its code. Everything it does is in
+debug pages, every cheat without its code, and console scripts for testing
+(button presses, waits, screenshots, story flags). Everything it does is in
 [DEBUG_MODE.md](DEBUG_MODE.md). It's a testing tool: back up your saves
 first.
 
@@ -316,7 +322,7 @@ A few glitches the Xbox version has too are fixed:
 - Imports the game from a disc image, folder or archive (`.zip`, `.7z`,
   `.rar`, multi-part included), and checks it is a supported release.
 - Every in-game setting and control before you start, in the same tabs as
-  the game's menus.
+  the game's menus, with the same quality presets.
 - **Works with a controller**: every tab, setting and button by pad, with
   on-screen button hints.
 - Its own **file browser** for choosing your game or the patch, by mouse,
@@ -335,11 +341,11 @@ A few glitches the Xbox version has too are fixed:
 
 <table>
   <tr>
-    <th width="50%">Settings tab</th>
+    <th width="50%">Settings tab (Graphics)</th>
     <th width="50%">Controls tab</th>
   </tr>
   <tr>
-    <td><img src="images/launcher-settings.png" alt="The launcher's Settings tab"></td>
+    <td><img src="images/launcher-graphics.png" alt="The launcher's Settings tab on Graphics, with the quality preset"></td>
     <td><img src="images/launcher-controls.png" alt="The launcher's Controls tab"></td>
   </tr>
 </table>
@@ -373,7 +379,7 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 | `~` | | Console ([debug mode](#debug-mode) only) |
 | F10 | Report Bug... button in the settings menu | Report a bug |
 | F11 or Alt+Enter | | Full screen on/off |
-| F1 | | Frame rate counter |
+| F1 | | Frame rate counter (press again for frame times, a third time for what limits your frame rate) |
 | P | | Pause or resume (gameplay and cutscenes) |
 | Esc (main menu) | B (main menu) | Close the game (asks first) |
 | Space, E or left mouse (hold) | LT (hold) | Skip a cutscene |

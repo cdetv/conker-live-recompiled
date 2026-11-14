@@ -116,7 +116,7 @@ public static class SettingsFile
                 lines.AddRange(o.Comment.Split('\n').Select(l => "; " + l));
             }
 
-            lines.Add($"{o.Key} = {o.Default}");
+            lines.Add($"{o.Key} = {schema.NewFileValue(o)}");
         }
 
         return lines;

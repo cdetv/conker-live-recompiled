@@ -14,6 +14,9 @@
 #include "cheats.h"
 #include "settings.h"
 
+/* cheats_unlocked / cheats_on in settings.c take 24 bits (a float range). */
+_Static_assert(CHEAT_COUNT <= 24, "widen cheats_unlocked / cheats_on in settings.c");
+
 typedef struct {
     const char *name;
     const char *help;
@@ -54,6 +57,10 @@ static const Cheat s_cheats[CHEAT_COUNT] = {
       "holysquirrel", 0xF577732E967BE2BCull },
     { "Dive Anywhere", "Conker can dive in any water, before he has learnt to dive too.",
       "diveanywhere", 0x1CBD697C597412E6ull },
+    { "Conker the Mouse", "Conker at half his size, his voice higher. Conker the Bear "
+      "goes off.", "mouse", 0xD8A32F55E6D41C39ull },
+    { "Conker the Bear", "Conker at twice his size, his voice lower. Conker the Mouse "
+      "goes off.", "bear", 0x153534EA0CE8E196ull },
 };
 
 #define WORD_MASTER 0x8F33F9C767D23E0Dull
@@ -211,6 +218,8 @@ void cheat_set(int id, int on)
     load();
     if (id < 0 || id >= CHEAT_COUNT || !cheat_unlocked(id))
         return;
+    if (on && (id == CHEAT_MOUSE || id == CHEAT_BEAR))  /* one size at a time */
+        InterlockedAnd(&s_on, ~(LONG)CHEAT_BIT(id == CHEAT_MOUSE ? CHEAT_BEAR : CHEAT_MOUSE));
     if (on)
         InterlockedOr(&s_on, (LONG)CHEAT_BIT(id));
     else
@@ -263,7 +272,7 @@ static int code_of(uint64_t h)
     if (h == WORD_MASTER)
         return CHEAT_CODE_ALL;
     for (int i = 0; i < CHEAT_COUNT; i++)
-        if (h == s_cheats[i].word)
+        if (s_cheats[i].word && h == s_cheats[i].word)
             return i;
     return CHEAT_CODE_WRONG;
 }

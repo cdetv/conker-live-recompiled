@@ -20,7 +20,7 @@ PART 1: conker.exe and xemu_apu.dll (the game)
 
 https://github.com/sp00nznet/xboxrecomp by Ned Heller (sp00nznet) and
 contributors, used through the fork https://github.com/cdetv/xboxrecomp
-(version v0.13.1-410-gd304858). It translated the game's code and provides
+(version v0.13.1-430-gdeaa654). It translated the game's code and provides
 the runtime around it: the Xbox kernel, graphics, sound and controllers.
 MIT licence:
 
@@ -265,7 +265,7 @@ PART 2: conker-launcher.exe (the launcher)
 9. .NET runtime
 ---------------
 
-https://github.com/dotnet/runtime (10.0.14), built into the launcher so
+https://github.com/dotnet/runtime (10.0.15), built into the launcher so
 no .NET install is needed. Its own third-party notices are Appendix B.
 
 The MIT License (MIT)

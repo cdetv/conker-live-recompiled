@@ -15,6 +15,10 @@ extern "C" {
  * compares the pause flags). */
 void photo_frame_begin(void);
 void photo_render_begin(void);
+/* Conker the Mouse / Bear (to-do 212, 214): the drawn view's eye moved by
+ * move (direction kept); passes: the visibility passes again from it, with
+ * the camera cut byte cut (-1 = none). */
+int photo_move_view(void (*move)(float eye[3]), int passes, int cut);
 void photo_frame_end(void);
 /* Nonzero while the world is frozen, for photo mode or by the pause key
  * (any thread); photo_active: photo mode itself (its camera, keys, panel);

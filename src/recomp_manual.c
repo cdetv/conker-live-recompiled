@@ -44,6 +44,7 @@
 #include "edit_save.h"
 #include "debug_tools.h"
 #include "speedrun.h"
+#include "dev_logs.h"
 
 int overlay_cheat_keys_free(void);
 int conker_CheatScreen(void);
@@ -65,6 +66,8 @@ static void cutview_scene_event(uint32_t rec);
 static int cutview_active(void);
 static int warp_spot_active(void);
 static int cutview_sweep_skip(void);
+static int wide_scene_hides_id(uint32_t id);
+static int menu_hides_char_id(uint32_t id);
 static void noclip_move(void);
 static void noclip_level_load(void);
 
@@ -217,9 +220,13 @@ void recomp_unimpl(const char *text, uint32_t va)
 {
     static uint32_t seen[256];
     static int nseen;
-    const char *trap = getenv("RECOMP_UNIMPL_TRAP");
-    int stop = trap && *trap && *trap != '0';
+    static int stop = -1;   /* read once: D3D's cli / sti come here constantly */
     int i;
+
+    if (stop < 0) {
+        const char *trap = getenv("RECOMP_UNIMPL_TRAP");
+        stop = trap && *trap && *trap != '0';
+    }
 
     for (i = 0; i < nseen; i++)
         if (seen[i] == va && !stop)
@@ -360,9 +367,97 @@ static float display_widen(void)
 /* The widening in the camera's aspect: the one last applied here. */
 static float s_widen_applied;
 
+/* ── Cutscenes in 4:3 (to-do 213; F2 Graphics "Cutscenes in 4:3") ─────────
+ *
+ * Off by default. On: while a story cutscene plays ([0x0076F0E0] == 1, not
+ * multiplayer) the camera keeps the game's own 4:3 aspect (no widening
+ * below, nor of the front end's overlay camera, both through display_widen),
+ * and the frame is shown at 4:3 in the middle of the window with black bars
+ * (toolkit host effect NV_HOST_FX_ASPECT, put in the pushbuffer at
+ * D3DDevice_Swap so it lands on the very frame drawn that way). Decided once
+ * a game frame, when the camera's aspect is (sub_000645C0), so the camera
+ * and the mark always agree; the scene's first frame may still be wide.
+ * RECOMP_CUTSCENE_43=1 (cutscenes_43 = 1) on. */
+static volatile int g_scene43 = -1;
+static int s_frame43;                   /* this game frame's camera is 4:3 */
+static int s_frame43_drawn;             /* ... and the in-game draw ran */
+
+void conker_SetCutscene43(int on)
+{
+    g_scene43 = on != 0;
+}
+
+static int scene43_wanted(void)
+{
+    if (g_scene43 < 0) {
+        const char *e = getenv("RECOMP_CUTSCENE_43");
+        g_scene43 = e && *e == '1';
+    }
+    return g_scene43 && MEM8(0x0076F0E0u) == 1 && !MEM8(0x007819D5u);
+}
+
+static float display_widen43(void)
+{
+    return s_frame43 ? 1.0f : display_widen();
+}
+
+extern void sub_0053C300(void);
+
+/* A host method in D3D's pushbuffer (nv2a_pb_state.h): parameters 0..n-1,
+ * then the effect. Room made by MakeRequestedSpace (0x0053C300) when the
+ * pushbuffer is full. */
+static void host_fx_mark(uint32_t fx, const uint32_t *prm, unsigned n)
+{
+    uint32_t dev = MEM32(0x005499E8u), p;
+
+    if (!dev)
+        return;
+    p = MEM32(dev);
+    if (p + 8u * (n + 1u) > MEM32(dev + 4)) {
+        uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx,
+                 r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+        g_eax = MEM32(0x0054A8B8u);
+        g_esp -= 4;
+        MEM32(g_esp) = g_eax >> 1;
+        g_esp -= 4;
+        MEM32(g_esp) = 0;               /* return address, popped by the callee */
+        sub_0053C300();
+        p = g_eax;
+        g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+        g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+    }
+    for (unsigned i = 0; i < n; i++, p += 8u) {
+        MEM32(p) = (1u << 18) | (7u << 13) | (0x0800u + 4u * i);   /* NV_HOST_PARAM(i) */
+        MEM32(p + 4u) = prm[i];
+    }
+    MEM32(p) = (1u << 18) | (7u << 13) | 0x0880u;                    /* NV_HOST_EFFECT */
+    MEM32(p + 4u) = fx;
+    MEM32(dev) = p + 8u;
+}
+
+/* D3DDevice_Swap (0x0053D700): the frame just drawn is shown at 4:3 or
+ * fills the window; a mark only when that changes (the executor keeps it). */
+void sub_0053D700_enter(void)
+{
+    static int sent;
+    int want = s_frame43 && s_frame43_drawn;
+
+    s_frame43_drawn = 0;
+    if (want != sent) {
+        const uint32_t prm[2] = { want ? 4u : 0u, want ? 3u : 0u };
+        host_fx_mark(3u, prm, 2);       /* NV_HOST_FX_ASPECT */
+        sent = want;
+        fprintf(stderr, "[CUT43] %s (level 0x%02X scene %u)\n",
+                want ? "cutscene shown at 4:3" : "full width again",
+                MEM32(0x007FA1F8u), MEM8(0x0076F0DCu));
+    }
+}
+
 void sub_000645C0_enter(void)
 {
-    float widen = display_widen();
+    float widen;
+    s_frame43 = scene43_wanted();
+    widen = display_widen43();
     aspect_log();
     s_widen_applied = widen;
     if (widen != 1.0f)
@@ -375,7 +470,7 @@ void sub_000645C0_enter(void)
  * shown, before photo mode's projection build. */
 void conker_AspectRefresh(unsigned cam)
 {
-    float widen = display_widen();
+    float widen = display_widen43();
     if (s_widen_applied > 0.0f && widen != s_widen_applied) {
         MEMF(cam + 0x108u) *= widen / s_widen_applied;
         s_widen_applied = widen;
@@ -460,7 +555,7 @@ void sub_003FB030_enter(void)
     fixed_camera_log(cam);
     if (MEM32(g_esp) == 0x00202BE7u                  /* built by 0x00202AC0 */
         && MEM32(0x007FA1F8) == CONKER_LEVEL_FRONT_END)
-        MEMF(cam + 0x108) *= display_widen();
+        MEMF(cam + 0x108) *= display_widen43();
 }
 
 /* ── Conker: the game's own audio debug text (RECOMP_AUDIO_LOG=1) ─────────
@@ -493,12 +588,7 @@ void sub_003FB030_enter(void)
  * (bank+0x15) or needs no priming (bank+0x22), check 0x00017FF0. */
 static int audio_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_AUDIO_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_AUDIO);
 }
 
 /* XACT cue watch: the barn pit music (AD_CUE_windy_wires_inter, an
@@ -675,12 +765,7 @@ void sub_0054E95D_enter(void)
  * 0x74xxxxxx CRT heap, XACT's voices in contiguous memory (0x8xxxxxxx). */
 static int xact_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_XACT_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_XACT);
 }
 
 static int xact_va_ok(uint32_t va)
@@ -830,7 +915,6 @@ static volatile int   g_snd_master_mute;
 static volatile float g_snd_cut = 100.0f;        /* percent, in cutscenes */
 static volatile long  g_snd_gen;                 /* bumped by every change */
 static int g_snd_ready;
-static int g_snd_log = -1;
 static unsigned g_snd_class_count[SND_CHANNELS + 1];   /* + not found */
 
 static float snd_env_pct(const char *name, float def, float hi)
@@ -866,8 +950,6 @@ static void snd_init(void)
     g_snd_master_mute = e && *e && *e != '0';
     g_snd_cut = snd_env_pct("RECOMP_CUTSCENE_VOLUME", 100.0f, 200.0f);
     g_snd_solo = snd_channel_named(getenv("RECOMP_AUDIO_SOLO"));
-    e = getenv("RECOMP_VOLUME_LOG");
-    g_snd_log = e && *e ? atoi(e) : 0;
     g_snd_ready = 1;
     fprintf(stderr, "[VOLUME] master %.0f %%%s, music %.0f %%%s, effects %.0f %%%s, "
             "dialogue %.0f %%%s, other %.0f %%%s, cutscenes %.0f %%%s%s\n",
@@ -989,7 +1071,7 @@ void sub_0054E484_enter(void)
             ch = snd_channel_of_bank(MEM32(trk + 0x74));
             g_snd_class_count[ch < 0 ? SND_CHANNELS : ch]++;
             if ((v = snd_voice(w, 1)) != NULL) {
-                if (g_snd_log > 0 && (v->snd != snd || v->trk != trk))
+                if (dev_log(DLOG_VOLUME) > 0 && (v->snd != snd || v->trk != trk))
                     fprintf(stderr, "[VOLUME] voice %08X: %s (bank %08X)\n", w,
                             ch < 0 ? "bank not found, effects" : s_snd_names[ch],
                             MEM32(trk + 0x74));
@@ -1012,7 +1094,7 @@ void sub_0054E484_enter(void)
             mb = 0;
         MEM32(g_esp + 4) = (uint32_t)mb;
     }
-    if (g_snd_log > 1)
+    if (dev_log(DLOG_VOLUME) > 1)
         fprintf(stderr, "[VOLUME] set %08X %s %d -> %d mB (ret %08X)\n", w,
                 s_snd_names[ch], was, mb, ret);
 }
@@ -1045,7 +1127,7 @@ static void snd_resend(void)
     }
     g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
     g_esi = r_esi; g_edi = r_edi; g_ebp = r_ebp; g_esp = r_esp;
-    if (g_snd_log > 0)
+    if (dev_log(DLOG_VOLUME) > 0)
         fprintf(stderr, "[VOLUME] re-sent %d voice(s); voices by bank so far: "
                 "music %u, effects %u, dialogue %u, other %u, not found %u\n",
                 sent, g_snd_class_count[0], g_snd_class_count[1],
@@ -1069,7 +1151,7 @@ static void snd_update(void)
         snd_resend();
     }
     cut = MEM8(0x0076F0E0u) == 1;
-    if (cut != was_cut && g_snd_log > 0)
+    if (cut != was_cut && dev_log(DLOG_VOLUME) > 0)
         fprintf(stderr, "[VOLUME] cutscene %s (level %02X)\n", cut ? "on" : "off",
                 MEM32(0x007FA1F8u));
     was_cut = cut;
@@ -1435,6 +1517,42 @@ void sub_0053C190_enter(void)
             return;
         }
         xbox_Nv2aWaitFence(gen, 2);
+    }
+}
+
+/* D3DResource_IsBusy (0x0053B940, ecx = resource): busy while its lock bits
+ * (0x780000, its own or its parent's) are set or the GPU has not passed its
+ * fence time [+8]. Ten game loops call it until it says free
+ * (res_free_when_not_busy 0x003F5630 and nine more, listed by return address
+ * below; 0x001A6295 only tests it once and is left alone). They spin without
+ * a pause, and on a PC with 2 threads the spin starved the executor that
+ * moves the GPU on: stalls of 1-8 s (to-do 205, 2026-11-13). Here a busy
+ * answer to one of those loops waits for the next fence the executor reaches
+ * (at most 1 ms) before the loop asks again. RECOMP_BUSY_WAIT_SLEEP=0 = the
+ * original spin. */
+extern void sub_0053B940_gen(void);
+
+void sub_0053B940(void)
+{
+    static int on = -1;
+    uint32_t ret = MEM32(g_esp), gen;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_BUSY_WAIT_SLEEP");
+        on = !(e && *e == '0');
+    }
+    gen = xbox_Nv2aFenceGeneration();   /* before the test: a fence in between wakes at once */
+    sub_0053B940_gen();
+    if (!g_eax || !on)
+        return;
+    switch (ret) {
+    case 0x003EDD3Cu: case 0x003EDD98u: case 0x003EF9D7u: case 0x003EFA4Au:
+    case 0x003EFAD7u: case 0x003F5649u: case 0x003FA50Cu: case 0x003FA51Au:
+    case 0x003FA528u: case 0x003FA54Bu:
+        xbox_Nv2aWaitFence(gen, 1);
+        break;
+    default:
+        break;
     }
 }
 
@@ -2144,8 +2262,24 @@ void sub_00249ED0(void)
 
 static void audio_update_logs(void)
 {
-    if (!audio_log_on())
+    /* The game's debug channels we turn on (0x00846FF4: =2's emitters);
+     * what they were comes back when the log goes off (log audio off). */
+    static const uint32_t chans[] = { 0x00846FF1, 0x00846FF3, 0x00846FF4, 0x00846FF7,
+                                      0x00846FF9, 0x00846FFD, 0x00846FFF };
+    static uint8_t was[sizeof(chans) / sizeof(chans[0])];
+    static int kept;
+
+    if (!audio_log_on()) {
+        if (kept)
+            for (size_t i = 0; i < sizeof(chans) / sizeof(chans[0]); i++)
+                MEM8(chans[i]) = was[i];
+        kept = 0;
         return;
+    }
+    if (!kept)
+        for (size_t i = 0; i < sizeof(chans) / sizeof(chans[0]); i++)
+            was[i] = MEM8(chans[i]);
+    kept = 1;
     MEM8(0x00846FF1) = 1;
     MEM8(0x00846FF3) = 1;
     MEM8(0x00846FF7) = 1;
@@ -2154,8 +2288,7 @@ static void audio_update_logs(void)
     MEM8(0x00846FFF) = 1;
     /* RECOMP_AUDIO_LOG=2: also 0x00846FF4, sound emitters (add/remove,
      * "not active and is being removed", who stops one). */
-    if (getenv("RECOMP_AUDIO_LOG")[0] == '2')
-        MEM8(0x00846FF4) = 1;
+    MEM8(0x00846FF4) = dev_log(DLOG_AUDIO) >= 2 ? 1 : was[2];
     emitter_watch_tick();
     xact_watch_tick();
     level_music_gate_watch();
@@ -2636,12 +2769,7 @@ void sub_0053AD90(void)
  * eye-pop (run_20261016_120107). */
 static int attach_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_ATTACH_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_ATTACH);
 }
 
 static long attach_ms(void)
@@ -2723,12 +2851,7 @@ void sub_00076EC0_enter(void)
  * death's flight at any frame rate). */
 static int char_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_CHAR_LOG");
-        on = e && *e && *e != '0' ? (atoi(e) > 1 ? atoi(e) : 1) : 0;
-    }
-    return on;
+    return dev_log(DLOG_CHAR);
 }
 
 static uint32_t s_char_frame;
@@ -2806,12 +2929,7 @@ static int cutscene_flash_on(void)
 
 static int cutscene_flash_log(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_CUTSCENE_FLASH_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_CUTSCENE_FLASH);
 }
 
 static int cutscene_flash_glow(void)
@@ -3519,9 +3637,8 @@ void sub_002DB350(void)
     if (s_shot30.on < 0) {
         const char *e = getenv("RECOMP_SHOT30_FIX");
         s_shot30.on = !(e && *e == '0');
-        e = getenv("RECOMP_SHOT30_LOG");
-        s_shot30.log = e && *e == '1';
     }
+    s_shot30.log = dev_log(DLOG_SHOT30);
     if (!xact_va_ok(c)) {
         sub_002DB350_gen();
         return;
@@ -3558,6 +3675,107 @@ void sub_002DB350(void)
         fprintf(stderr, "[SHOT30] t=%ld ms f%u projectile %08X id %02X kind %u: lifetime out after "
                 "%.2f s (step %.3f)\n", attach_ms(), MEM32(0x007F9F60u), c, id, MEM16(c + 0x476),
                 (attach_ms() - s_shot30.born_ms[id]) / 1000.0, MEMF(0x007FA24Cu));
+}
+
+/* Honey drops above 30 fps (to-do 103, user 2026-11-12: the Mrs Bee hive
+ * slowed 120 fps to 75-85, and its drops fell faster and thicker above 30).
+ * 0x001B3030 (cdecl, [esp+4] = the dripping character, eax = drops, bl =
+ * big drops) makes eax honey drops round the character: particles of list
+ * type 5 (0x001AF030, 3 s life; their update 0x001B1D70 moves them by dt).
+ * Its callers, the hive's own update 0x002B8A40 (camera within 1800) and
+ * 0x00053FB0 (character kinds 0x23, big drops, and 0x13 with
+ * [0x0076F0DC] = 0x14), ask for 2 every frame, which the Xbox ran at 30
+ * a second: at 120 four times the drops (74 drawn at 30, 206-214 at 120,
+ * the particle pool full). A call goes through only on the character's
+ * 30 fps frames (char30_tick, id [+0x10B]); at step 1 and above as before.
+ * RECOMP_HONEY30_FIX=0 = original. */
+static int s_honey30_on = -1;
+
+extern void sub_001B3030_gen(void);
+void sub_001B3030(void)
+{
+    uint32_t c = MEM32(g_esp + 4);
+
+    if (s_honey30_on < 0) {
+        const char *e = getenv("RECOMP_HONEY30_FIX");
+        s_honey30_on = !(e && *e == '0');
+        fprintf(stderr, "[HONEY30] honey drops made on 30 fps frames: %s\n",
+                s_honey30_on ? "on" : "off (RECOMP_HONEY30_FIX=0)");
+    }
+    if (s_honey30_on && xact_va_ok(c) && !char30_tick(MEM8(c + 0x10B))) {
+        g_esp += 4;                     /* ret (cdecl) */
+        return;
+    }
+    /* A hive a scene keeps out of sight on a wide screen drips none (to-do 210). */
+    if (xact_va_ok(c) && wide_scene_hides_id(MEM8(c + 0x10Bu))) {
+        g_esp += 4;                     /* ret (cdecl) */
+        return;
+    }
+    sub_001B3030_gen();
+}
+
+/* The game's 30 fps frames, one clock for everything that isn't a
+ * character (char30_tick's rule: the frames' steps add up, a frame where
+ * they reach one 30 fps frame is a tick; at step 1 and above, and at step
+ * 0 while the world is held, every frame is). */
+static int frame30_tick(void)
+{
+    static uint32_t fc_seen;
+    static float acc;
+    static int tick;
+    uint32_t fc = MEM32(0x007F9F60u);
+    float step = MEMF(0x007FA24Cu);
+
+    if (!(step > 0.0f && step < 0.999f)) {
+        acc = 0.0f;
+        tick = 1;
+    } else if (fc != fc_seen) {
+        acc += step;
+        tick = acc >= 0.999f;
+        if (tick) {
+            acc -= 1.0f;
+            if (acc < 0.0f)
+                acc = 0.0f;
+        }
+    }
+    fc_seen = fc;
+    return tick;
+}
+
+/* Animated particles above 30 fps (to-do 103, user 2026-11-12: the honey
+ * drops' landing splashes at the Mrs Bee hive played much faster than the
+ * drops). Particle kind 6 (update table 0x006B8D0C, kind [+0x2C]) is
+ * 0x001B22A0 (cdecl, [esp+4] = particle): the base update 0x001B1450
+ * (dt-based), then its picture frame [+0xF4] + 1 every call (sequence
+ * [+0xF0], frame count [seq+4]; [+0x30] & 0x40 = play once, then gone, al
+ * = 0): at 120 four times as fast. The game's splashes, puffs and other
+ * flipbook particles. On frames that are not a 30 fps frame the step is put
+ * back (and a play-once particle that just reached its end stays, al = 1:
+ * its last frame comes on a tick). RECOMP_ANIM30_FIX=0 = original. */
+static int s_anim30_on = -1;
+
+extern void sub_001B22A0_gen(void);
+void sub_001B22A0(void)
+{
+    uint32_t p = MEM32(g_esp + 4);
+    uint8_t before;
+
+    if (s_anim30_on < 0) {
+        const char *e = getenv("RECOMP_ANIM30_FIX");
+        s_anim30_on = !(e && *e == '0');
+        fprintf(stderr, "[ANIM30] animated particles step on 30 fps frames: %s\n",
+                s_anim30_on ? "on" : "off (RECOMP_ANIM30_FIX=0)");
+    }
+    if (!s_anim30_on || !xact_va_ok(p)) {
+        sub_001B22A0_gen();
+        return;
+    }
+    before = MEM8(p + 0xF4);
+    sub_001B22A0_gen();
+    if (MEM8(p + 0xF4) != before && !frame30_tick()) {
+        MEM8(p + 0xF4) = before;
+        g_eax = (g_eax & ~0xFFu) | 1u;
+    }
 }
 
 /* Gun fire rate above 30 fps (2026-11-05, to-do 94, user: fix before
@@ -3820,12 +4038,7 @@ static float p30_curve(float o, float d, float p, float l, float r)
 
 static int phys30_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_PHYS30_LOG");
-        on = e ? atoi(e) : 0;
-    }
-    return on;
+    return dev_log(DLOG_PHYS30);
 }
 
 /* Once a frame (the first sim call of a frame): advance the 30 Hz clock. */
@@ -4309,10 +4522,7 @@ void sub_001FD0F0(void)
         sub_001FD0F0_gen();
         return;
     }
-    if (log < 0) {
-        const char *e = getenv("RECOMP_MENU_LOG");
-        log = e && *e && *e != '0';
-    }
+    log = dev_log(DLOG_MENU);
     if (log && v != 0.0f && (MEMF(0x00776218u) == 1.0f || MEMF(0x00776218u) == 0.0f))
         fprintf(stderr, "[MENUSPEED] turn speed %.3f x %.3f (ticks %d, step %.3f)\n", v, k,
                 ticks, MEMF(0x007FA24Cu));
@@ -5193,7 +5403,15 @@ void sub_003E1EE0(void)
  * first ring of boxes, divided by r^2 in ring r, as boxes behind boxes
  * add up (all of them at full count was a blizzard, user 2026-10-31);
  * 50 was cluttered and showed particles clipping into walls; the user
- * picked 15. conker_SetParticleDensity from the F2 slider. */
+ * picked 15. conker_SetParticleDensity from the F2 slider.
+ * All added boxes of one emitter together draw at most
+ * RECOMP_PARTICLE_FILL_MAX points (default 6000; 0 = no limit, as 0.3.0),
+ * each box's share scaled down alike, and a box left with under 64 points
+ * not drawn at all (GitHub #18, 2026-11-13): under water
+ * the set is plankton, three emitters of up to ~11,000 points each in a
+ * 1000 x 5000 box, and the fill made them ~325,000 points a frame at
+ * density 25, 20 fps at UBend's fan blades on any PC. The field's leaves
+ * and fluff (~240 points an emitter) reach 6000 only past density ~54 %. */
 static volatile int g_particle_density = -1;
 
 /* For the F2 menu (overlay.cpp): applies from the next frame. */
@@ -5216,10 +5434,7 @@ static void particle_log(const char *what, uint32_t em)
     clock_t now = clock();
     int i;
 
-    if (on < 0) {
-        const char *e = getenv("RECOMP_PARTICLE_LOG");
-        on = e && *e == '1';
-    }
+    on = dev_log(DLOG_PARTICLE);
     if (!on)
         return;
     for (i = 0; i < n; i++)             /* the count grows as it fades in */
@@ -5257,14 +5472,15 @@ extern void sub_001A6850_gen(void);
 void sub_001A6850(void)
 {
     enum { MAXT = 8, MAXN = (2 * MAXT + 1) * (2 * MAXT + 1) * 3 };
-    static int tiles = -1;
+    static int tiles = -1, fill_max = -1;
     int density;
     uint32_t sp = g_esp, ret = MEM32(sp), em = MEM32(sp + 4), count;
     uint32_t a2 = MEM32(sp + 8), players = MEM32(0x008470DCu), rec;
+    uint64_t added = 0;
     int16_t player = (int16_t)a2;
     int32_t kind;
     float bx, by, c[3];
-    struct { float d; int8_t x, y, z; } t[MAXN], tmp;
+    struct { float d; int8_t x, y, z; uint32_t keep; } t[MAXN], tmp;
     int n = 0, i, j, k;
 
     if (tiles < 0) {
@@ -5272,6 +5488,11 @@ void sub_001A6850(void)
         tiles = e ? atoi(e) : 3;
         if (tiles < 0) tiles = 0;
         if (tiles > MAXT) tiles = MAXT;
+    }
+    if (fill_max < 0) {
+        const char *e = getenv("RECOMP_PARTICLE_FILL_MAX");
+        fill_max = e ? atoi(e) : 6000;
+        if (fill_max < 0) fill_max = 0;
     }
     if (xact_va_ok(em))
         particle_log("emitter", em);
@@ -5314,9 +5535,25 @@ void sub_001A6850(void)
         int ring = abs(t[i].x) > abs(t[i].z) ? abs(t[i].x) : abs(t[i].z);
         if (abs(t[i].y) > ring)
             ring = abs(t[i].y);
-        if (ring)                       /* ring r: density / r^2 */
+        if (ring) {                     /* ring r: density / r^2 */
             keep = (uint32_t)((uint64_t)count * (uint32_t)density / 100u
                               / (uint32_t)(ring * ring));
+            added += keep;
+        }
+        t[i].keep = ring ? keep : UINT32_MAX;   /* the game's own box */
+    }
+    for (i = 0; i < n; i++) {
+        uint32_t keep = t[i].keep;
+        if (keep == UINT32_MAX)
+            keep = count;
+        else if (fill_max && added > (uint64_t)fill_max) {
+            keep = (uint32_t)((uint64_t)keep * (uint32_t)fill_max / added);
+            /* Scaled down: a box left with a handful of points costs a
+             * whole draw (each is one more call of the game's draw, ~440
+             * a frame under water) for nothing seen. */
+            if (keep < 64u)
+                keep = 0;
+        }
         if (!keep)
             continue;
         MEM32(em + 0x4Cu) = keep;
@@ -5871,12 +6108,7 @@ static void dof_photo_draw(float focus, float blur, float cn, float cf)
 
 static int dof_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_DOF_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_DOF);
 }
 
 extern void sub_001C71A0_gen(void);
@@ -6004,12 +6236,7 @@ void conker_SetCutsceneSkip(int on)
  *   [CUTEVT] set  a set load, with camera 0's +0x334 */
 static int cutevent_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_CUTEVENT_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_CUTEVENT);
 }
 
 void sub_0005E240_enter(void)
@@ -6309,15 +6536,58 @@ void sub_000501F0_enter(void)
  * answers print [BADPTR] with the caller; RECOMP_BADPTR_FIX=0 = the
  * generated body (crashes on a bad pointer, as before). */
 extern void sub_0042C843_gen(void);
+extern int guest_vmem_committed(uint32_t va, uint32_t bytes);
+
+/* Speed (to-do 205): in a bot match the game asks this thousands of times a
+ * frame about memory above guest RAM, and each VirtualQuery is a system call:
+ * ~25 % of the game thread. Two answers without one: the extended VMA's own
+ * page table (its commits are read-write), and host regions already seen to
+ * be file-mapping views (the RAM mirrors, the contiguous window, the tiled
+ * aperture), which stay mapped for the whole run. Anything else still asks
+ * Windows. RECOMP_BADPTR_FAST=0 = always ask (A/B). */
+#define BADPTR_VIEWS 16
+static struct { uintptr_t lo, hi; } s_badptr_views[BADPTR_VIEWS];
+static volatile LONG s_badptr_nviews;
+static SRWLOCK s_badptr_lock = SRWLOCK_INIT;
+
+static int badptr_in_view(uintptr_t h, uintptr_t end)
+{
+    LONG i, n = s_badptr_nviews;
+    for (i = 0; i < n; i++)
+        if (h >= s_badptr_views[i].lo && end < s_badptr_views[i].hi)
+            return 1;
+    return 0;
+}
+
+static void badptr_add_view(uintptr_t lo, uintptr_t hi)
+{
+    AcquireSRWLockExclusive(&s_badptr_lock);
+    if (!badptr_in_view(lo, hi - 1) && s_badptr_nviews < BADPTR_VIEWS) {
+        s_badptr_views[s_badptr_nviews].lo = lo;
+        s_badptr_views[s_badptr_nviews].hi = hi;
+        MemoryBarrier();                /* the entry before the count */
+        s_badptr_nviews++;
+    }
+    ReleaseSRWLockExclusive(&s_badptr_lock);
+}
 
 static int guest_range_readable(uint32_t lp, uint32_t last)
 {
+    static int fast = -1;
     uintptr_t h, end;
     /* Guest RAM (64 MB) is one mapping, always committed and readable. */
     if (lp >= 0x00010000u && last < 0x04000000u)
         return 1;
+    if (fast < 0) {
+        const char *e = getenv("RECOMP_BADPTR_FAST");
+        fast = !(e && *e == '0');
+    }
+    if (fast && guest_vmem_committed(lp, last - lp + 1))
+        return 1;
     h = XBOX_PTR(lp) & ~(uintptr_t)0xFFF;
     end = XBOX_PTR(last);
+    if (fast && badptr_in_view(h, end))
+        return 1;
     while (h <= end) {
         MEMORY_BASIC_INFORMATION mbi;
         uintptr_t next;
@@ -6332,6 +6602,8 @@ static int guest_range_readable(uint32_t lp, uint32_t last)
         next = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
         if (next <= h)
             return 0;
+        if (fast && mbi.Type == MEM_MAPPED)
+            badptr_add_view((uintptr_t)mbi.BaseAddress, next);
         h = next;
     }
     return 1;
@@ -6573,10 +6845,7 @@ void sub_0004FF00(void)
         g_eax = 1;
         return;
     }
-    if (log < 0) {
-        const char *e = getenv("RECOMP_SKIP_LOG");
-        log = s_skip_log = e ? atoi(e) : 0;
-    }
+    log = s_skip_log = dev_log(DLOG_SKIP);
     if (slot > 3u)
         return;
     now = skip_ms();
@@ -6757,6 +7026,7 @@ static uint32_t g_asked_interval;      /* the game's own, from the reset */
 static int g_vblank_rate = 60;         /* what the toolkit clock runs at */
 static struct {
     int armed;                         /* this frame's results to redo */
+    int dt_even;                       /* this frame's dt from its vblanks */
     uint16_t half;
     uint32_t total;
     uint8_t hist_i, hist_n;
@@ -6811,7 +7081,7 @@ void conker_BulletToggle(void)
 static int bullet_now(void)
 {
     if (s_bullet && (!(cheats_active() & CHEAT_BIT(CHEAT_BULLET))
-                     || MEM8(0x007819D5u) || MEM32(0x007FA1F8u) == 0x1Du)) {
+                     || MEM8(0x007819D5u) || conker_OnMainMenu())) {
         InterlockedExchange(&s_bullet, 0);
         fprintf(stderr, "[CHEATS] Bullet time off (cheat off or not in the story)\n");
     }
@@ -6903,6 +7173,30 @@ static int dip_fix_on(void)
     return fps60_on() || g_dip_fix;
 }
 
+/* The frame time fix (to-do 109, #16): in the story frame_timer_update
+ * takes dt [0x007FA21C] from rdtsc, the real time since the last frame,
+ * and the camera turns by it (the right stick: degrees = rate x dt). The
+ * Xbox ran the game locked to the vblank, so that time was always the
+ * frame's length. Here the game thread runs ahead of the drawing and, in a
+ * heavy view, in bursts (Windy's windmill on a first visit, at 60: dt 35,
+ * 5, 9, 35 ... ms while every frame is shown 16.7 ms apart and the step
+ * stays 0.5): the camera turned 4.3, 0.6, 1.0 ... degrees a frame, a
+ * stutter RTSS can't see (run_20261111_203635, cam.bin). With the fix the
+ * story's frame time and dt come from the frame's vblanks, as
+ * multiplayer's already do (sub_00378620_enter): the same over a second,
+ * even per frame. RECOMP_FRAME_DT_FIX=0 = the rdtsc time, as before. */
+static int frame_dt_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_FRAME_DT_FIX");
+        on = !(e && *e == '0');
+        fprintf(stderr, "[FSTEP] frame time fix %s (dt from the vblanks; "
+                "RECOMP_FRAME_DT_FIX)\n", on ? "on" : "off");
+    }
+    return on;
+}
+
 /* From the F2 menu (overlay.cpp): 30, 60 or above (0 = uncapped);
  * applies from the next frame. */
 void conker_SetFrameRate(int fps)
@@ -6950,7 +7244,7 @@ int conker_SoakState(void)
     uint32_t level = MEM32(SOAK_LEVEL);
     if (MEM8(SOAK_STATE))
         return 2;
-    return level == 0x1Du || level == 0x46u;
+    return conker_OnMainMenu() || level == 0x46u;
 }
 
 static void soak_poll(void)
@@ -7757,6 +8051,93 @@ static int weapon_kind(uint32_t k)
     return 0;
 }
 
+/* What a B kind is (the console's state, to-do 201). The weapons are the
+ * game's own list: its names at 0x0074B1B8 by item, and 0x0074B2F0 = item ->
+ * kind (0x0032FDA0); 0x51.. are multiplayer's. The context pads with no item
+ * are named by the Conker animation their case of 0x002FD7D0 plays
+ * (conker-notes 2026-11-11). NULL = not known (the state shows the number). */
+const char *conker_BKindName(int k)
+{
+    switch (k & 0x7F) {
+    case 0x01: case 0x35: return "anvil";
+    case 0x02: return "slingshot";
+    case 0x03: return "pee";
+    case 0x04: return "miner's helmet";
+    case 0x05: return "drink";
+    case 0x06: return "pepper";
+    case 0x07: return "brick";
+    case 0x09: return "SMG";
+    case 0x0A: return "throwing knives";
+    case 0x0B: return "torch";
+    case 0x0C: return "bazooka";
+    case 0x0F: return "hypnosis";
+    case 0x10: return "flamethrower";
+    case 0x12: case 0x18: case 0x41: return "crossbow";
+    case 0x13: return "flaming slingshot";
+    case 0x14: return "knife";
+    case 0x16: return "walking bazooka";
+    case 0x17: return "door knock";
+    case 0x1A: return "manual";
+    case 0x20: return "gas mask";
+    case 0x25: return "gas canister";
+    case 0x27: return "Vault suit on";
+    case 0x2A: return "ponder";
+    case 0x34: return "toilet paper";
+    case 0x36: return "helmet battery";
+    case 0x37: return "shotgun";
+    case 0x3A: return "bomb";
+    case 0x3B: return "Van Helsing crossbow";
+    case 0x3C: return "Vault suit punch";
+    case 0x3F: return "sword";
+    case 0x44: return "DNA canister";
+    /* Multiplayer's vehicles (seen 2026-11-11/12 with the user playing):
+     * 0x4A the Steed, 0x4C the Dragon MkI / Toad MkII (one vehicle, a
+     * flamethrower or a machine gun turret), 0x4F any seat of the Mule 52
+     * (pilot and passengers), the turret and the Tankus, 0x50 the R-hog (a
+     * four-wheeler). 0x4B, 0x4D, 0x4E not seen. */
+    case 0x4A: return "in the Steed";
+    case 0x4C: return "in a Dragon / Toad";
+    case 0x4F: return "in a vehicle";
+    case 0x50: return "on the R-hog";
+    case 0x51: return "SMG";
+    case 0x52: return "sniper rifle";
+    case 0x53: return "bazooka";
+    case 0x54: return "knife";
+    case 0x55: return "double pistols";
+    case 0x56: return "shotgun";
+    case 0x57: return "midigun";
+    case 0x58: return "grenade launcher";
+    case 0x59: return "katana";
+    case 0x5C: return "chemical thrower";
+    case 0x5D: return "frag grenade";
+    case 0x5E: return "stick grenade";
+    case 0x5F: return "stun grenade";
+    case 0x60: return "smoke grenade";
+    case 0x61: return "magnova grenade";
+    case 0x62: return "napalm grenade";
+    case 0x63: return "gas grenade";
+    case 0x65: return "EarthGuard";      /* the game's aisentry (user 2026-11-11) */
+    case 0x66: return "SkyGuard";        /* the game's aasentry (user 2026-11-11) */
+    case 0x67: return "detonade";
+    case 0x68: return "portal";
+    case 0x69: return "parachute";
+    case 0x6A: return "repair";
+    case 0x6B: return "snoop camera";
+    case 0x6C: return "mines";
+    case 0x6D: return "flag";
+    case 0x6E: return "medipak";
+    case 0x70: return "fauster";
+    case 0x71: return "berserk";
+    case 0x72: return "double magnums";
+    case 0x73: return "hacking device";
+    case 0x74: return "bounty hunter sniper rifle";
+    case 0x75: return "bat";
+    case 0x76: return "frying pan";
+    case 0x77: return "Vault suit";
+    }
+    return NULL;
+}
+
 #define KIND_SHOTGUN   0x37u
 #define KIND_SLING     0x02u /* a slingshot pad (0x13 too: both 0x0032B260) */
 #define KIND_SLING2    0x13u
@@ -7930,12 +8311,13 @@ static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
  * changes (zone, level weapon, what B is doing, the inputs). */
 static int modern_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_MODERN_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_MODERN);
+}
+
+static const char *modern_kind_name(uint32_t k)
+{
+    const char *s = k ? conker_BKindName((int)k) : "none";
+    return s ? s : "?";
 }
 
 static void modern_log(long now, uint32_t aim, int ctx, int aiming, int att,
@@ -7955,10 +8337,12 @@ static void modern_log(long now, uint32_t aim, int ctx, int aiming, int att,
     if (!memcmp(v, was, sizeof v))
         return;
     memcpy(was, v, sizeof v);
-    fprintf(stderr, "[MODERN] t=%ld zone 0x%02X weapon 0x%02X B-doing 0x%02X "
+    fprintf(stderr, "[MODERN] t=%ld zone 0x%02X (%s) weapon 0x%02X (%s) B-doing 0x%02X (%s) "
             "+1F8 %u cam0 %u | ctx %d aim %d att %d | owned %d foot %d "
-            "vertex pad %d jump %d | out B %d RT %d\n", now, v[0], v[1], v[2],
-            v[3], v[7], ctx, aiming, att, owned, foot, mpad, mjump, b, rt);
+            "vertex pad %d jump %d | out B %d RT %d\n", now,
+            v[0], modern_kind_name(v[0] & 0x7Fu), v[1], modern_kind_name(v[1]),
+            v[2], modern_kind_name(v[2]), v[3], v[7], ctx, aiming, att, owned, foot,
+            mpad, mjump, b, rt);
 }
 
 /* Returns 1 while the controller's Modern layout on foot applies. */
@@ -8256,16 +8640,137 @@ static void bat_poll(int set)
     InterlockedExchange(&s_pad_out_lt, lt);
 }
 
+static const char *const s_ctl_names[] = {
+    "single player", "multiplayer", "menu", "single player pause",
+    "level menu", "cutscene", "single player swimming",
+    "single player underwater", "single player beehive gun",
+    "multiplayer Mule 52 gun", "single player Vault suit",
+    "single player Vault tail", "single player bat",
+    "single player bat flying", "photo mode",
+};
+
+/* The state line's game parts (the console's state, to-do 169). Reads only;
+ * any thread. The checkpoint: the task table's rows (0x0059E9A0, 20 bytes:
+ * +0 wide name, +8 level, +0xA spawn) of this level and spawn ([0x00771B9C],
+ * the one the level was entered at), the last one done when several are; the
+ * story part: the last of the Chapters list's parts whose bit is set, as the
+ * slot screen shows it (0x0035DE70). */
+int conker_State(ConkerState *s)
+{
+    uint32_t lv = MEM32(0x007FA1F8u), bits = MEM32(0x0084B290u);
+    uint32_t cam = MEM32(0x008470DCu), chr, aim;
+    int set = controls_mode();
+
+    memset(s, 0, sizeof(*s));
+    s->checkpoint = -1;
+    s->scene = -1;
+    if (set >= 0 && set < (int)(sizeof(s_ctl_names) / sizeof(s_ctl_names[0])))
+        s->doing = s_ctl_names[set];
+    if (conker_OnMainMenu() || lv == 0x46u)
+        return 1;
+    /* Multiplayer's maps (75 on) have no checkpoint or story part, but a
+     * weapon and a vehicle (to-do 201: the early return hid them). */
+    s->spawn = lv < 75u ? MEM8(0x00771B9Cu) : 0;
+    for (int i = 0; i < 238 && lv < 75u; i++) {
+        uint32_t e = 0x0059E9A0u + (uint32_t)i * 20u;
+        int done = xact_va_ok(bits) && (MEM8(bits + (uint32_t)(i >> 3)) >> (i & 7)) & 1;
+        if (MEM16(e + 8u) != lv || MEM8(e + 0xAu) != (uint32_t)s->spawn || !MEM32(e))
+            continue;
+        if (s->checkpoint < 0 || done)
+            s->checkpoint = i;
+    }
+    if (s->checkpoint >= 0) {
+        uint32_t n = MEM32(0x0059E9A0u + (uint32_t)s->checkpoint * 20u);
+        int i;
+        for (i = 0; i < (int)sizeof(s->cp_name) - 1; i++) {
+            uint16_t c = MEM16(n + 2u * (uint32_t)i);
+            if (!c)
+                break;
+            s->cp_name[i] = c < 0x80 ? (char)c : '?';
+        }
+        s->cp_name[i] = 0;
+    }
+    if (xact_va_ok(bits) && MEM8(0x007819D5u) == 0 && lv < 75u)
+        for (int c = 0; c < ES_CHAPTERS; c++) {
+            uint32_t n = MEM8(0x0074CD68u + (uint32_t)c), l = MEM32(0x0074CD44u + c * 4u);
+            for (uint32_t p = 0; xact_va_ok(l) && p < n; p++) {
+                uint32_t b = MEM16(l + p * 4u + 2u);
+                if (b < 238u && (MEM8(bits + (b >> 3)) >> (b & 7u)) & 1u) {
+                    s->chapter = c;
+                    s->part = (int)p + 1;
+                }
+            }
+        }
+    if (MEM8(0x0076F0E0u) == 1) {
+        float tps = MEMF(0x007F9F5Cu);
+        s->scene = MEM8(0x0076F0DCu);
+        if (tps > 1.0f) {
+            s->scene_s = (float)(int)MEM32(0x0076F0F8u) / tps;
+            s->scene_len = (float)(int)MEM32(0x0076F0E8u) / tps;
+        }
+    }
+    if (!xact_va_ok(cam))
+        return 1;
+    s->camera = MEM32(cam + 0xC0u);
+    chr = MEM32(cam + 0x3E0u);
+    aim = xact_va_ok(chr) ? MEM32(chr + 0x568u) : 0;
+    /* The weapon out: what B is doing (+0xA0) while +0x1F8 = 2. What B does
+     * here: the zone Conker stands in (+0x97, a context pad), else the
+     * level's weapon (+0xAC), as 0x002F48A0 picks it (its bat fallback and
+     * nearby characters left out); and an action under way that is
+     * neither (+0xA0 without a weapon out, such as the hypnosis). */
+    if (xact_va_ok(aim)) {
+        int doing = (int)(MEM32(aim + 0xA0u) & 0x7Fu);
+        int here = (int)(MEM8(aim + 0x97u) & 0x7Fu);
+        if (!here)
+            here = (int)(MEM32(aim + 0xACu) & 0x7Fu);
+        if (MEM32(aim + 0x1F8u) == 2u && doing) {
+            s->weapon = doing;
+            s->weapon_name = conker_BKindName(doing);
+        } else if (doing) {
+            s->b_doing = doing;
+            s->b_doing_name = conker_BKindName(doing);
+        }
+        if (here != s->weapon && here != s->b_doing) {
+            s->b_here = here;
+            s->b_here_name = conker_BKindName(here);
+        }
+        /* A pad whose manual is unread: 0x002F48A0 makes it the manual
+         * (0x1A, in +0x97 too) and keeps the pad's own kind at 0x007FCB45
+         * (Windy's first slingshot pad: B = the manual, then the slingshot). */
+        if ((here == 0x1A || s->b_doing == 0x1A) && MEM8(0x007FCB45u) != 0x1Au) {
+            s->b_after = MEM8(0x007FCB45u) & 0x7F;
+            s->b_after_name = conker_BKindName(s->b_after);
+        }
+    }
+    if (xact_va_ok(chr)) {
+        static const char *const mpv[] = { "", "Tankus", "Toad MkII", "Dragon MkI",
+                                           "turret", "Mule 52", "Steed", "Snoopa" };
+        int t = 0;
+        uint32_t v = driven_vehicle(chr);
+        if (v) {
+            uint32_t type = MEM32(v + 0x68u);
+            uint32_t name = type < 0x205u ? MEM32(0x006A58F0u + type * 4u) : 0;
+            if (xact_va_ok(name))
+                strncpy_s(s->vehicle, sizeof s->vehicle, (const char *)&MEM8(name), _TRUNCATE);
+            else
+                snprintf(s->vehicle, sizeof s->vehicle, "type %u", type);
+        } else if (MEM8(0x007819D5u) && mp_vehicle(chr, &t)) {
+            snprintf(s->vehicle, sizeof s->vehicle, "%s", mpv[t]);
+        }
+    }
+    return 1;
+}
+
+/* A cutscene plays, ends, or waits to start at the end of a load (waitscene). */
+int conker_SceneBusy(void)
+{
+    return MEM8(0x0076F0E0u) != 0 || MEM8(0x0076F0B6u) != 0;
+}
+
 static void controls_poll(void)
 {
-    static const char *const names[] = {
-        "single player", "multiplayer", "menu", "single player pause",
-        "level menu", "cutscene", "single player swimming",
-        "single player underwater", "single player beehive gun",
-        "multiplayer Mule 52 gun", "single player Vault suit",
-        "single player Vault tail", "single player bat",
-        "single player bat flying", "photo mode",
-    };
+    const char *const *names = s_ctl_names;
     static int last = -1;
     uint32_t lv = MEM32(0x007FA1F8u);
     int mp, set;
@@ -8278,7 +8783,7 @@ static void controls_poll(void)
     if (lv == 0x1Du && MEM8(0x0076F0E0u) == 1 && !MEM8(0x007FA275u)
         && !(s_ctl_list_frame && s_ctl_frame - s_ctl_list_frame <= 2))
         set = CONTROLS_CUTSCENE;
-    else if (lv == 0x1Du || lv == 0x46u)
+    else if (conker_OnMainMenu() || lv == 0x46u)  /* not a "MainMenu" warp (to-do 165) */
         set = CONTROLS_MENU;
     else if (s_ctl_list_frame && s_ctl_frame - s_ctl_list_frame <= 2)
         set = CONTROLS_MENU_GAME;
@@ -8370,6 +8875,8 @@ void sub_002A7B60_enter(void)
     timescale_frame();
     s_ft.armed = (g_vblank_rate > 60 || s_ts_now != 100) && !MEM8(0x007FA23Cu)
               && !MEM32(0x008758BCu) && !MEM8(0x007FA204u);
+    s_ft.dt_even = frame_dt_fix_on() && !MEM8(0x007FA23Cu)
+                && !MEM32(0x008758BCu) && !MEM8(0x007FA204u);
     if (s_ft.armed) {
         s_ft.half = MEM16(FT_HALF);
         s_ft.total = MEM32(FT_TOTAL);
@@ -8415,15 +8922,58 @@ void sub_002A7B60_enter(void)
  * this rate's step and ticks. Constants read from where the game's code
  * reads them: 0x00648E38 (60.0), 0x00649880 (the 50 Hz factor), 0x00648D80
  * (0.1). */
+
+/* Frame time and dt from this frame's vblanks: frame time [0x007FA218] =
+ * vblanks / rate (at most 1 s), dt [0x007FA21C] = that unless paused, and
+ * what is derived from them (ms, us, 1 / dt, the two running sums), with
+ * the timescale. Multiplayer's own way (frame_timer_update there takes dt
+ * from the vblanks), and the story's too with the frame time fix below. */
+static void ft_dt_from_vblanks(uint32_t vb)
+{
+    float ft = (float)vb * (float)s_ts_now * 0.01f / (float)g_vblank_rate, dt;
+    float old_ft = MEMF(0x007FA218u), old_dt = MEMF(0x007FA21Cu);
+    int32_t us;
+
+    if (ft > 1.0f)
+        ft = 1.0f;
+    dt = MEM8(0x007FA275u) ? 0.0f : ft;
+    MEMF(0x007FA218u) = ft;
+    MEMF(0x007FA21Cu) = dt;
+    MEM32(0x007FA220u) = (uint32_t)(int32_t)(dt * 1000.0f);
+    us = (int32_t)(dt * 1e6f);
+    MEM32(0x007FA228u) = (uint32_t)us;
+    MEM32(0x007FA22Cu) = (uint32_t)(us >> 31);
+    MEMF(0x007F9F4Cu) += dt - old_dt;
+    MEMF(0x007F9F48u) += ft - old_ft;
+    MEMF(0x007FA214u) = MEM8(0x007FA275u) ? 999999.0f : 1.0f / dt;
+}
+
+/* The game thread, as frame_timer_update runs on it every frame: the F1
+ * counter's "what's limiting me" view (to-do 204) reads its CPU time. */
+__declspec(dllimport) unsigned long __stdcall GetCurrentThreadId(void);
+static volatile unsigned long s_game_tid;
+
+unsigned long conker_GameThreadId(void)
+{
+    return s_game_tid;
+}
+
 void sub_00378620_enter(void)
 {
     uint32_t vb, ticks;
     uint16_t half;
     float step, inv, avg;
-    int i;
+    int i, dt_even = s_ft.dt_even;
 
-    if (!s_ft.armed)
+    s_game_tid = GetCurrentThreadId();
+
+    s_ft.dt_even = 0;
+    if (!s_ft.armed) {
+        /* At 30 and 60 the ticks are the vblanks (60 Hz clock). */
+        if (dt_even && !MEM8(0x007819D5u) && MEM32(FT_TICKS))
+            ft_dt_from_vblanks(MEM32(FT_TICKS));
         return;
+    }
     s_ft.armed = 0;
     vb = MEM32(FT_TICKS);              /* vblanks at g_vblank_rate */
     /* Timescale (to-do 21): the same with a slower or faster clock; carried in
@@ -8432,7 +8982,7 @@ void sub_00378620_enter(void)
     ticks = s_ft.acc / ((unsigned)g_vblank_rate * 100u);
     s_ft.acc -= ticks * (unsigned)g_vblank_rate * 100u;
     step = (float)vb * 30.0f * (float)s_ts_now * 0.01f / (float)g_vblank_rate;
-    if (s_ts_now != 100 && !MEM8(0x007819D5u)) {
+    if (s_ts_now != 100 && !MEM8(0x007819D5u) && !dt_even) {
         /* The story's dt is the real time since the last frame: everything timed
          * in seconds. Multiplayer's is worked out from the vblanks below. */
         float scale = (float)s_ts_now * 0.01f, old = MEMF(0x007FA21Cu), dts = old * scale;
@@ -8463,31 +9013,15 @@ void sub_00378620_enter(void)
             inv *= MEMF(0x00649880u);
     }
     MEMF(FT_STEP) = step;
-    if (MEM8(0x007819D5u)) {
+    if ((MEM8(0x007819D5u) || dt_even) && vb)
         /* Multiplayer ([0x007819D5], 2026-11-05): frame_timer_update takes
          * dt from the vblanks, vblanks x 1/60 s, instead of the rdtsc time,
          * so on our faster vblank clock dt came to 2 game seconds a wall
          * second at 120 (the Sturm21 fired 27-30 shots a second against
          * 15 at 30, everything timed in seconds ran double). Same formula
-         * with this clock's vblank: frame time [0x007FA218] = vblanks /
-         * rate, dt [0x007FA21C] = that unless paused, and what is derived
-         * from them (ms, us, 1 / dt, the two running sums). */
-        float ft = (float)vb * (float)s_ts_now * 0.01f / (float)g_vblank_rate, dt;
-        float old_ft = MEMF(0x007FA218u), old_dt = MEMF(0x007FA21Cu);
-        int32_t us;
-        if (ft > 1.0f)
-            ft = 1.0f;
-        dt = MEM8(0x007FA275u) ? 0.0f : ft;
-        MEMF(0x007FA218u) = ft;
-        MEMF(0x007FA21Cu) = dt;
-        MEM32(0x007FA220u) = (uint32_t)(int32_t)(dt * 1000.0f);
-        us = (int32_t)(dt * 1e6f);
-        MEM32(0x007FA228u) = (uint32_t)us;
-        MEM32(0x007FA22Cu) = (uint32_t)(us >> 31);
-        MEMF(0x007F9F4Cu) += dt - old_dt;
-        MEMF(0x007F9F48u) += ft - old_ft;
-        MEMF(0x007FA214u) = MEM8(0x007FA275u) ? 999999.0f : 1.0f / dt;
-    }
+         * with this clock's vblank. The story too with the frame time fix
+         * (frame_dt_fix_on). */
+        ft_dt_from_vblanks(vb);
     MEM32(FT_TOTAL) = s_ft.total + ticks;
     MEM32(0x007FA240u) = (uint32_t)((int32_t)MEM32(FT_TOTAL) % 30);
     MEMF(0x007FA248u) = inv;
@@ -8508,10 +9042,16 @@ void sub_00378620_enter(void)
 /* Photo mode (photo_mode.c): the in-game frame's draw (0x002A3FD0) gets
  * the photo camera; 0x002AF250 (game_frame, after the swap, just before the
  * pause flags are compared) gets the pause flag back. */
+static void size_frame(void);           /* to-do 212, "Conker the Mouse" below */
+static void size_view_frame(void);
+
 void sub_002A3FD0_enter(void)
 {
+    size_frame();
     photo_render_begin();
+    size_view_frame();
     wire_frame_top();
+    s_frame43_drawn = 1;
 }
 
 void sub_002AF250_enter(void)
@@ -9151,6 +9691,101 @@ static void bh_att_end(void)
     memcpy((void *)XBOX_PTR(s_bh_att_m), s_bh_att_saved, 64);
 }
 
+/* Characters a scene keeps just outside its 4:3 picture until it needs them
+ * show at the sides of a wider one (to-do 210): New Game's Windy at night
+ * (Windmill 20) opens on Conker under the signpost with the beehive and its
+ * wasps parked at the left, the one with the cigar nearest, until they fly in
+ * after the cut to the windmill (tick ~250, 60 a second). They aren't drawn
+ * (not moved: the game's own logic is left alone) until `until`, a moment after
+ * that cut and before any of them is seen. Their attachments (the cigar) go
+ * with them. RECOMP_WIDE_SCENE_FIX=0 = original. */
+static const struct {
+    uint8_t level, scene;
+    uint16_t until;                     /* scene clock [0x0076F0F8], ticks */
+    const char *types[4];
+} s_wide_hide[] = {
+    { 0x06, 20, 300, { "WaspBoss", "WaspFat", "WaspSkinny", "BeeHive" } },
+};
+
+static int wide_scene_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_WIDE_SCENE_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+/* The entry for the scene playing now and still in its time, or -1. */
+static int wide_scene_entry(void)
+{
+    if (MEM8(0x0076F0E0u) != 1 || !wide_scene_fix_on())
+        return -1;
+    for (size_t i = 0; i < sizeof(s_wide_hide) / sizeof(s_wide_hide[0]); i++)
+        if (MEM32(0x007FA1F8u) == s_wide_hide[i].level && MEM8(0x0076F0DCu) == s_wide_hide[i].scene
+            && (int)MEM32(0x0076F0F8u) < (int)s_wide_hide[i].until)
+            return (int)i;
+    return -1;
+}
+
+static int wide_scene_type_hidden(int e, uint32_t c)
+{
+    uint32_t type = MEM32(c + 0x68u), name = type < 0x205u ? MEM32(0x006A58F0u + type * 4u) : 0;
+
+    if (!xact_va_ok(name))
+        return 0;
+    for (int t = 0; t < 4 && s_wide_hide[e].types[t]; t++)
+        if (!strcmp((const char *)&MEM8(name), s_wide_hide[e].types[t]))
+            return 1;
+    return 0;
+}
+
+static int wide_scene_hides(uint32_t index)
+{
+    uint32_t base = MEM32(0x0084A5F8u);
+    int e = wide_scene_entry();
+
+    if (e < 0 || index >= 0x81u || !xact_va_ok(base))
+        return 0;
+    return wide_scene_type_hidden(e, base + index * 0x6D0u);
+}
+
+/* The same by a character's id (an attachment's byte +0, the character's +0x10B). */
+static int wide_scene_hides_id(uint32_t id)
+{
+    uint32_t base = MEM32(0x0084A5F8u);
+    int e = wide_scene_entry();
+
+    if (e < 0 || !xact_va_ok(base))
+        return 0;
+    for (uint32_t i = 1; i < 0x81u; i++) {
+        uint32_t c = base + i * 0x6D0u;
+        if (MEM8(c + 0x64u) && MEM8(c + 0x10Bu) == id)
+            return wide_scene_type_hidden(e, c);
+    }
+    return 0;
+}
+
+/* The cigar's smoke (user 2026-11-12, after the first build of 210): an emitter
+ * object (0x80 bytes, guest 0x0156xxxx; +0x50 0 = on a character, +0x64 that
+ * character, +0x54 the point) whose class update 0x001767B0 (object class table
+ * 0x594930, entry 0x258) makes the puffs: 0x00176500 -> 0x00141FC0 -> 0x00105450
+ * (objects of list 108, rising). While its character is hidden it makes none. */
+extern void sub_001767B0_gen(void);
+void sub_001767B0(void)
+{
+    uint32_t em = MEM32(g_esp + 4u), c, base = MEM32(0x0084A5F8u);
+
+    if (xact_va_ok(em) && MEM8(em + 0x50u) == 0 && xact_va_ok(base)
+        && xact_va_ok(c = MEM32(em + 0x64u)) && c >= base && (c - base) % 0x6D0u == 0
+        && wide_scene_hides((c - base) / 0x6D0u)) {
+        g_esp += 4;                     /* ret (cdecl) */
+        return;
+    }
+    sub_001767B0_gen();
+}
+
 /* 0x0007FB00 char_render_pass (cdecl, [esp+4] character index, [esp+0x14]
  * pass: 1 OPAQUE, 12 OPAQUE_BACKGROUND, conker-notes 2026-10-29). */
 extern void sub_0007FB00_gen(void);
@@ -9160,6 +9795,12 @@ void sub_0007FB00(void)
     int two, stump, big;
 
     if (photo_hides_char(MEM32(g_esp + 4u))) {
+        g_esp += 4;                     /* ret (cdecl) */
+        return;
+    }
+    if (wide_scene_hides(MEM32(g_esp + 4u))
+        || (MEM32(0x0084A5F8u) && MEM32(g_esp + 4u) < 0x81u
+            && menu_hides_char_id(MEM8(MEM32(0x0084A5F8u) + MEM32(g_esp + 4u) * 0x6D0u + 0x10Bu)))) {
         g_esp += 4;                     /* ret (cdecl) */
         return;
     }
@@ -9192,7 +9833,8 @@ extern void sub_000780E0_gen(void);
 void sub_000780E0(void)
 {
     uint32_t rec = MEM32(g_esp + 4u);
-    if (rec && photo_hides_char_id(MEM8(rec))) {
+    if (rec && (photo_hides_char_id(MEM8(rec)) || wide_scene_hides_id(MEM8(rec))
+                || menu_hides_char_id(MEM8(rec)))) {
         g_esp += 4;                     /* ret (cdecl) */
         return;
     }
@@ -10036,12 +10678,7 @@ static int live_hidden(void)
 
 static int menu_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_MENU_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_MENU);
 }
 
 /* A guest wide string as ASCII (others as '?'), at most n - 1 chars. */
@@ -10334,6 +10971,7 @@ int conker_CheatScreen(void)
 #define CUE_CHEAT_WAR  0xB88u           /* war_conker_gunout: It's War's bank only */
 #define CUE_CHEAT_ONCE 0x1DDu           /* slabguy5: its wave loops, stopped after one pass */
 #define CUE_ONCE_MS    2450u           /* 106494 bytes, 16-bit mono 22050 Hz = 2.41 s */
+#define CUE_CHEAT_MICE 0x081u           /* mice: hd_sfx.xwb ("sfx"), which levels register, not the main menu */
 static const uint16_t s_code_cues[CHEAT_COUNT + 2] = {
     CUE_CHEAT_GOD,  /* God mode: tntg */
     CUE_CHEAT_WAR,  /* No reload: war_conker_gunout */
@@ -10351,16 +10989,25 @@ static const uint16_t s_code_cues[CHEAT_COUNT + 2] = {
     0x1A7,          /* Iron Boots: conkmisc4 */
     CUE_CHEAT_ONCE, /* Holy Squirrel: slabguy5 */
     0x402,          /* Dive Anywhere: conkdino11 */
+    CUE_CHEAT_MICE, /* Conker the Mouse: mice (sfx wave 77, as recorded: s_unpitch; user 2026-11-14) */
+    0x3FE,          /* Conker the Bear: conkdino7 (the speech bank's; user 2026-11-14) */
     0x893,          /* every cheat (master code): mogreenstuff */
     0x880,          /* the cheat menu (unlock word, Konami code): conkmocash5 */
 };
-static int s_war_pending;               /* a gun code's sound waits for its bank */
-static ULONGLONG unpitch_until;         /* conkerno's pitch put back then */
-static int s_code_war_pending(void)
+/* Code sounds whose wave bank the main menu doesn't register: loaded ahead
+ * (debug_tools.c conker_SoundBank) and played once it is in. */
+static const struct { uint16_t cue; uint8_t bank; const char *what; } s_banked[] = {
+    { CUE_CHEAT_WAR,  SOUND_BANK_ITSWAR, "It's War's" },
+    { CUE_CHEAT_MICE, SOUND_BANK_SFX,    "the sfx" },
+};
+#define BANKED_N ((int)(sizeof(s_banked) / sizeof(s_banked[0])))
+static int s_banked_pending[BANKED_N];  /* a code's sound waits for its bank */
+static int banked_index(uint32_t cue)
 {
-    int was = s_war_pending;
-    s_war_pending = 0;
-    return was;
+    for (int i = 0; i < BANKED_N; i++)
+        if (s_banked[i].cue == cue)
+            return i;
+    return -1;
 }
 static const uint16_t s_wrong_cues[] = {
     0x71F,  /* cut_barnboys buffyoua-22 */
@@ -10368,7 +11015,7 @@ static const uint16_t s_wrong_cues[] = {
     0x7F6,  /* cut_sloprano berrikidn3 */
     0x395,  /* conkbits13 */
     0x399,  /* conkbits18 */
-    0x6DF,  /* conkerno (CUE_UNPITCH: played unslowed) */
+    0x6DF,  /* conkerno (s_unpitch: played unslowed) */
     0x465,  /* weasel9 */
     0x335,  /* femcogC */
     0x337,  /* femcogE */
@@ -10414,7 +11061,7 @@ static uint32_t cheat_imp(void)
 {
     uint32_t base = MEM32(0x0084A5F8u), imp = base + 2u * 0x6D0u;
 
-    if (MEM32(0x007FA1F8u) != 0x1D || !xact_va_ok(base) || MEM32(imp + 0x68u) != 0x3Au)
+    if (!conker_OnMainMenu() || !xact_va_ok(base) || MEM32(imp + 0x68u) != 0x3Au)
         return 0;
     return imp;
 }
@@ -10525,34 +11172,74 @@ static void cheat_cue_stop(int emitter, uint32_t was)
     g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
 }
 
-/* conkerno (0x6DF) as recorded: the game's own record for it (sfx_speech_eng's
- * sound 0; that sound bank's data in memory starts "SDBK", its name at +0x28,
- * the record at +0x2CAC, pitch at +6) plays it 1.5 octaves down (0xE800), so
- * slowed. For the cheat sound the pitch is cleared while it starts and put back
- * a second later; the game's own uses stay as they were (user 2026-11-11). */
-#define CUE_UNPITCH 0x6DFu
-#define UNPITCH_WAS 0xE800u
-static uint32_t unpitch_record(void)
+/* Cheat sounds played as recorded: the game's own sound record (in the sound
+ * bank's data in memory, which starts "SDBK", its name at +0x28, cue count at
+ * +0x1A; the sound records follow the cues: +0x38 + cues * 20 + sound * 20,
+ * pitch at +6, 4096 = an octave) carries a pitch. For the cheat sound it is
+ * cleared while the cue starts and put back a second later; the game's own
+ * uses stay as they were. conkerno 1.5 octaves down (user 2026-11-11), mice an
+ * octave up (user 2026-11-14: too fast / high at the game's pitch; 0.32 s as
+ * recorded). The sound is the cue's own (`+2` of its cue record; the game's
+ * sound table 0x0065E064 `+4` = the cue in its bank). */
+static struct {
+    uint16_t cue, sound, was;
+    const char *bank, *name;
+    uint32_t rec;
+    ULONGLONG until;
+} s_unpitch[] = {
+    { 0x6DF,          0,    0xE800u, "sfx_speech_eng", "conkerno" },
+    { CUE_CHEAT_MICE, 1073, 0x1000u, "sfx",            "mice" },
+};
+#define UNPITCH_N ((int)(sizeof(s_unpitch) / sizeof(s_unpitch[0])))
+static void unpitch_find(void)
 {
-    static uint32_t rec;
     static int tried;
-    if (rec || tried)
-        return rec;
+    if (tried)
+        return;
     tried = 1;
     __try {
-        for (uint32_t va = 0x00010000u; va < 0x04000000u - 0x3000u; va += 4u)
-            if (MEM32(va) == 0x4B424453u                    /* "SDBK" */
-                && !memcmp((const void *)XBOX_PTR(va + 0x28u), "sfx_speech_eng", 15)) {
-                rec = va + 0x2CACu;
-                break;
-            }
+        for (uint32_t va = 0x00010000u; va < 0x04000000u - 0x3000u; va += 4u) {
+            if (MEM32(va) != 0x4B424453u)                       /* "SDBK" */
+                continue;
+            for (int i = 0; i < UNPITCH_N; i++)
+                if (!s_unpitch[i].rec
+                    && !memcmp((const void *)XBOX_PTR(va + 0x28u), s_unpitch[i].bank,
+                               strlen(s_unpitch[i].bank) + 1))
+                    s_unpitch[i].rec = va + 0x38u + (MEM16(va + 0x1Au) + s_unpitch[i].sound) * 20u;
+        }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        rec = 0;
     }
-    if (rec && MEM16(rec + 6u) != UNPITCH_WAS)
-        rec = 0;                        /* not the record we know */
-    fprintf(stderr, "[CHEATSND] conkerno's record %s\n", rec ? "found" : "not found (plays slowed)");
-    return rec;
+    for (int i = 0; i < UNPITCH_N; i++) {
+        if (s_unpitch[i].rec && MEM16(s_unpitch[i].rec + 6u) != s_unpitch[i].was)
+            s_unpitch[i].rec = 0;       /* not the record we know */
+        fprintf(stderr, "[CHEATSND] %s's record %s\n", s_unpitch[i].name,
+                s_unpitch[i].rec ? "found" : "not found (plays at the game's pitch)");
+    }
+}
+
+/* A cheat sound: as recorded when it is in s_unpitch. Returns cheat_cue's. */
+static int cheat_cue_play(uint32_t cue)
+{
+    for (int i = 0; i < UNPITCH_N; i++)
+        if (s_unpitch[i].cue == cue) {
+            unpitch_find();
+            if (s_unpitch[i].rec) {
+                MEM16(s_unpitch[i].rec + 6u) = 0;
+                s_unpitch[i].until = GetTickCount64() + 1000u;
+            }
+        }
+    return cheat_cue(cue);
+}
+
+/* Each frame: pitches put back a second after their cue started. */
+static void unpitch_frame(void)
+{
+    ULONGLONG now = GetTickCount64();
+    for (int i = 0; i < UNPITCH_N; i++)
+        if (s_unpitch[i].until && now >= s_unpitch[i].until) {
+            MEM16(s_unpitch[i].rec + 6u) = s_unpitch[i].was;
+            s_unpitch[i].until = 0;
+        }
 }
 
 /* No reload: every clip of every gun Conker carries stays full, so a reload
@@ -10606,7 +11293,7 @@ static void cheat_money(int on)
     int slot = -1;
     int32_t kept;
 
-    if (MEM32(0x007FA1F8u) == 0x1D) {
+    if (conker_OnMainMenu()) {
         chapter_kept = -1;
         return;
     }
@@ -10663,6 +11350,48 @@ extern void sub_00252A80(void);
 extern void sub_0032D1E0(void);
 static volatile int g_warp_cp = -1, g_warp_level = -1, g_warp_soak = -1, g_warped;
 static int g_warp_quiet;                /* the viewer's: no note, it comes back */
+static int s_menu_walk;                 /* a warp into the menu's own level (to-do 165) */
+static int s_menu_walked;               /* ... and not yet in another level since */
+
+/* In the menu's level 0x1D after a "MainMenu" warp, with the front end not
+ * running (its state 0x00776574 is 0 once a game runs). */
+static int menu_walk(void)
+{
+    return s_menu_walk && MEM32(0x007FA1F8u) == 0x1D && MEM32(0x00776574u) == 0;
+}
+
+/* Back on the main menu from the walk (pause menu, Quit): the same level loads
+ * again and keeps character 0 set up as Conker, which a fresh main menu never
+ * does, so he rode along with the menu's camera, his tail across the boards.
+ * He (id 1) isn't drawn there until another level has loaded. */
+static int menu_hides_char_id(uint32_t id)
+{
+    return id == 1 && s_menu_walked && MEM32(0x007FA1F8u) == 0x1D && MEM32(0x00776574u) != 0;
+}
+
+/* Camera setup (cdecl, [esp+4] the camera): in level 0x1D it starts the camera
+ * in mode 0x80000 (the menu's, as multiplayer before spawning) instead of 1. */
+extern void sub_00045990_gen(void);
+void sub_00045990(void)
+{
+    const uint32_t cam = MEM32(g_esp + 4u);
+
+    sub_00045990_gen();
+    if (menu_walk() && xact_va_ok(cam) && MEM32(cam + 0xC0u) == 0x80000u)
+        MEM32(cam + 0xC0u) = 1;
+}
+
+/* The main menu camera's driver (called by the camera update only in level 0x1D;
+ * it runs the boards' camera 0x001FD0F0 and moves character 0 along with it). */
+extern void sub_00045730_gen(void);
+void sub_00045730(void)
+{
+    if (menu_walk()) {
+        g_esp += 4;                     /* ret */
+        return;
+    }
+    sub_00045730_gen();
+}
 
 /* A level's name, NULL when the warp list leaves it out: no name means unused or
  * multiplayer only (their maps need a match set up), the two menus aren't levels
@@ -10672,7 +11401,9 @@ const char *conker_WarpLevelName(int level)
 {
     uint32_t s;
 
-    if (level < 0 || level >= LEVELS || level == 0x1D || level == 0x46 || level == 8)
+    if (level == 0x1D)
+        return "MainMenu";              /* the menu's own level as a place to walk (to-do 165) */
+    if (level < 0 || level >= LEVELS || level == 0x46 || level == 8)
         return NULL;
     s = MEM32(0x0069CF90u + (uint32_t)level * 4u);
     return s && MEM8(s) ? (const char *)&MEM8(s) : NULL;
@@ -10711,6 +11442,14 @@ static const char *warp_refused_now(void)
     if (MEM8(0x0076EC82u) || MEM8(0x00771130u) || MEM8(0x007819D6u))
         return "A level is loading";
     return NULL;
+}
+
+/* A level is loading, or a warp is asked and not yet started (the console's
+ * waitload, to-do 166). Any thread. */
+int conker_LevelLoading(void)
+{
+    return MEM8(0x0076EC82u) || MEM8(0x00771130u) || MEM8(0x007819D6u)
+        || g_warp_cp >= 0 || g_warp_level >= 0 || g_warp_soak >= 0;
 }
 
 /* Why not now, or NULL. Any thread. */
@@ -10765,7 +11504,7 @@ int conker_LevelSorted(int pos)
             uint32_t s = MEM32(0x0069CF90u + (uint32_t)i * 4u);
             int j = i;
 
-            names[i] = s ? (const char *)&MEM8(s) : "";
+            names[i] = i == 0x1D ? "MainMenu" : s ? (const char *)&MEM8(s) : "";
             while (j > 0 && _stricmp(names[o[j - 1]], names[i]) > 0) {
                 o[j] = o[j - 1];
                 j--;
@@ -10788,6 +11527,9 @@ int conker_Warped(void)
  * of the chapter databases (_work\s130\spots.py; numbers only): x, height to look for
  * the floor from, z. Out of the level's own exits; a cutscene trigger there may fire,
  * which is what comes next in the story. */
+#define WSPOT_MAINMENU 255              /* above every checkpoint number */
+#define MENU_WALK_SCALE 1.1875f         /* his size there: 1 = the menu's characters' scale;
+                                           1 and 1.125 a little small beside them, 1.25 a little big (user 2026-11-12) */
 static const struct { uint8_t cp; int16_t x, y, z; } s_cp_spots[] = {
     {   0,    894,   1681,    970 },
     {   4,    622,    935,  -2674 },
@@ -10832,6 +11574,11 @@ static const struct { uint8_t cp; int16_t x, y, z; } s_cp_spots[] = {
     { 194,  -3700,  -1800,  -2750 },
     { 196,  -1597,  -1555,    836 },
     { 207,   1718,    200,   -264 },
+    /* Not a checkpoint: the "MainMenu" warp (to-do 165), just inside the pub's room
+     * past its entrance hall (street door at z ~1350, the room from ~880), facing in
+     * (camera yaw 0 = -z); the place the user picked (2026-11-12). Not in the hall:
+     * at the menu characters' size (below) its walls hold the camera ~70 behind him. */
+    { WSPOT_MAINMENU, 22,  60,    793 },
 };
 static int s_cv_pend_scene;              /* the cutscene viewer, below */
 static int s_wspot = -1, s_wspot_wait, s_wspot_held;
@@ -10885,9 +11632,25 @@ static void warp_spot_frame(void)
     MEMF(c + 0xDCu) = 0.0f;
     MEMF(c + 0x110u) = 0.0f;
     MEMF(c + CHAR_FALL_FROM) = y;
+    if (s_cp_spots[s_wspot].cp == WSPOT_MAINMENU) {
+        const uint32_t cam = MEM32(0x008470DCu), ctl = xact_va_ok(cam) ? MEM32(cam + 4u) : 0;
+        if (xact_va_ok(ctl))            /* looking down the hall into the pub */
+            MEMF(ctl + 0x60u) = MEMF(ctl + 0x5Cu) = 0.0f;
+        /* He faces in too (user 2026-11-12): facing +0x170 / +0x174, s16 in
+         * 1/65536 turns, 0 = +x (the hall's side wall), 16384 = -z. */
+        MEM16(c + 0x170u) = MEM16(c + 0x174u) = 0x4000u;
+        /* His size like the menu's characters (user 2026-11-12: "much smaller"):
+         * the character scale +0x260 / +0x264 (+0x268 / +0x26C copies; the matrix
+         * in 0x000808F0 = model scale x it) is 1 / the level scale (0x1D: 2) for
+         * him, so his usual size; the menu's characters keep 1, twice that. */
+        MEMF(c + 0x260u) = MEMF(c + 0x264u) = MEMF(c + 0x268u) = MEMF(c + 0x26Cu) = MENU_WALK_SCALE;
+    }
     if (++s_wspot_held >= 20) {
-        fprintf(stderr, "[WARP] checkpoint %u: put at %.0f %.0f %.0f\n",
-                s_cp_spots[s_wspot].cp, x, y, z);
+        if (s_cp_spots[s_wspot].cp == WSPOT_MAINMENU)
+            fprintf(stderr, "[WARP] MainMenu: put at %.0f %.0f %.0f\n", x, y, z);
+        else
+            fprintf(stderr, "[WARP] checkpoint %u: put at %.0f %.0f %.0f\n",
+                    s_cp_spots[s_wspot].cp, x, y, z);
         s_wspot = -1;
     }
 }
@@ -11017,8 +11780,17 @@ static void warp_frame(void)
 
     warp_spot_frame();
     soak_level_frame();
-    if (g_warped && MEM32(0x007FA1F8u) == 0x1D && !MEM8(0x007819D6u))
+    if (g_warped && MEM32(0x007FA1F8u) == 0x1D && MEM32(0x00776574u) && !MEM8(0x007819D6u))
         g_warped = 0;
+    if (s_menu_walk && (MEM32(0x00776574u)
+                        || (MEM32(0x007FA1F8u) != 0x1D && !MEM8(0x007819D6u))))
+        s_menu_walk = 0;
+    if (s_menu_walked && MEM32(0x007FA1F8u) != 0x1D && !MEM8(0x007819D6u))
+        s_menu_walked = 0;
+    if (level == 0x1D) {                /* the menu's level: only as the soak test loads it */
+        soak = level;
+        level = -1;
+    }
     if (cp < 0 && level < 0 && soak < 0)
         return;
     g_warp_cp = g_warp_level = g_warp_soak = -1;
@@ -11030,10 +11802,19 @@ static void warp_frame(void)
     s_soak_level = soak;
     s_soak_arrived = 0;
     if (soak >= 0) {
+        s_menu_walk = soak == 0x1D;
+        s_menu_walked |= s_menu_walk;
         warp_soak_go(soak);
         g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
         g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
         s_wspot = -1;
+        if (s_menu_walk)                /* at the pub's door, not spawn 0 mid-room */
+            for (size_t i = 0; i < sizeof(s_cp_spots) / sizeof(s_cp_spots[0]); i++)
+                if (s_cp_spots[i].cp == WSPOT_MAINMENU) {
+                    s_wspot = (int)i;
+                    s_wspot_wait = s_wspot_held = 0;
+                    s_wspot_level = 0x1D;
+                }
         g_warped = 1;
         fprintf(stderr, "[WARP] to level 0x%02X as the soak test loads it; nothing is saved "
                 "until the main menu\n", soak);
@@ -11087,13 +11868,13 @@ static void warp_frame(void)
  * WindmillAtNight (0x49) at all: its package holds the same 41 files as Windmill's
  * (cutscene_THE_WINDMILL_n), and played in that level they ask for characters only the
  * day package has (BeeHiveGun: 1, 18, 31; QueenBee from the level's tasks: 0, 14, 28):
- * the game's halt. Windmill's own list plays them. Nor Windmill's 20, which loads the
- * night map by itself (0x00064070) and hung the same way, nor its 24, which asks for
- * CombatGeneral (It's War's general, not in Level\Windmill): to-do 137, 0.3.x. */
+ * the game's halt. Windmill's own list plays them, each in the map cv_load_scene picks
+ * (its 20 at night, to-do 137; its 24 at night with It's War's progress, as the story
+ * plays it: by day it asks for CombatGeneral, not in Level\Windmill, to-do 209). */
 static const struct { uint8_t level; uint64_t scenes; } s_cut_scenes[] = {
     { 0x00, 0x0000000000003FFEull }, { 0x01, 0x000000000003FFFEull },
     { 0x02, 0x0000008000007FFFull }, { 0x04, 0x000000000003FFFFull },
-    { 0x06, 0x000001FFFEEFFFFFull }, { 0x07, 0x00000000003FFFFFull },
+    { 0x06, 0x000001FFFFFFFFFFull }, { 0x07, 0x00000000003FFFFFull },
     { 0x0A, 0x0000000000001FFFull }, { 0x0B, 0x00000000000007FEull },
     { 0x0C, 0x0000000001FFFFFEull }, { 0x0E, 0x000000000000000Eull },
     { 0x10, 0x0000000000007FFEull }, { 0x12, 0x000000000000000Eull },
@@ -11166,6 +11947,8 @@ const char *conker_CutsceneLevelName(int level)
 
     if (level < 0 || level >= LEVELS || !conker_CutsceneScenes(level))
         return NULL;
+    if (level == 0x1D)
+        return "MainMenu";              /* as the warp list names it (to-do 165) */
     s = MEM32(0x0069CF90u + (uint32_t)level * 4u);
     return s && MEM8(s) ? (const char *)&MEM8(s) : NULL;
 }
@@ -11369,6 +12152,135 @@ static void cv_put_back(void)
     MEM16(c + 0x3AEu) = s_cv_energy;
 }
 
+/* Windmill (level 6) has two maps: WindmillAtNight once the story is past "Roll And
+ * Rat?" (progress bit 39) or for a pending scene 20, New Game's Windy at night,
+ * whatever the progress (0x00064070). Their packages hold the same scene files but
+ * not the same characters: in the night map the level's tasks without night progress
+ * ask for QueenBee and scenes 1, 18, 31 for BeeHiveGun, which only the day package
+ * has (the game's halt, to-do 137). So a Windmill view picks the map by its scene:
+ * - from the main menu (a new game for the view): Windmill's first checkpoint (10)
+ *   for the day; scene 20 as New Game reaches it, from the game's start
+ *   (checkpoint 0's progress, then the level: 10's has the beehive tasks running);
+ * - from a level: the progress wiped for the view (cv_begin), so the night map only
+ *   for scene 20, then the level loaded for the scene as cutscene_start 0x0004EC10
+ *   does for another level, even from Windmill itself (in place it would play in
+ *   whichever map is up).
+ * Scene 24 (It's War's opening, the general's broadcast) is a night scene too, but
+ * played without the story it asks for CombatGeneral, not in Level\Windmill. The
+ * story plays it at checkpoint 197 "It's War", in the night map (bit 39 among its
+ * progress), so its views get that checkpoint's progress instead of none (to-do 209). */
+#define CV_WINDMILL 6
+#define CV_WINDMILL_NIGHT_SCENE 20
+#define CV_WINDMILL_WAR_SCENE 24
+#define CV_WINDMILL_WAR_CP 197
+
+static int cv_windmill_night(int level, int scene)
+{
+    return level == CV_WINDMILL
+           && (scene == CV_WINDMILL_NIGHT_SCENE || scene == CV_WINDMILL_WAR_SCENE);
+}
+
+/* A checkpoint's story progress without its level: the first half of 0x0009EEE0
+ * (0x0035DE10 over the row's prerequisites with 0x0035DD30, then 0x0035DDD0), which
+ * only marks tasks done (0x00801910) and sets progress bits. Game thread. */
+extern void sub_0035DE10(void);
+extern void sub_0035DDD0(void);
+
+static void cv_add_cp_progress(int cp)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+
+    g_eax = MEM32(0x0059E9ACu + (uint32_t)cp * 20u);
+    g_esp -= 4;
+    MEM32(g_esp) = 0x0035DD30u;         /* per prerequisite; the caller pops it */
+    g_esp -= 4;
+    MEM32(g_esp) = 0;                   /* return address, popped by the callee */
+    sub_0035DE10();
+    g_esp = r_esp;
+    g_eax = (uint32_t)cp;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;
+    sub_0035DDD0();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+    fprintf(stderr, "[CUTVIEW] checkpoint %d's progress for the view (night %s)\n", cp,
+            MEM8(MEM32(0x0084B290u) + 39u / 8u) >> (39 & 7) & 1u ? "on" : "off");
+}
+
+static void cv_warp_to(int level, int scene)
+{
+    if (cv_windmill_night(level, scene)) {
+        /* As New Game: nothing done (a warp to a scene keeps the progress otherwise,
+         * warp_frame), checkpoint 0's progress, then the level. 24: It's War's
+         * checkpoint's progress first. Game thread. */
+        uint32_t r_esp = g_esp;
+        g_esp -= 4;
+        MEM32(g_esp) = 0;               /* return address, popped by the callee */
+        sub_0035DF40();
+        g_esp = r_esp;
+        if (scene == CV_WINDMILL_WAR_SCENE)
+            cv_add_cp_progress(CV_WINDMILL_WAR_CP);
+        g_warp_level = level;
+    } else
+        conker_WarpToLevel(level);
+}
+
+/* A load into the level that is up keeps its tasks: tasks_level_load 0x0035E040 gives
+ * every loaded task on the new level's list (0x0084B298, Windmill's and the night's
+ * are one) that level, and only then 0x0035D440(0) ends the level-bound ones (flag
+ * 0x1000) of another level. In Windmill the tasks its checkpoint started (TheBeeHive)
+ * went on into the night map and asked for QueenBee. So they end here first as when
+ * he leaves the level: tagged with no level, 0x0035D440(0) runs their end event and
+ * removes them. The reload after the view starts them again from the progress. */
+extern void sub_0035D440(void);
+
+static void cv_leave_level_tasks(void)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+    uint32_t t = MEM32(0x00801904u);
+    int n = MEM16(0x00801900u), ended = 0;
+
+    for (int i = 0; i < n && xact_va_ok(t); i++, t = MEM32(t + 0x34u))
+        if (MEM32(t) & 0x1000u) {
+            MEM32(t + 4u) = 0xFFu;
+            ended++;
+        }
+    g_esp -= 4;
+    MEM32(g_esp) = 0;                   /* 0: only the done ones and other levels' */
+    g_esp -= 4;
+    MEM32(g_esp) = 0;                   /* return address, popped by the callee */
+    sub_0035D440();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+    fprintf(stderr, "[CUTVIEW] the level's %d tasks ended for the view (%d left)\n", ended,
+            MEM16(0x00801900u));
+}
+
+/* 0x0004EC10's way to a scene in another level: pending scene + 1, a kind-1 load. */
+static void cv_load_scene(uint32_t level, uint32_t scene)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+
+    MEM32(0x007655ECu) = 0;
+    MEM8(0x007655F0u) = 0;
+    MEM8(0x0076F0B6u) = (uint8_t)(scene + 1u);
+    g_esi = level;
+    g_esp -= 16;
+    MEM32(g_esp) = 1;                   /* kind 1: a scene's level */
+    MEM32(g_esp + 4u) = 0;
+    MEM32(g_esp + 8u) = 0;
+    MEM32(g_esp + 12u) = 0;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;                   /* return address, popped by the callee */
+    sub_002A94A0();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+    MEM8(0x0076F0B5u) = MEM8(0x0076F0E0u) == 0;
+}
+
 static void cv_begin(int level, int scene, int warp)
 {
     uint32_t cur = MEM32(0x007FA1F8u);
@@ -11392,7 +12304,7 @@ static void cv_begin(int level, int scene, int warp)
         /* It stays there: a warp with the scene at the end of its load. */
         s_cv_pend_level = level;
         s_cv_pend_scene = scene;
-        conker_WarpToLevel(level);
+        cv_warp_to(level, scene);
         return;
     }
     s_cv_state = CV_WATCH;
@@ -11412,11 +12324,29 @@ static void cv_begin(int level, int scene, int warp)
         s_cv_pend_level = level;
         s_cv_pend_scene = scene;
         g_warp_quiet = 1;
-        conker_WarpToLevel(level);
+        cv_warp_to(level, scene);
         return;
     }
     if (!s_cv_menu)
         cv_keep_game();
+    if (!s_cv_menu && level == CV_WINDMILL) {
+        /* Windmill from a level: the map by the scene, not by the story (see
+         * cv_load_scene); the progress comes back with the rest after. */
+        uint32_t r_esp = g_esp;
+        g_esp -= 4;
+        MEM32(g_esp) = 0;               /* return address, popped by the callee */
+        sub_0035DF40();
+        g_esp = r_esp;
+        if (cur == CV_WINDMILL)
+            cv_leave_level_tasks();
+        if (scene == CV_WINDMILL_WAR_SCENE)
+            cv_add_cp_progress(CV_WINDMILL_WAR_CP);
+        fprintf(stderr, "[CUTVIEW] Windmill: the view starts with %s (%s map)\n",
+                scene == CV_WINDMILL_WAR_SCENE ? "It's War's progress" : "no story progress",
+                cv_windmill_night(level, scene) ? "night" : "day");
+        cv_load_scene((uint32_t)level, (uint32_t)scene);
+        return;
+    }
     cv_start((uint32_t)level, (uint32_t)scene);
 }
 
@@ -11995,18 +12925,19 @@ static void cheats_frame(void)
     {
         /* Their wave banks (debug_tools.c): sfx_X (lightbulb2) while a cheat
          * screen is up and 10 s after, so it is in when Ctrl / RB is pressed;
-         * It's War's bank while a gun code's sound waits or plays. A sound
-         * asked for before its bank is in plays once it is (or not, past the
-         * wait). User 2026-11-11. */
-        static ULONGLONG bulb_keep, bulb_wait, war_keep, war_wait, war_typing;
+         * a banked code sound's bank (It's War's for the gun codes, hd_sfx for
+         * the Mouse) while its sound waits or plays. A sound asked for before
+         * its bank is in plays once it is (or not, past the wait). User
+         * 2026-11-11. */
+        static ULONGLONG bulb_keep, bulb_wait, typing, bk_keep[BANKED_N], bk_wait[BANKED_N];
         ULONGLONG now = GetTickCount64();
-        int bulb_ok, war_ok;
+        int bulb_ok, ahead;
         if (conker_CheatScreen())
             bulb_keep = now + 10000u;
         bulb_ok = conker_SoundBank(SOUND_BANK_X, now < bulb_keep || now < bulb_wait);
         if (sounds & CHEAT_SOUND_HOLD) {
             bulb_wait = now + 1500u;
-            war_typing = now + 15000u;  /* a gun code may be on its way */
+            typing = now + 15000u;      /* a banked code may be on its way */
         }
         if (bulb_wait && bulb_ok) {
             cheat_cue(CUE_CHEAT_HOLD);
@@ -12014,22 +12945,26 @@ static void cheats_frame(void)
         } else if (bulb_wait && now >= bulb_wait) {
             bulb_wait = 0;
         }
-        if (s_code_war_pending())       /* set below, a frame before */
-            war_wait = now + 10000u;
-        /* Loaded ahead so the gun codes' sound comes at once (user 2026-11-11):
-         * on main menu Options all the time once codes count, elsewhere from
-         * Ctrl / RB pressed (it loads while the code is typed). */
-        war_ok = conker_SoundBank(SOUND_BANK_ITSWAR, now < war_keep || war_wait
-                                  || (cheats_menu_unlocked()
-                                      && (now < war_typing
-                                          || (now < bulb_keep && MEM32(0x007FA1F8u) == 0x1D))));
-        if (war_wait && war_ok) {
-            cheat_cue(CUE_CHEAT_WAR);
-            war_wait = 0;
-            war_keep = now + 4000u;     /* the cue plays on it */
-        } else if (war_wait && now >= war_wait) {
-            fprintf(stderr, "[CHEATSND] It's War's bank didn't load in time\n");
-            war_wait = 0;
+        /* Loaded ahead so the sound comes at once (user 2026-11-11): on main
+         * menu Options all the time once codes count, elsewhere from Ctrl /
+         * RB pressed (it loads while the code is typed). */
+        ahead = cheats_menu_unlocked()
+                && (now < typing || (now < bulb_keep && MEM32(0x007FA1F8u) == 0x1D));
+        for (int i = 0; i < BANKED_N; i++) {
+            int ok;
+            if (s_banked_pending[i]) {  /* set below, a frame before */
+                s_banked_pending[i] = 0;
+                bk_wait[i] = now + 10000u;
+            }
+            ok = conker_SoundBank(s_banked[i].bank, now < bk_keep[i] || bk_wait[i] || ahead);
+            if (bk_wait[i] && ok) {
+                cheat_cue_play(s_banked[i].cue);
+                bk_wait[i] = 0;
+                bk_keep[i] = now + 4000u;   /* the cue plays on it */
+            } else if (bk_wait[i] && now >= bk_wait[i]) {
+                fprintf(stderr, "[CHEATSND] %s bank didn't load in time\n", s_banked[i].what);
+                bk_wait[i] = 0;
+            }
         }
     }
     {
@@ -12043,10 +12978,11 @@ static void cheats_frame(void)
         }
         if (sounds & CHEAT_SOUND_RIGHT) {
             int code = cheats_take_code_sound();
-            if (code >= 0 && code < CHEAT_COUNT + 2 && s_code_cues[code] == CUE_CHEAT_WAR) {
-                s_war_pending = 1;              /* played once its bank is in */
+            int bi = code >= 0 && code < CHEAT_COUNT + 2 ? banked_index(s_code_cues[code]) : -1;
+            if (bi >= 0) {
+                s_banked_pending[bi] = 1;       /* played once its bank is in */
             } else if (code >= 0 && code < CHEAT_COUNT + 2) {
-                int e = cheat_cue(s_code_cues[code]);
+                int e = cheat_cue_play(s_code_cues[code]);
                 uint32_t slot = cheat_cue_slot(e);
                 if (s_code_cues[code] == CUE_CHEAT_ONCE && slot) {
                     if (once_emitter >= 0)
@@ -12070,16 +13006,9 @@ static void cheats_frame(void)
             pick = (seed >> 16) % n;
         } while (pick == last);
         last = pick;
-        if (s_wrong_cues[pick] == CUE_UNPITCH && unpitch_record()) {
-            MEM16(unpitch_record() + 6u) = 0;
-            unpitch_until = GetTickCount64() + 1000u;
-        }
-        cheat_cue(s_wrong_cues[pick]);
+        cheat_cue_play(s_wrong_cues[pick]);
     }
-    if (unpitch_until && GetTickCount64() >= unpitch_until) {
-        MEM16(unpitch_record() + 6u) = UNPITCH_WAS;
-        unpitch_until = 0;
-    }
+    unpitch_frame();
     switch (cheats_take_imp()) {
     case 1: cheat_imp_react(IMP_ANIM_RIGHT); break;
     case 2: cheat_imp_react(IMP_ANIM_WRONG); break;
@@ -12087,11 +13016,12 @@ static void cheats_frame(void)
     on = cheats_active();
     cheat_mpunlocks_frame(on);
     options_row_frame();       /* to-do 196 */
+    size_frame();              /* to-do 212, every frame: off puts his size back */
     if (!CHEAT_STORY())
         return;
     cheat_chapters_changed(on);
     cheat_money((on & CHEAT_BIT(CHEAT_MONEY)) != 0);
-    if (!on || MEM32(0x007FA1F8u) == 0x1D)
+    if (!on || conker_OnMainMenu())
         return;
     c = MEM32(0x0084A5F8u);
     if (!xact_va_ok(c) || !xact_va_ok(ctl = MEM32(c + 0x568u)))
@@ -12106,6 +13036,267 @@ static void cheats_frame(void)
     if (on & CHEAT_BIT(CHEAT_NO_RELOAD))
         cheat_no_reload(ctl);
     cheat_speed(c, (on & CHEAT_BIT(CHEAT_SPEED)) != 0);
+}
+
+/* ---- Conker the Mouse / Conker the Bear (to-do 212) ---- */
+
+/* His size: 0.5 (Mouse), 2 (Bear) or 1, story only and never on the real main
+ * menu (its Conker is one of the menu's characters). */
+static float size_factor(void)
+{
+    uint32_t on = cheats_active();
+
+    if (!(on & (CHEAT_BIT(CHEAT_MOUSE) | CHEAT_BIT(CHEAT_BEAR))) || !CHEAT_STORY()
+        || conker_OnMainMenu())
+        return 1.0f;
+    return (on & CHEAT_BIT(CHEAT_MOUSE)) ? 0.5f : 2.0f;
+}
+
+/* For voice_pitch.c (any thread). */
+float conker_SizeFactor(void)
+{
+    return size_factor();
+}
+
+/* Drawn size: the character scale +0x260 / +0x264 (+0x268 / +0x26C copies; the
+ * matrix in 0x000808F0 = model scale x it), which a level's load sets to
+ * 1 / the level scale for him (conker-notes 2026-11-12, MainMenu warp). The
+ * game's own value is kept as the base whenever it differs from the one last
+ * written here (a load, a warp), and base x the factor written; the base again
+ * when the cheat goes off. 0 = not set up yet (the game fills it later). Run at
+ * the top of the draw and at the end of the frame, so a load's first frame
+ * already has his size. */
+static struct { uint32_t c; float base, wrote; } s_size;
+
+static void size_frame(void)
+{
+    uint32_t c = MEM32(0x0084A5F8u);
+    float k, cur, want;
+
+    if (!xact_va_ok(c)) {
+        s_size.c = 0;
+        return;
+    }
+    cur = MEMF(c + 0x260u);
+    if (cur == 0.0f)
+        return;
+    if (c != s_size.c || cur != s_size.wrote) {
+        s_size.c = c;
+        s_size.base = s_size.wrote = cur;
+    }
+    k = size_factor();
+    want = s_size.base * k;
+    if (want == cur)
+        return;
+    MEMF(c + 0x260u) = MEMF(c + 0x264u) = MEMF(c + 0x268u) = MEMF(c + 0x26Cu) = want;
+    s_size.wrote = want;
+    fprintf(stderr, "[SIZE] Conker x%.2g (scale %.4g, the level's %.4g)\n", k, want, s_size.base);
+}
+
+/* The camera follows his size (to-do 212, 214). The game's camera code runs as
+ * for his normal size: its update (0x0003C500, from world_update) reads his
+ * world matrix (+0x00..+0x2C, scaled with him), so his lowest camera rose with
+ * him (141 above his feet in the field, 219 as the Bear) and the drawn view
+ * scaled that again; the update sees the matrix at his normal size, put back
+ * at 0x00064B00. Then the drawn view is moved (photo_move_view): the Mouse's
+ * as the whole rig scaled about his feet; the Bear's aimed at 1.6x the game's
+ * target height above his feet and 2.2x as far back (user: lower and further
+ * back), the view's direction kept. This happens at 0x00064B00, right after
+ * the cameras' update and before the game's own visibility passes (level,
+ * characters, scenery), so they see the moved view: run from the game's view
+ * instead, the GPU occlusion box (0x00313C20) hid the Mouse whenever the
+ * camera was raised, and the Bear's passes ran twice. The draw (0x002A3FD0)
+ * moves it only when that didn't happen, with the passes again. Not while a
+ * scene's camera runs ([0x0076F0E0] == 1): scenes keep their framing.
+ *
+ * Bigger, the eye goes past where the game checked for walls: the camera's
+ * own wall test, called as its line of sight (0x00042F90) calls it, from the
+ * moved target to the moved eye. When it hits, the target comes down toward
+ * the game's own (lower lines reach further back under roofs), then the eye
+ * stops where the lower line hits. Both shrink at once and grow back over
+ * about 0.3 s, so a pillar passing by doesn't make the camera jump out. */
+#define SIZE_CAM_HEIGHT 1.6f
+#define SIZE_CAM_DIST 2.2f
+extern void sub_00049F30(void);
+void sub_002A20B0(void);
+static float s_size_feet[3], s_size_k;
+static float s_size_fit = 1.0f;         /* share of the high line that is free */
+static float s_size_dist = 1.0f;        /* share of the final line that is free */
+static uint64_t s_size_fit_ms;
+static int s_size_cam_hid;              /* his matrix shown at normal size */
+static float s_size_mtx[12];            /* his world matrix's 3x3 meanwhile */
+
+/* The wall test from `from` to `to` (conker-notes 2026-11-13): a filter object
+ * made by 0x00049F30 (eax = its room, its +0 = 0x005D4C44 and +0x54 = 0
+ * first, edi = the controller + 0x100), then 0x002A20B0 (eax = start, esi =
+ * out, edi = 0; the way (end - start), radius (controller +0x190 +
+ * [0x00648D14]), the filter, 1, controller +0x190; al = hit, out = where; out
+ * = start when nothing is hit). A hit puts `to` there. 1 = hit. */
+static int size_ray(uint32_t cam, const float from[3], float to[3])
+{
+    const uint32_t ctl = MEM32(cam + 4u);
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+    uint32_t room, start, way, out, filt;
+    float radius;
+    int i, hit;
+
+    if (!xact_va_ok(ctl))
+        return 0;
+    radius = MEMF(ctl + 0x190u) + MEMF(0x00648D14u);
+    g_esp = (g_esp - 0x400u) & ~0xFu;
+    room = g_esp + 0x100u;              /* below it: the calls' own stack */
+    start = room;
+    way = room + 0x10u;
+    out = room + 0x20u;
+    filt = room + 0x40u;
+    for (i = 0; i < 3; i++) {
+        MEMF(start + 4u * i) = from[i];
+        MEMF(way + 4u * i) = to[i] - from[i];
+        MEMF(out + 4u * i) = to[i] - from[i];
+    }
+    memset((void *)XBOX_PTR(filt), 0, 0x80);
+    MEM32(filt) = 0x005D4C44u;
+    g_eax = filt;
+    g_edi = ctl + 0x100u;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;                   /* return address, popped by the callee */
+    sub_00049F30();
+    filt = g_eax;
+    g_esp -= 4; MEMF(g_esp) = MEMF(ctl + 0x190u);
+    g_esp -= 4; MEM32(g_esp) = 1;
+    g_esp -= 4; MEM32(g_esp) = filt;
+    g_esp -= 4; MEMF(g_esp) = radius;
+    g_esp -= 4; MEM32(g_esp) = way;
+    g_eax = start;
+    g_esi = out;
+    g_edi = 0;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;
+    sub_002A20B0();
+    hit = (g_eax & 0xFFu) != 0;
+    if (hit)
+        for (i = 0; i < 3; i++)
+            to[i] = MEMF(out + 4u * i);
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+    return hit;
+}
+
+/* The share of the way from `from` to `to` that the wall test lets through
+ * (1 = all of it). */
+static float size_fit(uint32_t cam, const float from[3], const float to[3])
+{
+    float p[3], len2 = 0.0f, dot = 0.0f, f;
+    int i;
+
+    memcpy(p, to, sizeof p);
+    if (!size_ray(cam, from, p))
+        return 1.0f;
+    for (i = 0; i < 3; i++) {
+        len2 += (to[i] - from[i]) * (to[i] - from[i]);
+        dot += (p[i] - from[i]) * (to[i] - from[i]);
+    }
+    f = len2 > 0.0f ? dot / len2 : 1.0f;
+    return f < 0.0f ? 0.0f : f > 1.0f ? 1.0f : f;
+}
+
+/* Shrinks at once, grows back by `rate`. */
+static float size_ease(float cur, float to, float rate)
+{
+    return to < cur ? to : cur + (to - cur) * rate;
+}
+
+/* photo_move_view's callback: the game's eye in, ours out. */
+static void size_eye_move(float eye[3])
+{
+    const uint32_t cam = MEM32(0x008470DCu);
+    const float k = s_size_k, *feet = s_size_feet;
+    float th = k, d = k, tgt[3], want[3], rate, t;
+    uint64_t now = GetTickCount64();
+    int i;
+
+    if (!xact_va_ok(cam))
+        return;
+    if (k > 1.0f) {
+        th = SIZE_CAM_HEIGHT;
+        d = SIZE_CAM_DIST;
+    }
+    for (i = 0; i < 3; i++) {
+        t = MEMF(cam + 0x2F4u + 4u * i);
+        tgt[i] = feet[i] + (t - feet[i]) * th;
+        want[i] = tgt[i] + (eye[i] - t) * d;
+    }
+    if (k <= 1.0f) {
+        memcpy(eye, want, sizeof want);
+        return;
+    }
+    rate = s_size_fit_ms && now > s_size_fit_ms
+         ? 1.0f - expf(-(float)(now - s_size_fit_ms) / 300.0f) : 1.0f;
+    s_size_fit_ms = now;
+    s_size_fit = size_ease(s_size_fit, size_fit(cam, tgt, want), rate);
+    if (s_size_fit < 1.0f) {
+        th = 1.0f + (th - 1.0f) * s_size_fit;
+        for (i = 0; i < 3; i++) {
+            t = MEMF(cam + 0x2F4u + 4u * i);
+            tgt[i] = feet[i] + (t - feet[i]) * th;
+            want[i] = tgt[i] + (eye[i] - t) * d;
+        }
+    }
+    s_size_dist = size_ease(s_size_dist, size_fit(cam, tgt, want), rate);
+    for (i = 0; i < 3; i++)
+        eye[i] = tgt[i] + (want[i] - tgt[i]) * s_size_dist;
+}
+
+/* early: from world_update (no passes needed); else the draw's fallback. */
+static void size_view_frame_at(int early)
+{
+    uint32_t c = MEM32(0x0084A5F8u);
+    float k = size_factor();
+
+    if (k == 1.0f || MEM8(0x0076F0E0u) == 1 || !xact_va_ok(c)) {
+        s_size_fit = s_size_dist = 1.0f;
+        return;
+    }
+    s_size_feet[0] = MEMF(c + 0x78u);
+    s_size_feet[1] = MEMF(c + 0x7Cu);
+    s_size_feet[2] = MEMF(c + 0x80u);
+    s_size_k = k;
+    photo_move_view(size_eye_move, !early, 0);
+}
+
+static void size_view_frame(void)
+{
+    size_view_frame_at(0);
+}
+
+/* 0x00064B00 (the level's visibility pass, from world_update right after the
+ * cameras' update): his matrix back, then the view moved. */
+void sub_00064B00_enter(void)
+{
+    uint32_t c = MEM32(0x0084A5F8u);
+
+    if (s_size_cam_hid && c == s_size.c && xact_va_ok(c))
+        memcpy((void *)XBOX_PTR(c), s_size_mtx, sizeof s_size_mtx);
+    s_size_cam_hid = 0;
+    size_view_frame_at(1);
+}
+
+/* 0x0003C500 (the cameras' update): his world matrix at his normal size. */
+void sub_0003C500_enter(void)
+{
+    uint32_t c = MEM32(0x0084A5F8u);
+    float k;
+    int i;
+
+    if (!xact_va_ok(c) || c != s_size.c || s_size.wrote == s_size.base || s_size.base == 0.0f
+        || MEMF(c + 0x260u) != s_size.wrote || MEM8(0x0076F0E0u) == 1)
+        return;
+    k = s_size.wrote / s_size.base;
+    memcpy(s_size_mtx, (const void *)XBOX_PTR(c), sizeof s_size_mtx);
+    for (i = 0; i < 12; i++)
+        MEMF(c + 4u * (uint32_t)i) = s_size_mtx[i] / k;
+    s_size_cam_hid = 1;
 }
 
 /* Glass Squirrel (to-do 160): one hit and he dies, as a death does. A hit's
@@ -12483,10 +13674,7 @@ void sub_0009A210(void)
 void sub_0001FC70_enter(void)
 {
     static int log = -1;
-    if (log < 0) {
-        const char *e = getenv("RECOMP_AUDIO_LOG");
-        log = e && *e && *e != '0';
-    }
+    log = dev_log(DLOG_AUDIO);
     if (log)
         fprintf(stderr, "[TUNE] play %u (old %u, method %u) from %08X, then %08X %08X %08X\n",
                 g_eax & 0xFFFu, MEM32(g_esp + 8u) & 0xFFFu, MEM32(g_esp + 12u), MEM32(g_esp),
@@ -12675,12 +13863,7 @@ int conker_EditSave(int slot, int chapter, int part, char *msg, size_t n)
 
 static int noclip_log_on(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_NOCLIP_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_NOCLIP);
 }
 
 /* RECOMP_NOCLIP_CAM=0: the first build's way, no-hits set once at take-off (A/B). */
@@ -12827,7 +14010,7 @@ const char *conker_NoclipRefused(void)
 
     if (MEM8(0x007819D5u))
         return "Not in a multiplayer match";
-    if (lv == 0x1Du || lv == 0x46u)
+    if (conker_OnMainMenu() || lv == 0x46u)
         return "Not on the menus";
     return NULL;
 }

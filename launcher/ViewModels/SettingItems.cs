@@ -14,7 +14,7 @@ public interface ISettingsOwner
 }
 
 /// <summary>
-/// One tab of the F2 menu (Display, Picture, Sound, Fixes) or the F3 menu (Single player,
+/// One tab of the F2 menu (Display, Graphics, Sound, Fixes) or the F3 menu (Single player,
 /// Multiplayer, Photo mode, Menus, Slots), shown inside the Settings or Controls tab.
 /// </summary>
 public sealed class MenuTab(string name)
@@ -219,6 +219,71 @@ public sealed partial class SliderItem(ISettingsOwner owner, MenuEntry entry) : 
         if (!showing && MuteKey is not null)
         {
             owner.Changed(MuteKey, value ? "1" : "0");
+        }
+    }
+}
+
+/// <summary>One entry of the quality preset list: a preset, or "Custom" (Preset null).</summary>
+public sealed record PresetOption(string Name, QualityPreset? Preset);
+
+/// <summary>
+/// The quality preset drop-down at the top of F2's Graphics tab (to-do 202): Low / Medium / High /
+/// Ultra, "Custom" (added to the list only then) when one of its options was changed by hand.
+/// </summary>
+public sealed partial class PresetItem : SettingItem
+{
+    private readonly Action<QualityPreset> choose;
+    private readonly PresetOption custom = new("Custom", null);
+    private bool showing;
+
+    public PresetItem(MenuEntry entry, IReadOnlyList<QualityPreset> presets, Action<QualityPreset> choose)
+        : base(entry)
+    {
+        this.choose = choose;
+        foreach (QualityPreset p in presets)
+        {
+            Options.Add(new PresetOption(p.Name, p));
+        }
+    }
+
+    public ObservableCollection<PresetOption> Options { get; } = [];
+
+    [ObservableProperty]
+    public partial PresetOption? Selected { get; set; }
+
+    public override void Show(string value)
+    {
+    }
+
+    /// <summary>Shows the preset every value matches (values: the options' values now), else Custom.</summary>
+    public void Update(IReadOnlyDictionary<string, string> values)
+    {
+        PresetOption match = Options.FirstOrDefault(o => o.Preset is { } p && p.Values.All(v =>
+            values.TryGetValue(v.Key, out string? now) && now.Equals(v.Value, StringComparison.OrdinalIgnoreCase)))
+            ?? custom;
+        if (match == custom && !Options.Contains(custom))
+        {
+            Options.Add(custom);
+        }
+
+        if (!ReferenceEquals(Selected, match))
+        {
+            showing = true;
+            Selected = match;
+            showing = false;
+        }
+
+        if (match != custom)
+        {
+            Options.Remove(custom);
+        }
+    }
+
+    partial void OnSelectedChanged(PresetOption? value)
+    {
+        if (!showing && value?.Preset is { } preset)
+        {
+            choose(preset);
         }
     }
 }

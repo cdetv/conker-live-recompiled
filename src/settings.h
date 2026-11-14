@@ -60,6 +60,24 @@ void settings_dump_options(FILE *f);
 /* s as a JSON string, quotes included. */
 void settings_json_string(FILE *f, const char *s);
 
+/* Quality presets (to-do 202): Low, Medium, High (= the defaults), Ultra,
+ * each a value for the same few costly options. current: the preset every
+ * one of them matches now, -1 = none ("Custom"; settings_preset_name(-1)).
+ * apply: sets them all and writes the file once (1 on success); the caller
+ * then applies each key to the running game as F2 does. */
+#define SETTINGS_PRESETS 4
+const char *settings_preset_name(int p);
+int settings_preset_key_count(void);
+const char *settings_preset_key(int k);
+const char *settings_preset_value(int p, int k);
+int settings_preset_current(void);
+int settings_preset_apply(int p);
+void settings_dump_presets(FILE *f);
+
+/* To-do 203: the preset a first start (no settings.ini yet) takes on this
+ * PC, -1 = the defaults; why: the threads and graphics card it went by. */
+int settings_first_start_preset(char *why, size_t n);
+
 /* --debug on the command line: debug-only choices are shown. */
 void settings_set_debug(int on);
 int settings_debug(void);

@@ -38,10 +38,18 @@ static int va_ok(uint32_t va)
     return va >= 0x00010000u && va < 0x84000000u;
 }
 
+/* The main menu, not its level warped into (to-do 165): level 0x1D with the
+ * front end running (its state 0x00776574 is 0 once a game runs, also in
+ * New Game's scenes in the bar and in a warp to "MainMenu"). */
+int conker_OnMainMenu(void)
+{
+    return MEM32(LEVEL) == 0x1Du && MEM32(0x00776574u) != 0;
+}
+
 static uint32_t player(void)
 {
     uint32_t c = MEM32(CHARS);
-    if (!va_ok(c) || MEM32(LEVEL) == 0x1Du)
+    if (!va_ok(c) || conker_OnMainMenu())
         return 0;
     return c;
 }
@@ -145,6 +153,98 @@ static void set_frame(void)
         g_eax = r_eax;
         g_esp = r_esp;
         fprintf(stderr, "[SET] kill: player_died\n");
+    }
+}
+
+/* ---- peek / poke (to-do 172) ---- */
+int xbox_GuestReadable(uint32_t va, uint32_t n);
+
+int conker_Peek(uint32_t va, void *out, unsigned n)
+{
+    if (!n || !xbox_GuestReadable(va, n))
+        return 0;
+    memcpy(out, (const void *)XBOX_PTR(va), n);
+    return 1;
+}
+
+int conker_Poke(uint32_t va, const void *in, unsigned n)
+{
+    if (!n || n > 8 || !xbox_GuestReadable(va, n))
+        return 0;
+    memcpy((void *)XBOX_PTR(va), in, n);
+    return 1;
+}
+
+/* ---- story flags by name (to-do 170) ----
+ * The game's 238 tasks (task table 0x0059E9A0, also the warp's checkpoints): a
+ * task's name is at [0x0074D00C + id * 8], done = its progress bit
+ * [[0x0084B290] + id / 8] and its state byte 0x00801910 + id = 3 (as
+ * 0x0035DD50 / 0x0035DE10 mark one; 0 is the wiped state, 0x0035DF40). The
+ * level's tasks are loaded at its load, so a change shows from the next load.
+ * Asked from any thread, done on the game thread. */
+#define PROGRESS    0x0084B290u
+#define TASK_STATE  0x00801910u
+#define TASK_NAMES  0x0074D00Cu
+#define TASKS_N     238
+
+static volatile LONG s_flag_ask[TASKS_N];  /* 0 none, 1 off, 2 on */
+static volatile LONG s_flag_any;
+
+int conker_FlagCount(void)
+{
+    return TASKS_N;
+}
+
+const char *conker_FlagName(int id)
+{
+    uint32_t p;
+
+    if (id < 0 || id >= TASKS_N)
+        return NULL;
+    p = MEM32(TASK_NAMES + (uint32_t)id * 8u);
+    return va_ok(p) ? (const char *)XBOX_PTR(p) : NULL;
+}
+
+int conker_Flag(int id, int *state)
+{
+    uint32_t bits = MEM32(PROGRESS);
+
+    if (id < 0 || id >= TASKS_N || !va_ok(bits) || MEM8(MULTI))
+        return -1;
+    if (state)
+        *state = MEM8(TASK_STATE + (uint32_t)id);
+    return (MEM8(bits + (uint32_t)id / 8u) >> (id & 7)) & 1;
+}
+
+int conker_FlagSet(int id, int on)
+{
+    if (conker_Flag(id, NULL) < 0)
+        return 0;
+    InterlockedExchange(&s_flag_ask[id], on ? 2 : 1);
+    InterlockedExchange(&s_flag_any, 1);
+    return 1;
+}
+
+static void flag_frame(void)
+{
+    uint32_t bits = MEM32(PROGRESS);
+
+    if (!InterlockedExchange(&s_flag_any, 0))
+        return;
+    for (int id = 0; id < TASKS_N; id++) {
+        LONG ask = InterlockedExchange(&s_flag_ask[id], 0);
+        uint32_t b = bits + (uint32_t)id / 8u;
+        if (!ask || !va_ok(bits))
+            continue;
+        if (ask == 2) {
+            MEM8(b) |= (uint8_t)(1u << (id & 7));
+            MEM8(TASK_STATE + (uint32_t)id) = 3;
+        } else {
+            MEM8(b) &= (uint8_t)~(1u << (id & 7));
+            MEM8(TASK_STATE + (uint32_t)id) = 0;
+        }
+        fprintf(stderr, "[FLAG] %d %s %s\n", id, conker_FlagName(id) ? conker_FlagName(id) : "?",
+                ask == 2 ? "on" : "off");
     }
 }
 
@@ -830,10 +930,10 @@ static void scan_frame(void)
  * take care of the counts. One extra bank at a time (XACT's limits: with
  * many loaded at once nothing plays). The tune -> bank table below comes from
  * the RECOMP_TUNE_SCAN runs in the field and in Harbour (It's War), merged
- * by _work\j189\merge.py: 142 tunes. Not in it: Sloprano's loops (its bank is
- * copied to the hard disk first), multiplayer and two It's War ambiences (in
- * the hard-disk sound banks, which can't be let go mid-level), and eight
- * tunes that sit in the list without playing (they need no bank). */
+ * by _work\j189\merge.py: 142 tunes, + Sloprano's 14 (to-do 193: loadable once
+ * PooBoss copied their bank to the hard disk). Not in it: multiplayer and two
+ * It's War ambiences, and eight tunes that sit in the list without playing:
+ * conker_TuneWhere greys them where they can't play. */
 #define TUNE_SETTLE_MS 2000u
 #define TUNE_LOAD_MS   10000u
 static const struct { uint16_t tune; const char *bank; } s_tune_banks[] = {
@@ -979,6 +1079,23 @@ static const struct { uint16_t tune; const char *bank; } s_tune_banks[] = {
     { 277, "am_itswar_lp" },    /* ambi_plane_drone */
     { 278, "am_general_lp" },   /* ambi_throne_room */
     { 279, "m_frontend_lp" },   /* frontend_stats_tune */
+    /* Sloprano's poo song (to-do 193): its bank only loads once PooBoss has copied
+     * it to the hard disk (+0x2C 1 -> 2); after that it loads in any level (tested
+     * in PooCabin). Before, tune_bank_of refuses it and conker_TuneWhere greys it. */
+    {  73, "m_sloprano_lp" },   /* pooend1 */
+    {  74, "m_sloprano_lp" },   /* pooend2 */
+    { 176, "m_sloprano_lp" },   /* sloprano_verse01_intro */
+    { 177, "m_sloprano_lp" },   /* sloprano_verse01_loop */
+    { 178, "m_sloprano_lp" },   /* sloprano_verse02_intro */
+    { 179, "m_sloprano_lp" },   /* sloprano_verse02_loop */
+    { 180, "m_sloprano_lp" },   /* sloprano_verse03_intro */
+    { 181, "m_sloprano_lp" },   /* sloprano_verse03_loop */
+    { 182, "m_sloprano_lp" },   /* sloprano_pooarpegio */
+    { 183, "m_sloprano_lp" },   /* sloprano_poocoda */
+    { 184, "m_sloprano_lp" },   /* sloprano_poocoda_loop */
+    { 185, "m_sloprano_lp" },   /* sloprano_verse01_loop_B */
+    { 186, "m_sloprano_lp" },   /* sloprano_verse02_loop_B */
+    { 187, "m_sloprano_lp" },   /* sloprano_verse03_loop_B */
 };
 static LONG s_load_was_state;
 static int s_load_bank = -1;
@@ -1003,6 +1120,62 @@ static int tune_bank_of(uint32_t m, int tune)
             return b && MEM32(b + 0x2Cu) != 1u && !MEM8(b + 0x22u) && !MEM8(b + 0x14u) ? i : -1;
         }
     return -1;
+}
+
+/* ---- tunes that can't play here (to-do 193) ----
+ * Greyed in the jukebox and refused by the console's tune, with where they do
+ * play. Found by trying each in the field, Harbour, PooBoss, PooCabin, UBend and
+ * a Beach Dead bot match, with banks added by hand (conker-notes 2026-11-12):
+ * - never: sit in the music manager's list without playing anywhere;
+ * - multiplayer: only in a match (Beach Dead played 167, 220, 224, 225; the alien
+ *   winds not there, nor with any multi_* bank added; a story level can't play
+ *   them even with multi_beach and sfx_looped_mult loaded);
+ * - It's War: two banks each, both loaded only in its levels (the jukebox adds
+ *   one; user 2026-11-12: grey elsewhere rather than load two);
+ * - Sloprano's poo song: see s_tune_banks (any level once PooBoss copied it). */
+static const uint16_t s_tune_never[] = { 78, 153, 161, 174, 175, 198, 260, 280 };
+static const uint16_t s_tune_multi[] = {
+    155, 156, 163, 167, 210, 211, 212, 213, 214, 220, 224, 225
+};
+static const struct { uint16_t tune; const char *bank[2]; } s_tune_war[] = {
+    { 147, { "am_itswar_lp", "am_itswar_lp_X" } },  /* warbossamb */
+    { 193, { "am_itswar_lp_X", "sfx_lv_itswar" } },  /* ambi_war_beachrun */
+};
+
+/* Registered by the level (or by us) and primed: its cues play. */
+static int bank_up(uint32_t m, const char *name)
+{
+    uint32_t b = wave_bank(m, bank_find(m, name));
+    return b && MEM8(b + 0x15u) && (MEM32(b + 0x18u) || MEM8(b + 0x14u));
+}
+
+const char *conker_TuneWhere(int i)
+{
+    uint32_t m = snd_manager();
+
+    for (size_t k = 0; k < sizeof s_tune_never / sizeof s_tune_never[0]; k++)
+        if (s_tune_never[k] == i)
+            return "Never plays: it doesn't start in any level";
+    for (size_t k = 0; k < sizeof s_tune_multi / sizeof s_tune_multi[0]; k++)
+        if (s_tune_multi[k] == i)
+            return MEM8(MULTI) ? NULL : "Multiplayer: plays only in a multiplayer match";
+    if (!m)
+        return NULL;
+    for (size_t k = 0; k < sizeof s_tune_war / sizeof s_tune_war[0]; k++)
+        if (s_tune_war[k].tune == i)
+            return bank_up(m, s_tune_war[k].bank[0]) && bank_up(m, s_tune_war[k].bank[1])
+                       ? NULL : "Plays only in It's War's levels, such as Harbour";
+    for (size_t k = 0; k < sizeof s_tune_banks / sizeof s_tune_banks[0]; k++)
+        if (s_tune_banks[k].tune == i) {
+            uint32_t b;
+            if (_stricmp(s_tune_banks[k].bank, "m_sloprano_lp"))
+                return NULL;
+            b = wave_bank(m, bank_find(m, s_tune_banks[k].bank));
+            return !b || MEM32(b + 0x2Cu) != 1u || bank_up(m, s_tune_banks[k].bank) ? NULL
+                   : "Plays in PooBoss (the Great Mighty Poo); after a visit there, "
+                     "in any level until the game closes";
+        }
+    return NULL;
 }
 
 static void tune_let_go(uint32_t m, int bank, int tune)
@@ -1244,7 +1417,8 @@ static void tune_frame(void)
 /* ---- wave banks for the cheat sounds (to-do 199, SPEC 10.3) ----
  * A cue whose wave bank the screen hasn't loaded is silent: lightbulb2 is in
  * sfx_X, which only levels register (not the main menu), war_conker_gunout in
- * It's War's sfx_lv_itswar. As the jukebox does for a tune: count + 1 to load,
+ * It's War's sfx_lv_itswar, the Mouse's mice in hd_sfx (the effects every
+ * level registers; to-do 212). As the jukebox does for a tune: count + 1 to load,
  * - 1 and an unregister to let go; after priming XACT needs ~2 s more. A level
  * load's "every count - 1" takes ours away too, so a level change forgets it. */
 static struct {
@@ -1253,7 +1427,7 @@ static struct {
     int ours;                   /* 1 added by us, 2 let go, unload pending */
     uint32_t level;
     ULONGLONG primed_at;
-} s_sb[SOUND_BANK_N] = { { "sfx_X", -2 }, { "sfx_lv_itswar", -2 } };
+} s_sb[SOUND_BANK_N] = { { "sfx_X", -2 }, { "sfx_lv_itswar", -2 }, { "hd_sfx", -2 } };
 
 int conker_SoundBank(int which, int want)
 {
@@ -1307,6 +1481,7 @@ void debug_tools_frame(void)
 {
     tp_frame();
     set_frame();
+    flag_frame();
     jukebox_frame();
     tune_frame();
     scan_frame();

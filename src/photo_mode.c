@@ -1104,3 +1104,66 @@ void photo_render_begin(void)
             guest_call(sub_002C5070, c, g_ecx, g_esi);
     }
 }
+
+/* ---- Conker the Mouse / Conker the Bear (to-do 212, 214) -----------------
+ *
+ * The render camera the game built this frame with its eye moved by `move`
+ * (recomp_manual.c, "Conker the Mouse"; the direction stays): its world
+ * matrix +0x50, the view +0x10 and the viewport record's copies as photo mode
+ * writes them, the projection and planes again. The game's own camera (eye
+ * +0x330, its smoothing and walls) is never touched; the next frame's build
+ * starts from it. A view already moved here (a frame the game didn't
+ * rebuild: a pause) is left as it is (0 returned). Called from world_update
+ * before the game's visibility passes, which then see it; `passes` runs them
+ * again from it (the draw's fallback; the camera cut byte = cut_to for them).
+ * Not with photo mode's own camera. 1 = moved. */
+int photo_move_view(void (*move)(float eye[3]), int passes, int cut_to)
+{
+    static uint32_t done_cam;
+    static float done_w[16];
+    uint32_t rec, cam;
+    float w[16], v[16], t[16];
+    int i, j;
+    uint8_t cut;
+
+    if ((s_frozen && !s_pause) || MEM32(0x0084A144u) != 0)
+        return 0;
+    rec = MEM32(0x0084A13Cu);
+    cam = rec ? MEM32(rec + 0x144u) : 0;
+    if (!cam)
+        return 0;
+    memcpy(w, (const void *)XBOX_PTR(cam + 0x50u), 64);
+    if (cam == done_cam && !memcmp(w, done_w, 64))
+        return 0;
+    move(&w[12]);
+    for (i = 0; i < 3; i++) {
+        for (j = 0; j < 3; j++)
+            v[4 * i + j] = w[4 * j + i];
+        v[4 * i + 3] = 0.0f;
+    }
+    for (j = 0; j < 3; j++)
+        v[12 + j] = -(w[12] * w[4 * j] + w[13] * w[4 * j + 1] + w[14] * w[4 * j + 2]);
+    v[15] = 1.0f;
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            t[4 * i + j] = v[4 * j + i];
+    put_matrix(cam + 0x10u, v);
+    put_matrix(rec + 0x40u, v);
+    put_matrix(rec + 0x100u, t);
+    put_matrix(cam + 0x50u, w);
+    put_matrix(rec + 0x80u, w);
+    build_projection(cam);
+    memcpy((void *)XBOX_PTR(rec + 0x148u), (const void *)XBOX_PTR(cam + 0x114u), 0x2A * 4);
+    if (passes) {
+        cut = MEM8(0x00762E40u);
+        MEM8(0x00762E40u) = (uint8_t)cut_to;
+        if (MEM32(0x0076FE00u) != 0 && MEM32(0x0076F79Cu) == 0)
+            guest_call(sub_00064A10, 0, g_ecx, g_esi);
+        guest_call(sub_00081190, g_eax, g_ecx, g_esi);
+        guest_call_arg(sub_00068D10, 0);
+        MEM8(0x00762E40u) = cut;
+    }
+    done_cam = cam;
+    memcpy(done_w, w, 64);
+    return 1;
+}

@@ -30,6 +30,9 @@ public sealed record MenuEntry(
     string? FixedKeys = null, int Count = 0, string? KeyboardKey = null, string? KeyboardOnKey = null,
     string? Parent = null, string? Mute = null);
 
+/// <summary>A quality preset (to-do 202): its name and the option values it sets.</summary>
+public sealed record QualityPreset(string Name, IReadOnlyDictionary<string, string> Values);
+
 /// <summary>A key name settings.ini takes and what the F3 menu calls it ("space", "Space").</summary>
 public sealed record KeyName(string Name, string Label);
 
@@ -41,8 +44,11 @@ public sealed record KeyName(string Name, string Label);
 public sealed class SettingsSchema
 {
     private SettingsSchema(IReadOnlyList<SettingOption> options, IReadOnlyList<MenuEntry> menu,
-                           IReadOnlyList<MenuEntry> controls, IReadOnlyList<KeyName> keys)
+                           IReadOnlyList<MenuEntry> controls, IReadOnlyList<KeyName> keys,
+                           IReadOnlyList<QualityPreset> presets, QualityPreset? firstStart)
     {
+        Presets = presets;
+        FirstStart = firstStart;
         Options = options;
         Menu = menu;
         Controls = controls;
@@ -60,6 +66,19 @@ public sealed class SettingsSchema
     public IReadOnlyList<MenuEntry> Controls { get; }
 
     public IReadOnlyList<KeyName> Keys { get; }
+
+    /// <summary>The quality presets (Low to Ultra; none from a game before 0.3.1).</summary>
+    public IReadOnlyList<QualityPreset> Presets { get; }
+
+    /// <summary>
+    /// The preset a new settings.ini takes on this PC (to-do 203: Low on a weak PC); null = the
+    /// defaults. The game decides it (<c>settings_first_start_preset</c>) and says so in the dump.
+    /// </summary>
+    public QualityPreset? FirstStart { get; }
+
+    /// <summary>An option's value in a new settings.ini on this PC: the first-start preset's, else the default.</summary>
+    public string NewFileValue(SettingOption option) =>
+        FirstStart is not null && FirstStart.Values.TryGetValue(option.Key, out string? v) ? v : option.Default;
 
     public IReadOnlyDictionary<string, SettingOption> ByKey { get; }
 
@@ -113,7 +132,18 @@ public sealed class SettingsSchema
         var controls = root.GetProperty("controls").EnumerateArray().Select(Entry).ToList();
         var keys = root.GetProperty("keys").EnumerateArray()
             .Select(k => new KeyName(Str(k, "name")!, Str(k, "label")!)).ToList();
-        return new SettingsSchema(options, menu, controls, keys);
+        var presets = root.TryGetProperty("presets", out JsonElement ps) && ps.ValueKind == JsonValueKind.Array
+            ? ps.EnumerateArray().Select(p => new QualityPreset(
+                Str(p, "name")!,
+                p.GetProperty("values").EnumerateObject().ToDictionary(
+                    v => v.Name, v => v.Value.GetString() ?? "", StringComparer.OrdinalIgnoreCase))).ToList()
+            : [];
+        QualityPreset? firstStart = root.TryGetProperty("first_start", out JsonElement fs)
+                                    && fs.ValueKind == JsonValueKind.Object
+                                    && Str(fs, "preset") is { } firstName
+            ? presets.FirstOrDefault(p => p.Name == firstName)
+            : null;
+        return new SettingsSchema(options, menu, controls, keys, presets, firstStart);
     }
 
     private static MenuEntry Entry(JsonElement m) => new(

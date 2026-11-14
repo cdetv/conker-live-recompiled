@@ -53,7 +53,8 @@ Settings tab or in the game's F2 menu.
 IN THE GAME
 -----------
 
-  F2            Settings menu (picture, sound, frame rate, ...)
+  F2            Settings menu (graphics and quality presets, sound,
+                frame rate, ...)
                 On a controller: Back + LB
   F3            Controls menu (keys, mouse, controllers per player)
   F4            Photo mode (on a controller: Back + RB; Esc leaves)
@@ -63,7 +64,8 @@ IN THE GAME
   F10           Report a bug: makes a .zip to attach to a GitHub issue (on a
                 controller: the Report Bug... button in the F2 menu)
   F11           Full screen on/off (also Alt+Enter)
-  F1            Frame rate counter
+  F1            Frame rate counter (press again for frame times, a third
+                time for what limits your frame rate)
   P             Pause or resume the game (gameplay and cutscenes)
   Esc           On the main menu: close the game (asks first; on a
                 controller: B)

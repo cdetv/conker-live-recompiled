@@ -158,6 +158,7 @@ static int s_own_log;
 /* settings.ini in the save folder (src/settings.c), and the F2 menu that
  * edits it (src/overlay.cpp). */
 #include "settings.h"
+#include "voice_pitch.h"
 #include "decensor.h"
 #include "save_names.h"
 #include "precompile.h"
@@ -167,6 +168,14 @@ extern void overlay_init(void);
 extern void overlay_dump_settings(FILE *f);
 extern void overlay_list_pads(FILE *f);
 extern int pad_feed_run(void);
+
+/* Laptops with two graphics chips (to-do 205): NVIDIA Optimus and AMD
+ * switchable graphics drivers look for these two exports in the .exe and run
+ * it on the fast chip; without them the game can land on the slow built-in
+ * one. Windows' own per-app graphics setting still overrides them. The
+ * weak-PC check (settings_first_start_preset) asks about the same chip. */
+__declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 
 /* ── Built-in defaults for the runtime switches ────────────── */
 
@@ -1214,6 +1223,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     /* The decensor patch's redirect (src/decensor.c), before any open. */
     decensor_init(s_save_dir);
+    voice_pitch_init();             /* to-do 212: Conker the Mouse / Bear */
     /* Save folders named after their saves (src/save_names.c); after the
      * decensor redirect, which it passes other paths on to. */
     save_names_init(s_save_dir);
