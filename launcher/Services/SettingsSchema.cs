@@ -85,6 +85,62 @@ public sealed class SettingsSchema
     /// <summary>Key name to the label F3 shows.</summary>
     public IReadOnlyDictionary<string, string> KeyLabels { get; }
 
+    /// <summary>Keys an action may have (CONTROLS_MAX_KEYS in <c>src/controls.h</c>; to-do 38).</summary>
+    public const int MaxKeys = 3;
+
+    /// <summary>A key list's keys ("space, shift+e" → space, shift+e; "none" → none).</summary>
+    public static List<string> SplitKeys(string value) =>
+        [.. value.Split(',').Select(k => k.Trim().ToLowerInvariant()).Where(k => k.Length > 0 && k != "none")];
+
+    /// <summary>One key's parts: the hold key of a combo (or null), the key, and whether it keeps.</summary>
+    public static (string? Hold, string Input, bool Keep) BindParts(string bind)
+    {
+        string b = bind.Trim().ToLowerInvariant();
+        bool keep = b.EndsWith(" keep", StringComparison.Ordinal);
+        if (keep)
+        {
+            b = b[..^5].TrimEnd();
+        }
+
+        int plus = b.IndexOf('+');
+        return plus < 0 ? (null, b, keep) : (b[..plus].Trim(), b[(plus + 1)..].Trim(), keep);
+    }
+
+    /// <summary>The same key, held or not (controls.c <c>same_bind</c>).</summary>
+    public static bool SameBind(string a, string b)
+    {
+        var (ah, ai, _) = BindParts(a);
+        var (bh, bi, _) = BindParts(b);
+        return ah == bh && ai == bi;
+    }
+
+    /// <summary>
+    /// One key as settings.ini writes it ("e", "shift+e", "shift+c keep"), or null when the game
+    /// wouldn't take it (controls.c <c>controls_bind_ok</c>: not two of the same, not the wheel as
+    /// the hold key, not Alt+Tab or Alt+F4, keep only on a combo).
+    /// </summary>
+    public string? NormalizeBind(string bind)
+    {
+        var (hold, input, keep) = BindParts(bind);
+        if (!KeyLabels.ContainsKey(input) || input == "none")
+        {
+            return null;
+        }
+
+        if (hold is null)
+        {
+            return keep ? null : input;
+        }
+
+        if (!KeyLabels.ContainsKey(hold) || hold == "none" || hold == input || hold.StartsWith("wheel", StringComparison.Ordinal)
+            || (hold == "alt" && input is "tab" or "f4"))
+        {
+            return null;
+        }
+
+        return $"{hold}+{input}{(keep ? " keep" : "")}";
+    }
+
     /// <summary>Runs <c>conker.exe --dump-settings</c> and reads what it prints.</summary>
     public static async Task<SettingsSchema> LoadAsync(GameFolder folder)
     {
@@ -167,9 +223,31 @@ public sealed class SettingsSchema
         {
             case "key":
             {
-                // controls_parse_key: any case, empty is none; stored as the lower-case name.
-                string v = value.Length == 0 ? "none" : value.ToLowerInvariant();
-                return KeyLabels.ContainsKey(v) ? v : null;
+                // controls_parse_keys: a list of up to three keys (to-do 38), any case, empty or
+                // "none" is none; a key is a name, a combo "shift+e" or a held combo "shift+c keep";
+                // repeats dropped (a combo held or not is one key), past the third ignored.
+                var keys = new List<string>();
+                foreach (string part in value.Split(','))
+                {
+                    string v = part.Trim().ToLowerInvariant();
+                    if (v.Length == 0 || v == "none")
+                    {
+                        continue;
+                    }
+
+                    string? bind = NormalizeBind(v);
+                    if (bind is null)
+                    {
+                        return null;
+                    }
+
+                    if (keys.Count < MaxKeys && !keys.Any(k => SameBind(k, bind)))
+                    {
+                        keys.Add(bind);
+                    }
+                }
+
+                return keys.Count == 0 ? "none" : string.Join(", ", keys);
             }
             case "bool":
                 return value.ToLowerInvariant() switch

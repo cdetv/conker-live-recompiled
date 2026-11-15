@@ -7,7 +7,7 @@
 <p align="center">
   A native Windows PC version of <i>Conker: Live & Reloaded</i> (Xbox, 2005),<br>
   made by recompiling the original game's code. Higher resolutions, up to 120 fps,<br>
-  keyboard and mouse, PlayStation controllers, photo mode and more.
+  keyboard and mouse, an unlocked camera, photo mode and more.
 </p>
 
 <p align="center">
@@ -182,7 +182,11 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 
 - **Keyboard and mouse** with mouse look everywhere: on foot, aiming,
   swimming, flying as the bat and in vehicles. Every gameplay key can be
-  changed (F3 menu or the launcher's Controls tab).
+  changed (F3 menu or the launcher's Controls tab), with up to three keys per
+  action and two-key combos such as Shift + E.
+- **Mouse in menus**: point and click in the game's own menus, from the main
+  menu (drag the room around by hand) and the pause screen to every
+  multiplayer menu.
 - Two single-player layouts: **Classic** (the controller one-to-one) and
   **Modern** (hold the right mouse button to aim, a separate action key).
 - **PlayStation 4 and 5 controllers** (DualShock 4, DualSense) work directly,
@@ -199,6 +203,17 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   <img src="images/controls-menu.png" alt="The F3 controls menu over the game"><br>
   <i>The F3 controls menu</i>
 </p>
+
+### Camera
+
+- **Unlocked Camera** (on by default): tilt the camera from straight down on
+  Conker to looking up at what's above him (the Xbox stopped just short of
+  level), with the right stick or the mouse. Zoom smoothly with the mouse
+  wheel or D-pad up + right stick; the zoom button (right stick click / V)
+  puts the camera back behind Conker. The bat, frying pan, Vault suit, SMG and
+  shotgun keep their own close view, with a slight zoom of their own.
+- **Field of view** from 40° to 75° (50° as on the Xbox); story cutscenes keep
+  their own.
 
 ### Photo mode
 
@@ -381,6 +396,8 @@ Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 | F11 or Alt+Enter | | Full screen on/off |
 | F1 | | Frame rate counter (press again for frame times, a third time for what limits your frame rate) |
 | P | | Pause or resume (gameplay and cutscenes) |
+| Mouse wheel | D-pad up + right stick | Zoom the camera in or out ([Unlocked Camera](#camera)) |
+| V | Right stick click | Put the camera back behind Conker ([Unlocked Camera](#camera)) |
 | Esc (main menu) | B (main menu) | Close the game (asks first) |
 | Space, E or left mouse (hold) | LT (hold) | Skip a cutscene |
 
@@ -393,7 +410,6 @@ Ideas for future updates, in no particular order. Plans can change.
 - Linux / Steam Deck support
 - Frame rates above 120 fps
 - Accurate audio DSP emulation + expanded sound profiles
-- Mouse controls for menus
 - Gyro aiming
 - HD-friendly GUI / expanded button prompts
 - Improved water and fluids

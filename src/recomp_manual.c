@@ -453,9 +453,106 @@ void sub_0053D700_enter(void)
     }
 }
 
+/* ── Field of view (to-do 228; F2 Fixes > Camera "Field of view") ────────
+ *
+ * The play camera's view is set once a frame by cam_fov_update (0x000427C0)
+ * through viewport_set_fov (0x00064330), which tail-jumps here with xmm0 =
+ * the view top to bottom in degrees (viewport +0x264 = base +0x25C, 50, +
+ * the cutscene's add [0x0076EDF4] + the camera's: the far camera up to ~4
+ * wider when level, a weapon's camera row +0x10 / (4/3), e.g. the SMG zoom
+ * -11.1) and xmm1 = across (+0x260). The return address 0x000428FE picks
+ * that call: special cameras and cutscene keys call viewport_set_fov from
+ * elsewhere. A story cutscene ([0x0076F0E0] == 1) keeps its own view.
+ *
+ * Scaled so the base becomes the setting and every zoom on top keeps its
+ * strength: tan(new / 2) = k x tan(old / 2), k = tan(setting / 2) /
+ * tan(base / 2). Across follows in proportion (the game's aspect is across /
+ * top to bottom in degrees, camera +0x108). The viewport's copies are
+ * rewritten too: +0x260 / +0x264 (re-read by the aspect's other callers
+ * 0x000644E0 / 0x00064550, camera_update and others) and the zoom factors
+ * +0x20C / +0x210 (sizes of sprites placed in 3D, 0x003567E0), which go
+ * with 1 / tan(view / 2): x 1 / k. 50 = the original, nothing touched.
+ * Culling follows the projection (camera_build_projection's planes from
+ * +0x104 / +0x108), so nothing is cut at the wider edges. */
+#define FOV_ORIGINAL 50.0f
+#define FOV_MIN      40.0f
+#define FOV_MAX      75.0f
+#define FOV_DEG      (3.14159265f / 360.0f)  /* degrees to half-angle radians */
+
+static volatile float g_fov = -1.0f;
+static volatile float s_fov_aspect;     /* play camera's shape, across / tall */
+
+void conker_SetFieldOfView(float deg)
+{
+    if (!(deg >= FOV_MIN))
+        deg = deg < FOV_MIN ? FOV_MIN : FOV_ORIGINAL;   /* NaN: original */
+    if (deg > FOV_MAX)
+        deg = FOV_MAX;
+    g_fov = deg;
+}
+
+static float fov_wanted(void)
+{
+    if (g_fov < 0.0f) {
+        const char *e = getenv("RECOMP_FOV");
+        conker_SetFieldOfView(e && *e ? (float)atof(e) : FOV_ORIGINAL);
+        fprintf(stderr, "[FOV] field of view %.0f (original %.0f)\n",
+                g_fov, FOV_ORIGINAL);
+    }
+    return g_fov;
+}
+
+/* The F2 slider's "across" figure: degrees across the window at the
+ * setting `deg` (top to bottom), from the play camera's last shape. */
+float conker_FovAcross(float deg)
+{
+    float a = s_fov_aspect;
+    if (!(a > 0.0f)) {
+        unsigned w = 4, h = 3;
+        if (!xbox_DisplayShape(&w, &h) || !w || !h) {
+            w = 4;
+            h = 3;
+        }
+        a = (60.6f / 50.0f) * (float)((double)w * 3.0 / ((double)h * 4.0));
+    }
+    return atanf(a * tanf(deg * FOV_DEG)) / FOV_DEG;
+}
+
+static void fov_apply(void)
+{
+    uint32_t vp;
+    float base, want, y, x, k, ny;
+
+    if (MEM32(g_esp) != 0x000428FEu)        /* cam_fov_update's call only */
+        return;
+    vp = MEM32(0x0084A13Cu) + g_edx * 0x2B0u;
+    base = MEMF(vp + 0x25Cu);
+    if (!(base > 1.0f && base < 170.0f))
+        return;
+    if (g_edx == 0)
+        s_fov_aspect = MEMF(vp + 0x258u) / base * display_widen();
+    want = fov_wanted();
+    if (want == base || MEM8(0x0076F0E0u) == 1)
+        return;
+    y = g_xmm0.f[0];
+    x = g_xmm1.f[0];
+    if (!(y > 0.5f && y < 179.0f))
+        return;
+    k = tanf(want * FOV_DEG) / tanf(base * FOV_DEG);
+    ny = atanf(k * tanf(y * FOV_DEG)) / FOV_DEG;
+    x *= ny / y;
+    MEMF(vp + 0x260u) = x;
+    MEMF(vp + 0x264u) = ny;
+    MEMF(vp + 0x20Cu) /= k;
+    MEMF(vp + 0x210u) /= k;
+    g_xmm0.f[0] = ny;
+    g_xmm1.f[0] = x;
+}
+
 void sub_000645C0_enter(void)
 {
     float widen;
+    fov_apply();
     s_frame43 = scene43_wanted();
     widen = display_widen43();
     aspect_log();
@@ -1463,6 +1560,35 @@ void sub_004CB1E7_enter(void)
     }
 }
 
+/* d3d_vblank_handler (0x00540F70, eax = device +0x1C28): D3D's vblank work,
+ * called by its GPU DPC (d3d_gpu_dpc 0x00540DC0) when PMC_INTR_0 bit 24 says
+ * the PCRTC raised the interrupt. It ends by acknowledging: writes 1 to
+ * PCRTC_INTR_0 and spins until PMC_INTR_0 bit 24 drops, which on the hardware
+ * is at once and here waits for the toolkit's executor (ack thread) to get to
+ * its handshake pass. On a PC with 2 threads and another program busy, the
+ * executor hardly ran: the timer thread spun here (up to 8 owed vblanks, each
+ * waiting) while the executor waited for that same thread to run its trap and
+ * the game thread spun for the executor's fence: frames of seconds (to-do
+ * 211, conker-notes 2026-11-15). The DPC has read the bit before the call, so
+ * clearing it here makes the handler's loop a single pass and the vblank needs
+ * no other thread. Only for the DPC's call (return 0x00540E21); the handler's
+ * five other callers are left alone. RECOMP_VBLANK_SELF_ACK=0 = the original
+ * wait for the executor. */
+void sub_00540F70_enter(void)
+{
+    static int on = -1;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_VBLANK_SELF_ACK");
+        on = !(e && *e == '0');
+        fprintf(stderr, "[VBLANK] vblank answered by the timer thread itself: %s\n",
+                on ? "on" : "off (RECOMP_VBLANK_SELF_ACK=0: waits for the executor)");
+        fflush(stderr);
+    }
+    if (on && MEM32(g_esp) == 0x00540E21u)
+        _InterlockedAnd((volatile long *)XBOX_PTR(0xFD000100u), ~0x01000000L);
+}
+
 /* D3D_BlockOnTime (0x0053C190, stdcall (time, flags)): the game's wait for
  * the GPU, from D3DDevice_Swap every frame (the fence of the frame before
  * last) and from resource waits. It ends in a loop that spins on the
@@ -2237,27 +2363,36 @@ void sub_0024D170(void)
  * swapped for the call as the stick's axes are: left counts as down, right
  * as up, up as right and down as left (the stick's up / down there: the
  * toggle and its sound, no move; user 2026-11-05). RECOMP_MENU_DPAD_FIX=0
- * = as before. */
+ * = as before.
+ * Mouse in menus (to-do 40 step 3): the list is noted as the one taking the
+ * keys, and the mouse's request goes in as the input's answers (cdecl; the
+ * four answer flags' addresses on the stack: next, back, Yes, No). */
+static void menu_list_input(uint32_t list, const uint32_t ans[4]);
 extern void sub_00249ED0_gen(void);
 void sub_00249ED0(void)
 {
     static int on = -1;
-    uint32_t rec, pad = MEM8(0x00776558u);
+    uint32_t rec, pad = MEM8(0x00776558u), list = g_eax, ans[4];
     uint8_t was;
+    int k;
     if (on < 0) {
         const char *e = getenv("RECOMP_MENU_DPAD_FIX");
         on = !(e && *e == '0');
     }
+    for (k = 0; k < 4; k++)
+        ans[k] = MEM32(g_esp + 4u + 4u * (uint32_t)k);
     rec = pad < 2u ? MEM32(MEM32(0x008470FCu + pad * 4u) + 8u) : 0x0075A0B4u;
     if (!on || !MEM8(g_eax + 0x29u) || MEM8(0x00862D08u) || !rec) {
         sub_00249ED0_gen();
-        return;
+    } else {
+        was = MEM8(rec + 8u);
+        MEM8(rec + 8u) = (uint8_t)((was & ~0x0Fu) | (was & 1u ? 8u : 0u) | (was & 2u ? 4u : 0u)
+                                   | (was & 4u ? 2u : 0u) | (was & 8u ? 1u : 0u));
+        sub_00249ED0_gen();
+        MEM8(rec + 8u) = was;
     }
-    was = MEM8(rec + 8u);
-    MEM8(rec + 8u) = (uint8_t)((was & ~0x0Fu) | (was & 1u ? 8u : 0u) | (was & 2u ? 4u : 0u)
-                               | (was & 4u ? 2u : 0u) | (was & 8u ? 1u : 0u));
-    sub_00249ED0_gen();
-    MEM8(rec + 8u) = was;
+    if (!MEM8(0x00862D08u))
+        menu_list_input(list, ans);
 }
 
 static void audio_update_logs(void)
@@ -4506,12 +4641,2613 @@ int conker_MainMenuBoard(void)
         && MEMF(0x0077621Cu) == 0.0f && MEM8(0x0076F0E0u) != 1
         && MEM8(0x00862D08u) == 0;
 }
+
+/* Mouse in menus (to-do 40, menu_mouse.cpp): 1 while the boards show with
+ * none zoomed into, as above, turning or not; *turn = the turn speed
+ * [0x0077621C] (0 = standing on a board, ready for the next press). */
+int conker_MenuBoards(float *turn)
+{
+    *turn = MEMF(0x0077621Cu);
+    return MEM32(0x007FA1F8u) == 0x1D && MEM32(0x00776574u) == 3
+        && MEMF(0x00776220u) == 0.0f && MEMF(0x00776224u) == 0.0f
+        && MEM8(0x0076F0E0u) != 1 && MEM8(0x00862D08u) == 0;
+}
+
+/* ── Mouse in menus: the boards' camera turned by hand (to-do 40 polish,
+ * user 2026-11-14) ─────────────────────────────────────────────────────────
+ *
+ * The boards' camera 0x001FD0F0 (conker-notes 2026-11-14 "the boards'
+ * camera"): the eye stays at the point with id 0 of the table [0x0084B0E0]
+ * (0x38 each, count [0x0084B0E4], +0x10 id); the camera looks at a target
+ * between two boards: cursor [0x0077625D] (board c, signed byte) and
+ * progress [0x00776218] (0..1 towards board c + 1). The target's x and z go
+ * in a straight line from board c's point to board c + 1's (ids 1..6 in the
+ * table at 0x006BD074) by t = (sin((progress - 0.5) pi) + 1) / 2, its y by
+ * a Catmull-Rom curve. With turn speed [0x0077621C] 0 nothing moves the
+ * progress, so the camera can rest between two boards: the page (and its
+ * title) is c + 1 past progress 0.5.
+ *
+ * A drag (menu_mouse.cpp) holds the camera at a position (c + progress)
+ * here, on the game thread, before the camera's own update. Between two
+ * boards the game's own right press is right (it carries on to c + 1), but
+ * its left press would start from c + 1 (progress 1) and A would zoom into
+ * board c from wherever the camera looks: left is turned into a turn back
+ * to c, and A into a turn to the nearer board followed by A, with the
+ * game's own turn sound. */
+static volatile long s_mb_hold = -1;        /* held position x 65536, -1 none */
+static volatile long s_mb_title[6] = { 65536, 65536, 65536, 65536, 65536, 65536 };
+                                            /* each board title's alpha x 65536 */
+static int s_mb_open;                       /* A owed when the glide ends */
+static uint32_t s_mb_open_ports;            /* the pads whose A that was */
+
+typedef struct {
+    float bx[6], bz[6];     /* the boards' points (x, z) */
+    float ex, ez;           /* the eye */
+    float yaw[6];           /* each board seen from the eye, degrees */
+    float th[7];            /* the turn to each board from board 0, degrees */
+} MenuBoardGeo;
+
+static float mb_wrap180(float a)
+{
+    while (a > 180.0f)
+        a -= 360.0f;
+    while (a <= -180.0f)
+        a += 360.0f;
+    return a;
+}
+
+static int mb_geo(MenuBoardGeo *g)
+{
+    uint32_t tab = MEM32(0x0084B0E0u), cams = MEM32(0x008470DCu);
+    int n = (int)(int16_t)MEM16(0x0084B0E4u), k, i;
+    if (!tab || !cams || n <= 0 || n > 1024 || MEM8(0x00776278u) != 0)
+        return 0;
+    for (k = 0; k < 6; k++) {
+        int16_t id = (int16_t)MEM16(0x006BD074u + 2u * (uint32_t)k);
+        for (i = 0; i < n; i++)
+            if ((int16_t)MEM16(tab + (uint32_t)i * 0x38u + 0x10u) == id)
+                break;
+        if (i == n)
+            return 0;
+        g->bx[k] = MEMF(tab + (uint32_t)i * 0x38u);
+        g->bz[k] = MEMF(tab + (uint32_t)i * 0x38u + 8u);
+    }
+    g->ex = MEMF(cams + 0x330u);
+    g->ez = MEMF(cams + 0x338u);
+    for (k = 0; k < 6; k++)
+        g->yaw[k] = atan2f(g->bx[k] - g->ex, g->bz[k] - g->ez) * 57.2957795f;
+    g->th[0] = 0.0f;
+    for (k = 0; k < 6; k++) {
+        float step = mb_wrap180(g->yaw[k] - g->yaw[(k + 1) % 6]);
+        if (step <= 0.0f)
+            return 0;               /* not the pub's ring of boards */
+        g->th[k + 1] = g->th[k] + step;
+    }
+    return g->th[6] > 300.0f && g->th[6] < 420.0f;
+}
+
+/* Any thread: the camera's position, board + progress (0 <= pos < 6). */
+float conker_MenuBoardsPos(void)
+{
+    int c = (int)(int8_t)MEM8(0x0077625Du);
+    float p = MEMF(0x00776218u);
+    if (c < 0 || c > 5 || !(p >= 0.0f && p <= 1.0f))
+        return 0.0f;
+    return (float)c + p;
+}
+
+/* The board shown (its title): 0 Multiplayer, 1 Options, 2 Chapters, 3-5
+ * Game 1-3. */
+int conker_MenuPage(void)
+{
+    int pg = (int)(int8_t)MEM8(0x0077625Eu);
+    return pg >= 0 && pg < 6 ? pg : 0;
+}
+
+/* How far the camera has turned at position pos, in degrees (continuous:
+ * pos 6 = one turn round the room, about 360). */
+float conker_MenuBoardsTheta(float pos)
+{
+    MenuBoardGeo g;
+    float n, r, p, t, x, z;
+    int c, c1;
+    if (!mb_geo(&g))
+        return pos * 60.0f;
+    n = floorf(pos / 6.0f);
+    r = pos - n * 6.0f;
+    c = (int)r;
+    if (c > 5)
+        c = 5;
+    p = r - (float)c;
+    t = (sinf((p - 0.5f) * 3.14159265f) + 1.0f) * 0.5f;
+    c1 = (c + 1) % 6;
+    x = g.bx[c] + (g.bx[c1] - g.bx[c]) * t;
+    z = g.bz[c] + (g.bz[c1] - g.bz[c]) * t;
+    return n * g.th[6] + g.th[c]
+           + mb_wrap180(g.yaw[c] - atan2f(x - g.ex, z - g.ez) * 57.2957795f);
+}
+
+/* The position at which the camera has turned theta degrees: the board,
+ * then where the eye's ray at that angle crosses the line to the next
+ * board, back through the game's easing. */
+float conker_MenuBoardsAt(float theta)
+{
+    MenuBoardGeo g;
+    float n, r, phi, yd, dx, dz, ax, az, lx, lz, den, t, p;
+    int c = 0, c1;
+    if (!mb_geo(&g))
+        return theta / 60.0f;
+    n = floorf(theta / g.th[6]);
+    r = theta - n * g.th[6];
+    while (c < 5 && r >= g.th[c + 1])
+        c++;
+    phi = r - g.th[c];
+    yd = (g.yaw[c] - phi) / 57.2957795f;
+    dx = sinf(yd);
+    dz = cosf(yd);
+    c1 = (c + 1) % 6;
+    ax = g.bx[c] - g.ex;
+    az = g.bz[c] - g.ez;
+    lx = g.bx[c1] - g.bx[c];
+    lz = g.bz[c1] - g.bz[c];
+    den = lx * dz - lz * dx;
+    t = den != 0.0f ? -(ax * dz - az * dx) / den : 0.0f;
+    if (!(t >= 0.0f))
+        t = 0.0f;
+    if (t > 1.0f)
+        t = 1.0f;
+    p = asinf(2.0f * t - 1.0f) / 3.14159265f + 0.5f;
+    if (!(p >= 0.0f))
+        p = 0.0f;
+    if (p > 1.0f)
+        p = 1.0f;
+    return n * 6.0f + (float)c + p;
+}
+
+/* A soft hold (the room still turning after a fling, menu_mouse.cpp) gives
+ * way to a key or pad press: the game thread drops it and lets the press
+ * through, and refuses soft holds until the executor has seen that
+ * (conker_MenuBoardsFlingStopped, then a hold or a let go). */
+static volatile long s_mb_soft;
+static volatile long s_mb_soft_block;
+
+/* Executor: hold the camera at pos (wrapped into 0..6) from the next game
+ * frame on; pos < 0 lets go (it stays where it was). soft = a fling. */
+void conker_MenuBoardsHold(float pos, int soft)
+{
+    long v = -1;
+    if (soft && s_mb_soft_block)
+        return;
+    if (pos >= 0.0f) {
+        pos = fmodf(pos, 6.0f);
+        v = (long)(pos * 65536.0f);
+        if (v < 0 || v >= 6 * 65536)
+            v = 0;
+    }
+    _InterlockedExchange(&s_mb_soft, soft ? 1 : 0);
+    _InterlockedExchange(&s_mb_hold, v);
+    if (!soft)
+        _InterlockedExchange(&s_mb_soft_block, 0);
+}
+
+/* Executor: a press stopped the fling. */
+int conker_MenuBoardsFlingStopped(void)
+{
+    return s_mb_soft_block != 0;
+}
+
+/* Executor: board g's title alpha (1 = as the game shows it). */
+void conker_MenuTitleAlpha(int g, float a)
+{
+    long v = a >= 1.0f ? 65536 : a <= 0.0f ? 0 : (long)(a * 65536.0f);
+    if (g >= 0 && g < 6)
+        _InterlockedExchange(&s_mb_title[g], v);
+}
+
+/* The render camera of viewport 0 ([[0x0084A13C] + 0x144]): its view
+ * rotation (rows, row vectors: v_view = d * R; the camera looks down -z)
+ * and projection scales. */
+int conker_MenuCamera(float r[9], float *p00, float *p11)
+{
+    uint32_t vp = MEM32(0x0084A13Cu), rc;
+    int i;
+    if (!vp)
+        return 0;
+    rc = MEM32(vp + 0x144u);
+    if (!rc)
+        return 0;
+    for (i = 0; i < 9; i++)
+        r[i] = MEMF(rc + 0x10u + (uint32_t)(i / 3) * 16u + (uint32_t)(i % 3) * 4u);
+    *p00 = MEMF(rc + 0x90u);
+    *p11 = MEMF(rc + 0xA4u);
+    return *p00 > 0.1f && *p00 < 10.0f && *p11 > 0.1f && *p11 < 10.0f;
+}
+
+/* The board titles pinned to the room (user 2026-11-14: they rode along
+ * with the camera, standing still on the screen; for every turn, keys and
+ * pad too). The game draws each title at one place on the screen (its text
+ * element's x at +0x18, page units, about TITLE_KX picture heights each,
+ * measured: _work\mm41\kx.py); turned away from its board by d degrees, a
+ * title moves as a point of the room at its middle (s_title_mid, picture
+ * heights from the picture's middle at 16:9) would, and it fades by how far
+ * the camera has turned towards the next board (gone on it). RECOMP_MENU_
+ * TITLE_PIN=0: as the game does it (only the board shown, still). */
+#define TITLE_KX 0.00134f
+static const float s_title_mid[6] = { 0.008f, 0.140f, -0.187f, 0.056f, -0.213f, -0.304f };
+static int s_title_pin = -1;
+
+static int title_pin_on(void)
+{
+    if (s_title_pin < 0) {
+        const char *e = getenv("RECOMP_MENU_TITLE_PIN");
+        s_title_pin = !(e && *e == '0');
+    }
+    return s_title_pin;
+}
+
+/* Any thread: board g's title, how far it has moved sideways (picture
+ * heights, + right) and how much of it shows (*vis 0..1). */
+float conker_MenuTitlePin(int g, float *vis)
+{
+    MenuBoardGeo geo;
+    float r[9], p00, p11, d, gap, v, fh, a0, a1;
+    *vis = g == conker_MenuPage() ? 1.0f : 0.0f;
+    if (g < 0 || g > 5 || !title_pin_on() || !mb_geo(&geo) || !conker_MenuCamera(r, &p00, &p11))
+        return 0.0f;
+    d = mb_wrap180(conker_MenuBoardsTheta(conker_MenuBoardsPos()) - geo.th[g]);
+    gap = d >= 0.0f ? geo.th[g + 1] - geo.th[g]
+                    : (g ? geo.th[g] - geo.th[g - 1] : geo.th[6] - geo.th[5]);
+    v = gap > 1.0f ? 1.0f - fabsf(d) / gap : 0.0f;
+    if (v < 0.0f)
+        v = 0.0f;
+    fh = p00 * display_widen() * (4.0f / 3.0f) * 0.5f;     /* focal length / height */
+    a0 = atanf(s_title_mid[g] / fh);
+    a1 = a0 - d * 0.0174533f;
+    if (v <= 0.0f || fabsf(a1) > 1.4f) {    /* gone: left where the game puts it */
+        *vis = 0.0f;
+        return 0.0f;
+    }
+    *vis = v * v * (3.0f - 2.0f * v);                       /* smooth */
+    return fh * (tanf(a1) - tanf(a0));
+}
+
+extern void sub_00022D90(void);
+/* The boards' turn sound, as 0x001FD4A3 plays it. */
+static void mb_turn_sound(void)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_ebp = g_ebp, r_esp = g_esp;
+    uint32_t snd = MEM32(0x00847024u);
+    static const uint32_t args[7] = { 0, 0, 0xFFFFFFFFu, 0xFFFFFFFFu, 0, 0, 4 };
+    int i;
+    if (!snd)
+        return;
+    for (i = 0; i < 7; i++) {
+        g_esp -= 4;
+        MEM32(g_esp) = args[i];
+    }
+    g_esp -= 4;
+    MEM32(g_esp) = MEM32(snd + 0x40u);
+    g_esp -= 4;
+    MEM32(g_esp) = 0;               /* return address; ret 0x20 pops the rest */
+    g_eax = 0xFFFFFFFFu;
+    g_edx = 0xFFFFFFFFu;
+    g_ecx = 0xD18u;
+    sub_00022D90();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_ebp = r_ebp; g_esp = r_esp;
+}
+
+/* Game thread, before the boards' camera update. */
+static void mb_camera_mouse(void)
+{
+    long h = s_mb_hold;
+    uint32_t bits;
+    float p;
+    if (MEM32(0x007FA1F8u) != 0x1D || MEM32(0x00776574u) != 3 || MEM8(0x00776278u) != 0
+        || MEMF(0x00776220u) != 0.0f || MEMF(0x00776224u) != 0.0f) {
+        s_mb_open = 0;
+        return;
+    }
+    bits = MEM32(0x00776238u);
+    if (h >= 0 && s_mb_soft && (bits & 0x1Cu)) {
+        /* A press while the room still turns from a fling: it stops there
+         * and the press goes on as from any spot between two boards. */
+        _InterlockedExchange(&s_mb_soft_block, 1);
+        _InterlockedExchange(&s_mb_hold, -1);
+        h = -1;
+    }
+    if (h >= 0) {
+        int c = (int)(h >> 16);
+        p = (float)(h & 0xFFFF) / 65536.0f;
+        if (p < 0.002f)
+            p = 0.0f;
+        if (p > 0.998f) {
+            p = 0.0f;
+            c++;
+        }
+        MEM8(0x0077625Du) = (uint8_t)(c % 6);
+        MEMF(0x00776218u) = p;
+        MEMF(0x0077621Cu) = 0.0f;
+        MEM8(0x0077627Eu) = 0;              /* a right press latched */
+        MEM32(0x00776238u) = bits & ~0x1Cu; /* no turns or A while held */
+        s_mb_open = 0;
+        return;
+    }
+    if (MEMF(0x0077621Cu) != 0.0f)
+        return;                             /* turning */
+    p = MEMF(0x00776218u);
+    if (p == 0.0f) {
+        if (s_mb_open) {                    /* arrived: the A owed */
+            static const uint32_t port[4] = { 0x0077623Cu, 0x00776240u, 0x00776244u,
+                                              0x00776248u };
+            int i;
+            MEM32(0x00776238u) = bits | 0x10u;
+            for (i = 0; i < 4; i++)
+                if (s_mb_open_ports & (1u << i))
+                    MEM32(port[i]) |= 0x10u;
+            s_mb_open = 0;
+        }
+        return;
+    }
+    if (bits & 0x10u) {                     /* A between two boards */
+        static const uint32_t port[4] = { 0x0077623Cu, 0x00776240u, 0x00776244u,
+                                          0x00776248u };
+        int i;
+        s_mb_open_ports = 0;
+        for (i = 0; i < 4; i++)
+            if (MEM32(port[i]) & 0x10u) {
+                s_mb_open_ports |= 1u << i;
+                MEM32(port[i]) &= ~0x10u;
+            }
+        MEM32(0x00776238u) = bits & ~0x14u;
+        MEMF(0x0077621Cu) = p < 0.5f ? -0.05f : 0.05f;
+        s_mb_open = 1;
+        mb_turn_sound();
+    } else if (bits & 4u) {                 /* left: back to board c */
+        MEM32(0x00776238u) = bits & ~4u;
+        MEMF(0x0077621Cu) = -0.05f;
+        mb_turn_sound();
+    }
+}
+
+/* 0x00205340 (state 3's draw, before the menu page is drawn): with no board
+ * zoomed into, the page's group of the board shown (its title, groups 0-5)
+ * gets alpha 1 each frame through ui_page_set_group_alpha 0x0024D090 (ecx =
+ * the page [[0x0085E550]], edi = the group, the alpha pushed; ret 4; half
+ * for a group outside the page's list at +0x1F0, the game's own dim); a
+ * group not set fades out by itself. Here, resting on the boards: every
+ * title that shows (conker_MenuTitlePin) gets its alpha (that times the
+ * mouse's dim, conker_MenuTitleAlpha) and its text moved sideways. A
+ * group's text: the end of its first children's chains (each a fade, then
+ * a glow pulse, at +0x14 the next; the text vtable 0x005FBD90, the Game 1-3
+ * callback text 0x005FBD04), x at +0x18. The x the page made is kept and
+ * put back once the boards are left (a board opened, the menu left). */
+extern void sub_0024D090(void);
+extern void sub_00205340_gen(void);
+
+static uint32_t s_tp_page;              /* the page the texts below are of */
+static uint32_t s_tp_el[6][2];          /* each title group's texts */
+static uint32_t s_tp_fade[6][2];        /* and their fades (the chains' heads) */
+static float s_tp_x[6][2];              /* their x as the page made it */
+static int s_tp_moved;
+
+static int tp_is_text(uint32_t o)
+{
+    return o >= 0x00010000u && (MEM32(o) == 0x005FBD90u || MEM32(o) == 0x005FBD04u);
+}
+
+/* A fade (vtable 0x005FBDF4, 0x00247FF0 its alpha call): +0x20 the alpha
+ * drawn, eased each update towards +0x24 (the alpha last asked for) while
+ * +0x28 is 1 (set by the alpha call, cleared by the draw 0x00248010), else
+ * towards 0. Left to itself, a title the camera has turned away from fades
+ * out over several frames: at its place on the screen, an afterglow (user
+ * 2026-11-14, keys and pad turns). */
+static int tp_is_fade(uint32_t o)
+{
+    return o >= 0x00010000u && MEM32(o) == 0x005FBDF4u;
+}
+
+static void tp_find(uint32_t page)
+{
+    uint32_t ids = MEM32(page + 0x14u), ide = MEM32(page + 0x18u), els = MEM32(page + 4u);
+    int g, n, k, i;
+    memset(s_tp_el, 0, sizeof s_tp_el);
+    memset(s_tp_fade, 0, sizeof s_tp_fade);
+    s_tp_page = page;
+    s_tp_moved = 0;
+    n = ide > ids && ide - ids < 0x400u ? (int)((ide - ids) / 4u) : 0;
+    for (g = 0; g < 6; g++)
+        for (i = 0; i < n; i++) {
+            uint32_t el, cb, ce, c;
+            if (MEM32(ids + 4u * (uint32_t)i) != (uint32_t)g)
+                continue;
+            el = MEM32(els + 4u * (uint32_t)i);
+            cb = MEM32(el + 8u);
+            ce = MEM32(el + 12u);
+            for (c = cb, k = 0; c < ce && k < 2; c += 4u) {
+                uint32_t o = MEM32(c);
+                int depth;
+                for (depth = 0; depth < 6 && o >= 0x00010000u && !tp_is_text(o); depth++)
+                    o = MEM32(o + 0x14u);
+                if (tp_is_text(o)) {
+                    s_tp_el[g][k] = o;
+                    s_tp_x[g][k] = MEMF(o + 0x18u);
+                    s_tp_fade[g][k] = tp_is_fade(MEM32(c)) ? MEM32(c) : 0;
+                    k++;
+                }
+            }
+            break;
+        }
+}
+
+static void tp_put_back(void)
+{
+    int g, k;
+    if (!s_tp_moved)
+        return;
+    for (g = 0; g < 6; g++)
+        for (k = 0; k < 2; k++)
+            if (s_tp_el[g][k] && tp_is_text(s_tp_el[g][k]))
+                MEMF(s_tp_el[g][k] + 0x18u) = s_tp_x[g][k];
+    s_tp_moved = 0;
+}
+
+static void tp_group_alpha(uint32_t page, int g, float a)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_ebp = g_ebp, r_esp = g_esp;
+    uint32_t fb;
+    memcpy(&fb, &a, 4);
+    g_esp -= 4;
+    MEM32(g_esp) = fb;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;
+    g_ecx = page;
+    g_edi = (uint32_t)g;
+    sub_0024D090();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_ebp = r_ebp; g_esp = r_esp;
+}
+
+void sub_00205340(void)
+{
+    uint32_t page;
+    int g, k;
+    sub_00205340_gen();
+    page = MEM32(0x0085E550u) ? MEM32(MEM32(0x0085E550u)) : 0;
+    if (!page || MEM8(0x008498B4u) != 0 || MEM32(0x007FA1F8u) != 0x1D
+        || MEM32(0x00776574u) != 3 || MEM8(0x00776278u) != 0
+        || MEMF(0x00776220u) != 0.0f || MEMF(0x00776224u) != 0.0f) {
+        if (page && page == s_tp_page)
+            tp_put_back();
+        if (!page)
+            s_tp_page = 0;
+        return;
+    }
+    if (page != s_tp_page)
+        tp_find(page);
+    for (g = 0; g < 6; g++) {
+        float vis, sh = conker_MenuTitlePin(g, &vis);
+        float a = vis * (float)s_mb_title[g] / 65536.0f;
+        if (!title_pin_on()) {
+            if (a > 0.004f && a < 1.0f)
+                tp_group_alpha(page, g, a);
+            continue;
+        }
+        if (a > 0.004f)
+            tp_group_alpha(page, g, a);
+        for (k = 0; k < 2; k++) {
+            uint32_t f = s_tp_fade[g][k];
+            if (s_tp_el[g][k] && tp_is_text(s_tp_el[g][k])) {
+                MEMF(s_tp_el[g][k] + 0x18u) = s_tp_x[g][k] + sh / TITLE_KX;
+                s_tp_moved = 1;
+            }
+            /* The alpha drawn is the alpha asked for, now: the titles cross
+             * over as the camera turns, none lingers. */
+            if (f && tp_is_fade(f)) {
+                if (a > 0.004f) {
+                    MEMF(f + 0x20u) = MEMF(f + 0x24u);
+                } else {
+                    MEMF(f + 0x20u) = 0.0f;
+                    MEMF(f + 0x24u) = 0.0f;
+                    MEMF(f + 0x28u) = 0.0f;
+                }
+            }
+        }
+    }
+}
+
+/* ── Mouse in menus: the boards' pages (to-do 40 step 3; menu_page.h) ─────
+ *
+ * Opened, a board shows a page of the front end's UI page [[0x0085E550]]
+ * (groups of the model's nodes, conker-notes 2026-11-10): Options group
+ * 0x15, Chapters group 6 and one group per chapter (7 + chapter: its name,
+ * then its parts' list), Game 1-3 groups 0x11-0x13 with 0x14 (counts, Play /
+ * Erase), 0x16 New Game, 0x1A Erase Game? (Yes / No) and 0x1B-0x1F the save
+ * errors. A list (vtable 0x005FBD18; the Chapters parts' 0x005FBDCC keeps the
+ * chosen part in the middle) holds its rows at +0x18..+0x1C, its cursor at
+ * +0x24, sideways rows at byte +0x29; a row (vtable 0x005FBCC8) its text at
+ * +0x14, x / y / z at +0x18.., kind byte +0x41 ('N' a choice, 'O' a No / Yes
+ * line with Yes at +0x58, No at +0x5C, the value at byte +0x40, the setting
+ * it writes at +0x44). The wheel's filler rows ("+ + + +") are its text
+ * object at +0x70.
+ *
+ * Where a text is on the screen: all of these are drawn by 0x00248C10
+ * (this, world matrix, string, x / y / z, size, ...; ret 0x20), which puts
+ * world x view x projection, transposed, at 0x008072B0 and has 0x003D30C0
+ * place each letter: the letter's corners are left at 0x00807230,
+ * 0x0080724C, 0x00807268, 0x00807284 (x, y, z, 1, colour, u, v each), in
+ * the text's own units. While the front end draws (sub_00205490), each
+ * text's letters are gathered and their box carried through that matrix:
+ * the box on the screen, whatever the shape, the camera's sway or the
+ * page's tilt, with nothing measured by hand. RECOMP_MENU_TEXT_LOG=1 prints
+ * them ([MTEXT], once a second). */
+#include "menu_page.h"
+
+#define MT_MAX 192
+#define MT_MARK 0x7FC0DEADu
+#define MR_STEP_MS 40u          /* between two of the mouse's cursor steps */
+#define MP_LIT 160              /* drawn at least this bright: not dimmed behind (the pause
+                                 * screen dims what is behind its Quit? box to 0.4) */
+
+typedef struct {
+    uint32_t obj, str;
+    MenuBox b;
+    uint8_t alpha;
+    uint8_t pic;                /* a picture (sprite element), not a text */
+} MenuText;
+
+static MenuText s_mt[MT_MAX];   /* the texts of the frame being drawn */
+static int s_mt_n;
+static int s_mt_on;             /* inside the front end's draw */
+static int s_mt_glyph;          /* inside one text's draw: its letters gathered */
+static float s_mt_g[4];         /* their box, x0, y0, x1, y1 (the text's units) */
+static uint32_t s_mt_seq;       /* front-end frames drawn */
+static volatile long s_ml_list; /* the list whose input ran last */
+static volatile long s_ml_seq;  /* in that frame */
+static SRWLOCK s_mp_lock = SRWLOCK_INIT;
+static MenuPageSnap s_mp;       /* the last frame's page */
+static DWORD s_mp_tick;
+static volatile long s_mr_list, s_mr_target = -1, s_mr_set;    /* the mouse's request */
+static DWORD s_mr_step;
+static int s_mt_log = -1;
+
+/* 0x003D30C0: one letter. */
+extern void sub_003D30C0_gen(void);
+void sub_003D30C0(void)
+{
+    static const uint32_t corner[4] = { 0x00807230u, 0x0080724Cu, 0x00807268u, 0x00807284u };
+    int k;
+    if (!s_mt_glyph) {
+        sub_003D30C0_gen();
+        return;
+    }
+    MEM32(0x00807230u) = MT_MARK;
+    sub_003D30C0_gen();
+    if (MEM32(0x00807230u) == MT_MARK)
+        return;                         /* no letter placed */
+    for (k = 0; k < 4; k++) {
+        float x = MEMF(corner[k]), y = MEMF(corner[k] + 4u);
+        if (!(x > -1e6f && x < 1e6f && y > -1e6f && y < 1e6f))
+            continue;
+        if (x < s_mt_g[0]) s_mt_g[0] = x;
+        if (y < s_mt_g[1]) s_mt_g[1] = y;
+        if (x > s_mt_g[2]) s_mt_g[2] = x;
+        if (y > s_mt_g[3]) s_mt_g[3] = y;
+    }
+}
+
+/* The letters' box through the text's matrix: normalised picture coordinates. */
+static void mt_add(uint32_t obj, uint32_t str)
+{
+    float m[16], z = MEMF(0x00807238u), b[4] = { 1e9f, 1e9f, -1e9f, -1e9f };
+    float xs[4] = { s_mt_g[0], s_mt_g[2], s_mt_g[2], s_mt_g[0] };
+    float ys[4] = { s_mt_g[1], s_mt_g[1], s_mt_g[3], s_mt_g[3] };
+    MenuText *t;
+    int i;
+    if (s_mt_n >= MT_MAX || !(z > -1e6f && z < 1e6f))
+        return;
+    for (i = 0; i < 16; i++)
+        m[i] = MEMF(0x008072B0u + 4u * (uint32_t)i);
+    for (i = 0; i < 4; i++) {
+        float X = m[0] * xs[i] + m[1] * ys[i] + m[2] * z + m[3];
+        float Y = m[4] * xs[i] + m[5] * ys[i] + m[6] * z + m[7];
+        float W = m[12] * xs[i] + m[13] * ys[i] + m[14] * z + m[15];
+        if (!(W > 1e-4f))
+            return;
+        X /= W;
+        Y /= W;
+        if (X < b[0]) b[0] = X;
+        if (Y < b[1]) b[1] = Y;
+        if (X > b[2]) b[2] = X;
+        if (Y > b[3]) b[3] = Y;
+    }
+    t = &s_mt[s_mt_n++];
+    t->obj = obj;
+    t->str = str;
+    t->b.x0 = b[0];
+    t->b.y0 = b[1];
+    t->b.x1 = b[2];
+    t->b.y1 = b[3];
+    t->b.ok = 1;
+    t->alpha = MEM8(0x00807667u);       /* the colour's alpha it was drawn with */
+    t->pic = 0;
+}
+
+/* The words of the prompt under the pointer glow (user 2026-11-14). The
+ * game's own title glow (the wrapper 0x005FBD54, draw 0x00248A50: per-letter
+ * callbacks 0x00248920 / 0x00248670 for the text's draw) swings each
+ * letter's colour round half its brightness: on the pause screen's pale
+ * words it darkened them, so this glow is made of the text draw itself.
+ * 0x00248C10 (stdcall, ret 0x20; [esp+4] this, +8 world matrix, +0xC string,
+ * +0x10 the position x / y / z, +0x14 size, +0x18 a colour block whose +0xC
+ * is the alpha, +0x1C an RGB override (0: the text's own: [[this+0x10]+0x18]
+ * or, with byte [this+0x29] set, [this+0x2C]), +0x20 an alpha factor (0 =
+ * 1)) draws a drop shadow first while [0x0075E818] is set, then the words.
+ * The glowing text is drawn first as three rings of faint warm copies around
+ * its place (no shadow), then itself with its colour eased towards warm
+ * white: a halo in the letters' own shapes. Level eased in and out; the
+ * three-float blocks it points the draw at live in a guest block of the
+ * game's allocator. RECOMP_PROMPT_GLOW=0 off, =<radius>,<alpha> (tests: the
+ * inner ring's radius in the pause words' page units, an inner copy's
+ * alpha; default 1.3, 0.11). */
+#define GLOW_SLOTS 4
+#define GLOW_IN 7.0f                    /* level a second: in ~0.15 s */
+#define GLOW_OUT 4.0f                   /* out ~0.25 s */
+#define GLOW_COPIES 8                   /* a ring */
+#define GLOW_RINGS 3                    /* at 1, 2, 3 x the radius, each fainter */
+#define GLOW_REF_LETTER 8.96f           /* the pause words' letter size: s_glow_r is for them */
+static volatile long s_glow_want;       /* the text to glow (executor) */
+static struct { uint32_t obj; float level; } s_glow[GLOW_SLOTS];
+static DWORD s_glow_tick;
+static int s_glow_on = -1;
+static float s_glow_r = 1.3f;           /* the inner ring's radius, page units at the pause
+                                         * words' size (scaled by the letters' size) */
+static float s_glow_a = 0.11f;          /* an inner copy's alpha at full glow */
+static const float s_glow_ring_a[GLOW_RINGS] = { 1.0f, 0.55f, 0.28f };
+static uint32_t s_glow_buf;             /* guest floats: halo RGB, alpha, position, text RGB */
+static const float s_glow_rgb[3] = { 1.0f, 0.80f, 0.42f };     /* the halo: warm gold */
+static const float s_glow_lit[3] = { 1.0f, 0.97f, 0.84f };     /* the words: warm white */
+
+void conker_MenuGlow(uint32_t text)
+{
+    _InterlockedExchange(&s_glow_want, (long)text);
+}
+
+/* Once a bracketed frame: each glowing text's level towards its target. */
+static void glow_frame(void)
+{
+    DWORD now = GetTickCount();
+    float dt = (float)(now - s_glow_tick) / 1000.0f;
+    uint32_t want = (uint32_t)s_glow_want;
+    int i, have = 0;
+    if (s_glow_on < 0) {
+        const char *e = getenv("RECOMP_PROMPT_GLOW");
+        s_glow_on = !(e && *e == '0' && e[1] == 0);
+        if (e && s_glow_on)
+            sscanf(e, "%f,%f", &s_glow_r, &s_glow_a);
+    }
+    s_glow_tick = now;
+    if (!(dt > 0.0f))
+        dt = 0.0f;
+    if (dt > 0.1f)
+        dt = 0.1f;
+    for (i = 0; i < GLOW_SLOTS; i++) {
+        if (!s_glow[i].obj)
+            continue;
+        if (s_glow[i].obj == want) {
+            have = 1;
+            s_glow[i].level += dt * GLOW_IN;
+            if (s_glow[i].level > 1.0f)
+                s_glow[i].level = 1.0f;
+        } else if ((s_glow[i].level -= dt * GLOW_OUT) <= 0.0f) {
+            s_glow[i].obj = 0;
+        }
+    }
+    if (!have && want && s_glow_on)
+        for (i = 0; i < GLOW_SLOTS; i++)
+            if (!s_glow[i].obj) {
+                s_glow[i].obj = want;
+                s_glow[i].level = dt * GLOW_IN;
+                break;
+            }
+}
+
+static float glow_level(uint32_t obj)
+{
+    int i;
+    for (i = 0; i < GLOW_SLOTS; i++)
+        if (s_glow[i].obj == obj)
+            return s_glow[i].level;
+    return 0.0f;
+}
+
+/* 64 bytes from the game's allocator (malloc.cpp, cdecl size), once. */
+extern void sub_0024EDF0(void);
+static uint32_t glow_block(void)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+    if (s_glow_buf)
+        return s_glow_buf;
+    g_esp -= 4; MEM32(g_esp) = 64u;
+    g_esp -= 4; MEM32(g_esp) = 0;      /* return address */
+    sub_0024EDF0();
+    s_glow_buf = xact_va_ok(g_eax) ? g_eax : 0;
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+    return s_glow_buf;
+}
+
+extern void sub_00248C10_gen(void);
+
+/* The halo: the text drawn as faint warm copies round its place, before
+ * the words (arg: the call's eight arguments). */
+static void glow_halo(const uint32_t arg[8], float level)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp, a[8];
+    uint32_t buf = glow_block(), pos = arg[3];
+    uint8_t shadow = MEM8(0x0075E818u);
+    float x, y, z, letter, r;
+    int ring, k, i;
+    if (!buf || !xact_va_ok(pos))
+        return;
+    x = MEMF(pos);
+    y = MEMF(pos + 4u);
+    z = MEMF(pos + 8u);
+    {
+        /* The radius follows the letters' size (the call's size times its
+         * style's +0x28): the pause words are 11.2 x 0.8, New Game 64 x 1. */
+        uint32_t st = MEM32(arg[0] + 0x10u);
+        float size;
+        memcpy(&size, &arg[4], 4);
+        letter = xact_va_ok(st) ? size * MEMF(st + 0x28u) : 0.0f;
+        if (!(letter > 0.5f && letter < 1000.0f))
+            letter = GLOW_REF_LETTER;
+    }
+    for (i = 0; i < 3; i++)
+        MEMF(buf + 4u * (uint32_t)i) = s_glow_rgb[i];
+    for (k = 0; k < 8; k++)
+        a[k] = arg[k];
+    r = s_glow_r * letter / GLOW_REF_LETTER;
+    a[3] = buf + 16u;                   /* our position */
+    a[6] = buf;                         /* our colour */
+    a[7] = buf + 12u;                   /* our alpha */
+    MEM8(0x0075E818u) = 0;              /* no drop shadow for the copies */
+    for (ring = 1; ring <= GLOW_RINGS; ring++)
+        for (k = 0; k < GLOW_COPIES; k++) {
+            float ang = (float)k * (6.2831853f / GLOW_COPIES) + (ring & 1 ? 0.0f : 0.3927f);
+            MEMF(buf + 12u) = s_glow_a * s_glow_ring_a[ring - 1] * level;
+            MEMF(buf + 16u) = x + cosf(ang) * r * (float)ring;
+            MEMF(buf + 20u) = y + sinf(ang) * r * (float)ring;
+            MEMF(buf + 24u) = z;
+            for (i = 7; i >= 0; i--) {
+                g_esp -= 4;
+                MEM32(g_esp) = a[i];
+            }
+            g_esp -= 4;
+            MEM32(g_esp) = 0;           /* return address; ret 0x20 pops it all */
+            sub_00248C10_gen();
+            g_esp = r_esp;
+        }
+    MEM8(0x0075E818u) = shadow;
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+}
+
+/* The words themselves towards warm white: the call's RGB override points
+ * at ours (the text's own colour mixed with it by level). */
+static void glow_words(float level)
+{
+    uint32_t buf = glow_block(), obj = MEM32(g_esp + 4u), own = MEM32(g_esp + 28u), st;
+    int i;
+    if (!buf)
+        return;
+    if (!own || !xact_va_ok(own))
+        own = MEM8(obj + 0x29u) ? obj + 0x2Cu
+            : xact_va_ok(st = MEM32(obj + 0x10u)) ? st + 0x18u : 0u;
+    for (i = 0; i < 3; i++) {
+        float c = own ? MEMF(own + 4u * (uint32_t)i) : 1.0f;
+        MEMF(buf + 32u + 4u * (uint32_t)i) = c + (s_glow_lit[i] - c) * level;
+    }
+    MEM32(g_esp + 28u) = buf + 32u;
+}
+
+/* 0x00248C10: a UI text (stdcall: this, world, string, position, ...). */
+void sub_00248C10(void)
+{
+    uint32_t obj, str;
+    float glow;
+    if (!s_mt_on || s_mt_glyph) {
+        sub_00248C10_gen();
+        return;
+    }
+    obj = MEM32(g_esp + 4u);
+    str = MEM32(g_esp + 12u);
+    glow = s_glow_on > 0 ? glow_level(obj) : 0.0f;
+    if (glow > 0.0f) {
+        uint32_t arg[8];
+        int k;
+        for (k = 0; k < 8; k++)
+            arg[k] = MEM32(g_esp + 4u + 4u * (uint32_t)k);
+        glow_halo(arg, glow);
+        glow_words(glow);
+    }
+    s_mt_glyph = 1;
+    s_mt_g[0] = s_mt_g[1] = 1e9f;
+    s_mt_g[2] = s_mt_g[3] = -1e9f;
+    sub_00248C10_gen();
+    s_mt_glyph = 0;
+    if (s_mt_g[2] > s_mt_g[0] && s_mt_g[3] > s_mt_g[1])
+        mt_add(obj, str);
+}
+
+/* A UI picture (a page's 'S' element, vtable 0x005FBCF0: x / y / z at +0x14,
+ * half size +0x20; its draw 0x002479E0, ecx = it) is two quads through
+ * 0x00357310 (a drop shadow, then the picture), each corner put on the
+ * screen by 0x002A8700 (ecx = the viewport, xmm0 / [esp+4] / [esp+8] the
+ * point, [esp+0xC] / [esp+0x10] where the screen x / y go: viewport centre
+ * +0x224 / +0x228 plus or minus its half size +0x1FC / +0x200 times the
+ * projected point). While a picture draws inside a bracketed page, those
+ * corners are kept, made normalised again with the same viewport: the
+ * picture's box (the A / B / Y button pictures of the pause screen's
+ * prompts). */
+static int s_sp_on;                     /* inside a picture's draw */
+static int s_sp_k;                      /* corners seen */
+static float s_sp_g[4];                 /* its corners' box, normalised (the picture's
+                                         * quad: the shadow's four corners are dropped) */
+
+extern void sub_002A8700_gen(void);
+void sub_002A8700(void)
+{
+    uint32_t px, py, vp;
+    float kx, ky, nx, ny;
+    if (!s_sp_on) {
+        sub_002A8700_gen();
+        return;
+    }
+    px = MEM32(g_esp + 12u);
+    py = MEM32(g_esp + 16u);
+    vp = MEM32(0x0084A13Cu) + (uint32_t)((int32_t)(int16_t)(g_ecx & 0xFFFFu) * 0x2B0);
+    sub_002A8700_gen();
+    if (!xact_va_ok(px) || !xact_va_ok(py) || !xact_va_ok(vp))
+        return;
+    kx = MEMF(vp + 0x1FCu);
+    ky = MEMF(vp + 0x200u);
+    if (!(kx > 1e-3f) || !(ky > 1e-3f))
+        return;
+    nx = (MEMF(px) - MEMF(vp + 0x224u)) / kx;
+    ny = (MEMF(vp + 0x228u) - MEMF(py)) / ky;
+    if (!(nx > -50.0f && nx < 50.0f && ny > -50.0f && ny < 50.0f))
+        return;
+    if (s_sp_k++ == 4) {                /* the shadow's quad done: the picture's */
+        s_sp_g[0] = s_sp_g[1] = 1e9f;
+        s_sp_g[2] = s_sp_g[3] = -1e9f;
+    }
+    if (nx < s_sp_g[0]) s_sp_g[0] = nx;
+    if (ny < s_sp_g[1]) s_sp_g[1] = ny;
+    if (nx > s_sp_g[2]) s_sp_g[2] = nx;
+    if (ny > s_sp_g[3]) s_sp_g[3] = ny;
+}
+
+extern void sub_002479E0_gen(void);
+void sub_002479E0(void)
+{
+    uint32_t obj = g_ecx;
+    MenuText *t;
+    if (!s_mt_on || s_sp_on || s_mt_glyph) {
+        sub_002479E0_gen();
+        return;
+    }
+    s_sp_on = 1;
+    s_sp_k = 0;
+    s_sp_g[0] = s_sp_g[1] = 1e9f;
+    s_sp_g[2] = s_sp_g[3] = -1e9f;
+    sub_002479E0_gen();
+    s_sp_on = 0;
+    if (!(s_sp_g[2] > s_sp_g[0] && s_sp_g[3] > s_sp_g[1]) || s_mt_n >= MT_MAX)
+        return;
+    t = &s_mt[s_mt_n++];
+    t->obj = obj;
+    t->str = 0;
+    t->b.x0 = s_sp_g[0];
+    t->b.y0 = s_sp_g[1];
+    t->b.x1 = s_sp_g[2];
+    t->b.y1 = s_sp_g[3];
+    t->b.ok = 1;
+    t->alpha = 255;
+    t->pic = 1;
+}
+
+static const MenuText *mt_find(uint32_t obj, uint32_t str)
+{
+    int i;
+    for (i = 0; i < s_mt_n; i++)
+        if (s_mt[i].obj == obj && (!str || s_mt[i].str == str))
+            return &s_mt[i];
+    return NULL;
+}
+
+static void mt_box(MenuBox *b, const MenuText *t)
+{
+    if (t)
+        *b = t->b;
+}
+
+static void mt_union(MenuBox *b, const MenuBox *a)
+{
+    if (!a->ok)
+        return;
+    if (!b->ok) {
+        *b = *a;
+        return;
+    }
+    if (a->x0 < b->x0) b->x0 = a->x0;
+    if (a->y0 < b->y0) b->y0 = a->y0;
+    if (a->x1 > b->x1) b->x1 = a->x1;
+    if (a->y1 > b->y1) b->y1 = a->y1;
+}
+
+/* A page element that ends a chain: a text, a picture, a list, a list row. */
+static int mp_is_leaf(uint32_t o)
+{
+    uint32_t vt;
+    if (!xact_va_ok(o))
+        return 0;
+    vt = MEM32(o);
+    return vt == 0x005FBD90u || vt == 0x005FBD04u || vt == 0x005FBCF0u
+        || vt == 0x005FBD18u || vt == 0x005FBDCCu || vt == 0x005FBCC8u;
+}
+
+/* The end of a group child's chain (a fade, a glow pulse, ... at +0x14 the
+ * next); 0 none. */
+static uint32_t mp_leaf(uint32_t o)
+{
+    int d;
+    for (d = 0; d < 6 && xact_va_ok(o) && !mp_is_leaf(o); d++)
+        o = MEM32(o + 0x14u);
+    return mp_is_leaf(o) ? o : 0;
+}
+
+/* A UI page's group object (holder: where the page's holder is kept,
+ * 0x0085E550 the front end's, 0x0085E554 the pause screen's); 0 none. */
+static uint32_t mp_group(uint32_t holder_va, uint32_t gid)
+{
+    uint32_t holder = MEM32(holder_va), page, ids, ide, els, i;
+    if (!holder || !xact_va_ok(holder) || !xact_va_ok(page = MEM32(holder)))
+        return 0;
+    ids = MEM32(page + 0x14u);
+    ide = MEM32(page + 0x18u);
+    els = MEM32(page + 4u);
+    for (i = 0; ids + 4u * i < ide && i < 64; i++)
+        if (MEM32(ids + 4u * i) == gid) {
+            uint32_t el = MEM32(els + 4u * i);
+            return xact_va_ok(el) ? el : 0;
+        }
+    return 0;
+}
+
+/* Group gid's child k, the leaf at the end of its chain; 0 none. */
+static uint32_t mp_child(uint32_t holder_va, uint32_t gid, uint32_t k)
+{
+    uint32_t el = mp_group(holder_va, gid), cb, ce;
+    if (!el)
+        return 0;
+    cb = MEM32(el + 8u);
+    ce = MEM32(el + 12u);
+    if (cb + 4u * k >= ce || k > 64u)
+        return 0;
+    return mp_leaf(MEM32(cb + 4u * k));
+}
+
+/* The front end's page: group gid's child k if it is a text; 0 none. */
+static uint32_t mp_group_text(uint32_t gid, uint32_t k)
+{
+    uint32_t o = mp_child(0x0085E550u, gid, k);
+    return tp_is_text(o) ? o : 0;
+}
+
+static void mt_str(uint32_t va, char *out, int cap)
+{
+    int i;
+    for (i = 0; i < cap - 1 && xact_va_ok(va); i++) {
+        uint16_t c = MEM16(va + 2u * (uint32_t)i);
+        if (!c)
+            break;
+        out[i] = c >= 32 && c < 127 ? (char)c : c == '\n' ? '|' : '?';
+    }
+    out[i] = 0;
+}
+
+/* A board opened (the zoom done), nothing over the menu. */
+static int mp_page_open(void)
+{
+    return MEM32(0x007FA1F8u) == 0x1D && MEM32(0x00776574u) == 3
+        && MEM8(0x00776278u) == 0 && MEM8(0x0076F0E0u) != 1 && MEM8(0x00862D08u) == 0
+        && MEMF(0x00776220u) >= 1.0f;
+}
+
+static void mp_begin(void)
+{
+    s_mt_seq++;
+    s_mt_n = 0;
+    s_mt_on = 1;
+    glow_frame();
+    if (s_mt_log < 0) {
+        const char *e = getenv("RECOMP_MENU_TEXT_LOG");
+        s_mt_log = e && *e == '1';
+    }
+}
+
+/* The list whose input ran in the last two frames (the one taking the
+ * keys): its rows and their boxes. Returns the highest alpha its rows were
+ * drawn with (0 none drawn). */
+static int mp_list(MenuPageSnap *s, uint32_t list)
+{
+    uint32_t vt, b, e, filler;
+    int n, i, top = 0;
+    if (s_mt_seq - (uint32_t)s_ml_seq > 2u || !xact_va_ok(list))
+        return 0;
+    vt = MEM32(list);
+    b = MEM32(list + 0x18u);
+    e = MEM32(list + 0x1Cu);
+    filler = MEM32(list + 0x70u);
+    n = xact_va_ok(b) && e >= b ? (int)((e - b) / 4u) : 0;
+    s->kind = vt == 0x005FBD18u ? MENU_LIST_PLAIN
+            : vt == 0x005FBDCCu ? MENU_LIST_WHEEL : MENU_LIST_NONE;
+    if (n > MENU_PAGE_ITEMS)
+        n = s->kind = 0;
+    s->list = list;
+    s->n = n;
+    s->cursor = (int)MEM32(list + 0x24u);
+    s->sideways = MEM8(list + 0x29u) != 0;
+    for (i = 0; i < n; i++) {
+        uint32_t it = MEM32(b + 4u * (uint32_t)i);
+        MenuPageItem *p = &s->item[i];
+        const MenuText *m[3] = { NULL, NULL, NULL };
+        int k;
+        if (!xact_va_ok(it))
+            continue;
+        m[0] = mt_find(it, MEM32(it + 0x14u));
+        mt_box(&p->label, m[0]);
+        if (MEM8(it + 0x41u) == 'O') {
+            p->yesno = 1;
+            p->on = MEM8(it + 0x40u) != 0;
+            m[1] = mt_find(it, MEM32(it + 0x5Cu));
+            m[2] = mt_find(it, MEM32(it + 0x58u));
+            mt_box(&p->no, m[1]);
+            mt_box(&p->yes, m[2]);
+        }
+        for (k = 0; k < 3; k++)
+            if (m[k] && m[k]->alpha > top)
+                top = m[k]->alpha;
+    }
+    if (s->kind == MENU_LIST_WHEEL)
+        for (i = 0; i < s_mt_n; i++) {
+            int k, mine = s_mt[i].obj == filler;
+            for (k = 0; k < n && !mine; k++)
+                mine = s_mt[i].obj == MEM32(b + 4u * (uint32_t)k);
+            if (mine && s_mt[i].alpha > 8) {
+                mt_union(&s->rows, &s_mt[i].b);
+                if (!s->row_top.ok || s_mt[i].b.y1 > s->row_top.y1)
+                    s->row_top = s_mt[i].b;
+                if (!s->row_bot.ok || s_mt[i].b.y0 < s->row_bot.y0)
+                    s->row_bot = s_mt[i].b;
+            }
+        }
+    return top;
+}
+
+static void mp_prompt(MenuPageSnap *s, const MenuBox *b, int button, uint32_t text)
+{
+    if (s->nprompt >= MENU_PAGE_PROMPTS || !b->ok)
+        return;
+    s->prompt[s->nprompt].box = *b;
+    s->prompt[s->nprompt].button = button;
+    s->prompt[s->nprompt].text = text;
+    s->nprompt++;
+}
+
+/* The single player pause screen up and taking its own input: not the
+ * controller-missing screen ([0x00849B20]), not with its input off
+ * ([0x0077A48C]; both pause_ui_input 0x00203B50). */
+static int mp_pause_open(void)
+{
+    return MEM8(0x007FA275u) && !MEM8(0x007FA270u) && !MEM8(0x007FA271u)
+        && MEM32(0x0085E554u) != 0 && !MEM8(0x00849B20u) && !MEM8(0x0077A48Cu)
+        && MEM8(0x00862D08u) == 0;
+}
+
+/* RECOMP_MENU_TEXT_LOG=1: the pause page's groups, each child's chain and
+ * what it ends in, with its box if drawn this frame. */
+static void mp_pause_dump(void)
+{
+    uint32_t holder = MEM32(0x0085E554u), page, ids, ide, els, i;
+    if (!xact_va_ok(holder) || !xact_va_ok(page = MEM32(holder)))
+        return;
+    ids = MEM32(page + 0x14u);
+    ide = MEM32(page + 0x18u);
+    els = MEM32(page + 4u);
+    for (i = 0; ids + 4u * i < ide && i < 64; i++) {
+        uint32_t el = MEM32(els + 4u * i), cb, ce, c;
+        if (!xact_va_ok(el))
+            continue;
+        cb = MEM32(el + 8u);
+        ce = MEM32(el + 12u);
+        fprintf(stderr, "[MTEXT] pause group %u: %08X cursor %d, %u children\n",
+                MEM32(ids + 4u * i), el, (int)MEM32(el + 0x14u),
+                ce >= cb ? (ce - cb) / 4u : 0u);
+        for (c = cb; c < ce && c < cb + 4u * 32u; c += 4u) {
+            uint32_t o = MEM32(c), leaf = mp_leaf(o), lv = leaf ? MEM32(leaf) : 0u;
+            uint32_t at = lv == 0x005FBCF0u ? 0x14u : 0x18u;
+            const MenuText *m = leaf ? mt_find(leaf, 0) : NULL;
+            char txt[40] = "";
+            if (leaf && tp_is_text(leaf))
+                mt_str(MEM32(leaf + 0x14u), txt, (int)sizeof txt);
+            fprintf(stderr, "[MTEXT]   [%u] %08X vt %08X -> %08X vt %08X pos %.1f %.1f %.1f"
+                    " size %.1f '%s' %s a %d (%.3f %.3f)-(%.3f %.3f)\n", (c - cb) / 4u, o,
+                    xact_va_ok(o) ? MEM32(o) : 0u, leaf, lv,
+                    leaf ? MEMF(leaf + at) : 0.0f, leaf ? MEMF(leaf + at + 4u) : 0.0f,
+                    leaf ? MEMF(leaf + at + 8u) : 0.0f,
+                    lv == 0x005FBCF0u ? MEMF(leaf + 0x20u) : 0.0f, txt,
+                    m ? "drawn" : "-", m ? m->alpha : -1, m ? m->b.x0 : 0.0f,
+                    m ? m->b.y0 : 0.0f, m ? m->b.x1 : 0.0f, m ? m->b.y1 : 0.0f);
+        }
+    }
+}
+
+/* The pause page's pictures of group gid, at most cap, left to right. */
+static int mp_pictures(uint32_t gid, uint32_t *out, int cap)
+{
+    int n = 0, i, j;
+    uint32_t k;
+    for (k = 0; k < 32u && n < cap; k++) {
+        uint32_t o = mp_child(0x0085E554u, gid, k);
+        if (o && MEM32(o) == 0x005FBCF0u)
+            out[n++] = o;
+    }
+    for (i = 1; i < n; i++)
+        for (j = i; j > 0 && MEMF(out[j] + 0x14u) < MEMF(out[j - 1] + 0x14u); j--) {
+            uint32_t t = out[j];
+            out[j] = out[j - 1];
+            out[j - 1] = t;
+        }
+    return n;
+}
+
+/* The pause screen's button prompts (conker-notes 2026-11-14): group 0
+ * holds the three button pictures along the frame's bottom, left to right A,
+ * B, Y, with "Quit?" and "Resume"; the Y line's text is group 1's "Options"
+ * on the pause page and group 2's "Back" on its Options page; group 2's one
+ * picture is our X ("Cheats", to-do 196). Each picture's text is the one
+ * drawn lit just right of it on the page (x 5..60 units further, y within
+ * 12); the prompt is the two together. Dimmed (behind the Quit? box) or
+ * not drawn: no prompt. */
+static void mp_pause_prompts(MenuPageSnap *s)
+{
+    static const int btn0[3] = { MENU_BTN_A, MENU_BTN_B, MENU_BTN_Y };
+    uint32_t pic[4], g0[4], g2[2];
+    int but[4], np = 0, i, k;
+    if (mp_pictures(0, g0, 4) == 3)
+        for (i = 0; i < 3; i++) {
+            pic[np] = g0[i];
+            but[np++] = btn0[i];
+        }
+    if (mp_pictures(2, g2, 2) == 1) {
+        pic[np] = g2[0];
+        but[np++] = MENU_BTN_X;
+    }
+    for (i = 0; i < np; i++) {
+        const MenuText *pm = mt_find(pic[i], 0), *best = NULL;
+        float px = MEMF(pic[i] + 0x14u), py = MEMF(pic[i] + 0x18u), bd = 1e9f;
+        MenuBox b;
+        uint32_t gid;
+        if (!pm)
+            continue;
+        for (gid = 0; gid < 3u; gid++)
+            for (k = 0; k < 32; k++) {
+                uint32_t t = mp_child(0x0085E554u, gid, (uint32_t)k);
+                const MenuText *m;
+                float dx, dy;
+                if (!tp_is_text(t) || !(m = mt_find(t, 0)) || m->alpha < MP_LIT)
+                    continue;
+                dx = MEMF(t + 0x18u) - px;
+                dy = MEMF(t + 0x1Cu) - py;
+                if (dx > 5.0f && dx < 60.0f && dy > -12.0f && dy < 12.0f && dx < bd) {
+                    bd = dx;
+                    best = m;
+                }
+            }
+        if (!best)
+            continue;
+        b = pm->b;
+        mt_union(&b, &best->b);
+        mp_prompt(s, &b, but[i], best->obj);
+    }
+}
+
+/* The pause screen's snapshot: its state, the list taking the keys (the
+ * Options page's rows, the Quit? box's Yes / No) and the button prompts. */
+static void mp_pause(MenuPageSnap *s)
+{
+    s->screen = MENU_SCREEN_PAUSE;
+    s->pause_state = (int)MEM32(0x00849AF8u);
+    if (mp_list(s, (uint32_t)s_ml_list) < MP_LIT) {
+        s->kind = MENU_LIST_NONE;       /* dimmed behind the Quit? box, or not drawn */
+        s->n = 0;
+        s->list = 0;
+    }
+    mp_pause_prompts(s);
+}
+
+/* The frame drawn: what the mouse needs of it, for the executor. */
+static void mp_end(int screen)
+{
+    MenuPageSnap s;
+    int i;
+    s_mt_on = 0;
+    memset(&s, 0, sizeof s);
+    s.seq = s_mt_seq;
+    s.board = -1;
+    s.chapter = -1;
+    if (screen == MENU_SCREEN_BOARD && mp_page_open()) {
+        s.screen = MENU_SCREEN_BOARD;
+        s.board = (int)(int8_t)MEM8(0x0077625Eu);
+        mp_list(&s, (uint32_t)s_ml_list);
+        if (s.board == 2) {
+            uint32_t t;
+            s.chapter = MEM8(0x008498B2u);
+            s.chapter_still = MEM8(0x0077655Fu) == 255;
+            t = s.chapter < 9 ? mp_group_text(7u + (uint32_t)s.chapter, 0) : 0;
+            mt_box(&s.chapter_name, t ? mt_find(t, 0) : NULL);
+        }
+        if (s.board >= 3 && s.board <= 5 && s.kind == MENU_LIST_NONE) {
+            uint32_t t = mp_group_text(0x16u, 1);       /* New Game */
+            const MenuText *m = t ? mt_find(t, 0) : NULL;
+            if (m && m->alpha > 64)
+                mp_prompt(&s, &m->b, MENU_BTN_A, t);
+        }
+    } else if (screen == MENU_SCREEN_PAUSE && mp_pause_open()) {
+        mp_pause(&s);
+    }
+    if (s_mt_log > 0 && s_mt_seq % 30u == 0u && s.screen) {
+        fprintf(stderr, "[MTEXT] screen %d board %d pause %d list %08X kind %d n %d cursor %d"
+                " sideways %d chapter %d still %d, %d prompts, %d texts\n", s.screen, s.board,
+                s.pause_state, s.list, s.kind, s.n, s.cursor, s.sideways, s.chapter,
+                s.chapter_still, s.nprompt, s_mt_n);
+        for (i = 0; i < s_mt_n && i < 48; i++) {
+            char txt[48];
+            mt_str(s_mt[i].str, txt, (int)sizeof txt);
+            fprintf(stderr, "[MTEXT]  %08X vt %08X a %3u (%.3f %.3f)-(%.3f %.3f) %s'%s'\n",
+                    s_mt[i].obj, MEM32(s_mt[i].obj), s_mt[i].alpha, s_mt[i].b.x0,
+                    s_mt[i].b.y0, s_mt[i].b.x1, s_mt[i].b.y1, s_mt[i].pic ? "picture " : "",
+                    txt);
+        }
+        for (i = 0; i < s.nprompt; i++)
+            fprintf(stderr, "[MTEXT]  prompt %d button %d (%.3f %.3f)-(%.3f %.3f)\n", i,
+                    s.prompt[i].button, s.prompt[i].box.x0, s.prompt[i].box.y0,
+                    s.prompt[i].box.x1, s.prompt[i].box.y1);
+        if (s.screen == MENU_SCREEN_PAUSE)
+            mp_pause_dump();
+    }
+    AcquireSRWLockExclusive(&s_mp_lock);
+    s_mp = s;
+    s_mp_tick = GetTickCount();
+    ReleaseSRWLockExclusive(&s_mp_lock);
+}
+
+int conker_MenuPageSnap(MenuPageSnap *s)
+{
+    DWORD age;
+    AcquireSRWLockShared(&s_mp_lock);
+    *s = s_mp;
+    age = GetTickCount() - s_mp_tick;
+    ReleaseSRWLockShared(&s_mp_lock);
+    if (age > 250u) {
+        s->board = -1;
+        s->screen = MENU_SCREEN_NONE;
+    }
+    return (s->screen == MENU_SCREEN_BOARD && s->board >= 1) || s->screen == MENU_SCREEN_PAUSE;
+}
+
+void conker_MenuListGo(uint32_t list, int target, int set)
+{
+    _InterlockedExchange(&s_mr_target, -1);
+    _InterlockedExchange(&s_mr_set, 0);
+    _InterlockedExchange(&s_mr_list, (long)list);
+    _InterlockedExchange(&s_mr_set, set);
+    _InterlockedExchange(&s_mr_target, target);
+}
+
+/* Game thread, from the lists' input (sub_00249ED0, after the keys and pad
+ * were read): the list taking the keys now, and the mouse's request for it
+ * as the input's own answers (ans: the four flags' addresses: next, back,
+ * Yes, No), so the game moves its cursor and sets the row with its own
+ * sound, whichever way the list lies. One step at a time. */
+static void menu_list_input(uint32_t list, const uint32_t ans[4])
+{
+    uint32_t b, e, n, cur;
+    long tgt, set;
+    _InterlockedExchange(&s_ml_list, (long)list);
+    _InterlockedExchange(&s_ml_seq, (long)s_mt_seq);
+    if ((uint32_t)s_mr_list != list)
+        return;
+    b = MEM32(list + 0x18u);
+    e = MEM32(list + 0x1Cu);
+    if (!xact_va_ok(b) || e < b)
+        return;
+    n = (e - b) / 4u;
+    cur = MEM32(list + 0x24u);
+    tgt = s_mr_target;
+    set = s_mr_set;
+    if (tgt >= 0 && (uint32_t)tgt < n && cur != (uint32_t)tgt) {
+        DWORD now = GetTickCount();
+        if (now - s_mr_step >= MR_STEP_MS) {
+            MEM8(ans[0]) = (uint8_t)((uint32_t)tgt > cur);
+            MEM8(ans[1]) = (uint8_t)((uint32_t)tgt < cur);
+            MEM8(ans[2]) = 0;
+            MEM8(ans[3]) = 0;
+            s_mr_step = now;
+        }
+        return;
+    }
+    if (tgt >= 0)
+        _InterlockedCompareExchange(&s_mr_target, -1, tgt);
+    if (set == 1 || set == 2) {
+        MEM8(ans[0]) = 0;
+        MEM8(ans[1]) = 0;
+        MEM8(ans[2]) = (uint8_t)(set == 1);
+        MEM8(ans[3]) = (uint8_t)(set == 2);
+        _InterlockedCompareExchange(&s_mr_set, 0, set);
+    }
+}
+
+/* ---- mouse in menus: the multiplayer menus' cylinder lists (to-do 40 step 5) ----
+ *
+ * conker-notes 2026-11-14 "the multiplayer menus, screen by screen". One list
+ * module serves every multiplayer list: the screen's handler rebuilds the
+ * items each frame ([0x00849924], 0x398 bytes each, count [0x007768D4];
+ * 0x0020C3B0 / 0x0020C200 / 0x0020C570) and ends in 0x00216DF0 (eax = the
+ * screen's own cursor), which marks that row lit (+0x18C), puts it in
+ * [0x00849910] and the bracket bars' place in [0x007768F4]. 0x0020C870 draws
+ * the rows into a texture (camera 0x00776710, -128..128, y down: each row's
+ * text by 0x003D3E60 at x [0x00807650], y [0x00807654]) and 0x002170E0
+ * wraps it round a cylinder: 32 columns, angle (u x arc - (0.5 + arc / 2))
+ * x pi, x = cos x R, z = -sin x R, y = (1 - v) x H, through the caller's
+ * matrix (D3DXVec3TransformCoord), plus the centre, then the camera
+ * [0x0084B868]'s view +0x10 and projection +0x90 (row vectors).
+ *
+ * A scrolling list (more rows than [0x006BD4C8]) keeps [0x00849910] in the
+ * middle: the mouse may hold another row there (s_cy_hold) while the
+ * selection moves, so hovering moves the bracket and the lit row instead of
+ * sliding the list under the pointer (user 2026-11-14); the bracket is put
+ * where the selection's row is drawn.
+ *
+ * The mouse's moves go in as the menus' own presses, one a frame: the front
+ * end's menu bits [0x00776238] (1 up, 2 down, 0x10 A) before the
+ * multiplayer dispatcher 0x00235450 runs; the multiplayer pause menu's pad
+ * word [0x007761F0] (1 up, 2 down, 0x100 A; stored at 0x001F7F26 just before
+ * the call to 0x002161C0 that returns to 0x001F7F31). */
+#define CY_ITEMS 0x00849924u
+#define CY_COUNT 0x007768D4u
+#define CY_CENTRE 0x00849910u
+#define CY_BRACKET 0x007768F4u
+#define CY_ITEM 0x398u
+#define CY_STEP_WAIT 150u               /* ms: a step the game has not shown yet */
+#define CY_REQ_MS 2500u                 /* a request older than this is dropped */
+
+static int s_cy_draw;                   /* inside the list's draw (0x0020C870) */
+static MenuCylSnap s_cy_cur;            /* the frame being drawn */
+static SRWLOCK s_cy_lock = SRWLOCK_INIT;
+static MenuCylSnap s_cy;                /* the last frame's */
+static DWORD s_cy_tick;
+static int s_cy_sel = -1;               /* the game's selection (0x00216DF0's last answer) */
+static volatile long s_cy_hold = -1;    /* the executor's: the row to keep in the middle */
+static volatile long s_cy_hold_sig;     /* of the list it was asked for */
+static volatile long s_cy_req;          /* bumped by each request */
+static volatile long s_cy_target = -1, s_cy_a;
+static long s_cy_req_seen;
+static DWORD s_cy_req_at, s_cy_step_at;
+static int s_cy_step_from = -1, s_cy_tries;
+static DWORD s_cy_fe_at, s_cy_pause_at; /* when each input point last ran */
+static int s_cy_log = -1;
+static uint32_t s_cy_frames;           /* list draws so far */
+static int s_cy_log_frame, s_cy_log_sel = -2;   /* this draw is logged; the selection then */
+
+static uint32_t cy_items(void)
+{
+    uint32_t it = MEM32(CY_ITEMS);
+    return xact_va_ok(it) ? it : 0u;
+}
+
+static int cy_count(void)
+{
+    int n = (int)MEM32(CY_COUNT);
+    return n < 0 ? 0 : n > 256 ? 256 : n;
+}
+
+/* Rows with a second line (+0x100) before row i. */
+static int cy_two_before(uint32_t it, int i)
+{
+    int k, t = 0;
+    for (k = 0; k < i; k++)
+        t += MEM8(it + CY_ITEM * (uint32_t)k + 0x100u) != 0;
+    return t;
+}
+
+/* The scrolling kind (0x00216DF0: more rows, second lines counted, than fit). */
+static int cy_scrolls(void)
+{
+    uint32_t it = cy_items();
+    int n = cy_count();
+    return it && n > 0 && n + cy_two_before(it, n) > (int)MEM32(0x006BD4C8u);
+}
+
+/* The three-across kind (pane state 0x1F; its own bracket places). */
+static int cy_grid(void)
+{
+    return MEM32(0x006BD4B8u) == 0x1Fu && MEM32(0x00849ADCu) == 0;
+}
+
+/* Class select (to-do 40 step 5c; conker-notes 2026-11-15): the waiting room
+ * (state [0x00849B84] = 0x1E) with one player ([0x00849B80] = 0), whose
+ * step [0x00862D32] & 0xDF is 1 and not yet chosen ([0x008758A4] = 0): the
+ * model stands in the cylinder, the list empty. 0x0028EBD0 takes the
+ * player's own pad bits [0x0077623C] (8 next class, 4 the one before, 0x10
+ * A), so the mouse presses the pad. The class shown, else -1. */
+static int cy_class_select(void)
+{
+    if (MEM32(0x00849B84u) != 0x1Eu || MEM8(0x00849B80u) || cy_count() != 0
+        || (MEM8(0x00862D32u) & 0xDFu) != 1u || MEM8(0x008758A4u))
+        return -1;
+    return (int)MEM8(0x00864EBFu);
+}
+
+/* The rows' texts hashed (the first 16 characters of each): which list. */
+static uint32_t cy_sig(void)
+{
+    uint32_t it = cy_items(), h = 2166136261u;
+    int n = cy_count(), i, k;
+    if (!it)
+        return 0;
+    h = (h ^ (uint32_t)n) * 16777619u;
+    for (i = 0; i < n && i < 64; i++)
+        for (k = 0; k < 16; k++) {
+            uint16_t c = MEM16(it + CY_ITEM * (uint32_t)i + 2u * (uint32_t)k);
+            h = (h ^ c) * 16777619u;
+            if (!c)
+                break;
+        }
+    return h ? h : 1u;
+}
+
+/* Row i's middle down the list from row 0's top, less half a pitch,
+ * texture units (as the draw spaces them: 1.25 pitches a row, one more for
+ * a second line; a two-line row's middle half a pitch lower, as the draw
+ * centres it when it is in the middle). */
+static float cy_offset(uint32_t it, int i)
+{
+    float p = MEMF(0x006BD4C4u);
+    float o = (float)i * p * 1.25f + (float)cy_two_before(it, i) * p;
+    if (MEM8(it + CY_ITEM * (uint32_t)i + 0x100u))
+        o += p * 0.5f;
+    return o;
+}
+
+/* 0x00216DF0 (eax = the screen's cursor): the selection; a held list keeps
+ * its middle row and the bracket goes to the selection's row. */
+extern void sub_00216DF0_gen(void);
+void sub_00216DF0(void)
+{
+    long hold = s_cy_hold;
+    uint32_t ret, it;
+    int was = s_cy_sel;
+    uint32_t from = MEM32(g_esp);
+    sub_00216DF0_gen();
+    ret = g_eax;
+    s_cy_sel = (int)MEM32(CY_CENTRE);
+    if (s_cy_log > 0 && s_cy_sel != was)
+        fprintf(stderr, "[MCYL] selection %d -> %d (call from %08X)\n", was, s_cy_sel, from);
+    it = cy_items();
+    if (hold >= 0 && it && !cy_grid() && cy_scrolls() && (uint32_t)s_cy_hold_sig == cy_sig()) {
+        int n = cy_count(), c = (int)hold < n ? (int)hold : n - 1;
+        if (c >= 0 && s_cy_sel >= 0 && s_cy_sel < n) {
+            float d = cy_offset(it, s_cy_sel) - cy_offset(it, c);
+            MEM32(CY_CENTRE) = (uint32_t)c;
+            MEMF(CY_BRACKET) = (d + 128.0f + MEMF(0x007768E0u)) * (1.0f / 256.0f) * 0.975f
+                               + 0.015f;
+        }
+    }
+    g_eax = ret;
+}
+
+/* The presses owed this frame (up_bit, down_bit, a_bit: the input word's;
+ * left / right are 4 / 8 in both). */
+static uint32_t cy_presses(uint32_t up_bit, uint32_t down_bit, uint32_t a_bit)
+{
+    static const uint32_t side[4] = { 0u, 0u, 4u, 8u };
+    DWORD now = GetTickCount();
+    long req = s_cy_req, tgt, a;
+    int cur = s_cy_sel;
+    if (req != s_cy_req_seen) {         /* a new request */
+        s_cy_req_seen = req;
+        s_cy_req_at = now;
+        s_cy_step_from = -1;
+        s_cy_tries = 0;
+    }
+    tgt = s_cy_target;
+    a = s_cy_a;
+    if (tgt < 0 && !a)
+        return 0;
+    if (now - s_cy_req_at > CY_REQ_MS || MEMF(0x006BD4CCu) != 1.0f) {
+        if (now - s_cy_req_at > CY_REQ_MS) {
+            _InterlockedCompareExchange(&s_cy_target, -1, tgt);
+            _InterlockedCompareExchange(&s_cy_a, 0, a);
+        }
+        return 0;                       /* too old, or the list slides */
+    }
+    if (tgt >= 0 && tgt < cy_count() && cur != (int)tgt) {
+        if (cur == s_cy_step_from && now - s_cy_step_at < CY_STEP_WAIT)
+            return 0;                   /* the last step not shown yet */
+        if (cur == s_cy_step_from && ++s_cy_tries > 3) {
+            _InterlockedCompareExchange(&s_cy_target, -1, tgt);   /* the game refuses */
+            _InterlockedCompareExchange(&s_cy_a, 0, a);
+            return 0;
+        }
+        if (cur != s_cy_step_from)
+            s_cy_tries = 0;
+        s_cy_step_from = cur;
+        s_cy_step_at = now;
+        if (s_cy_log > 0)
+            fprintf(stderr, "[MCYL] press %s: selection %d, target %d\n",
+                    (int)tgt < cur ? "up" : "down", cur, (int)tgt);
+        return (int)tgt < cur ? up_bit : down_bit;
+    }
+    _InterlockedCompareExchange(&s_cy_target, -1, tgt);
+    if (a > 0 && a < 4 && _InterlockedCompareExchange(&s_cy_a, 0, a) == a)
+        return a == MENU_CYL_A ? a_bit : side[a];
+    return 0;
+}
+
+/* The front end's multiplayer menus (page 0 of the main menu). */
+extern void sub_00235450_gen(void);
+void sub_00235450(void)
+{
+    uint32_t bits = cy_presses(1u, 2u, 0x10u);
+    s_cy_fe_at = GetTickCount();
+    MEM32(0x00776238u) |= bits;
+    sub_00235450_gen();
+    MEM32(0x00776238u) &= ~bits;
+}
+
+/* 0x002161C0: from the multiplayer pause menu just after it read its pad. */
+extern void sub_002161C0_gen(void);
+void sub_002161C0(void)
+{
+    if (MEM32(g_esp) == 0x001F7F31u) {
+        s_cy_pause_at = GetTickCount();
+        MEM32(0x007761F0u) |= cy_presses(1u, 2u, 0x100u);
+    }
+    sub_002161C0_gen();
+}
+
+/* The multiplayer screens' button prompts (below): inside a prompt plate's
+ * texture draw, its words go through pl_text. */
+static int s_pl_draw;
+static void pl_text(void);
+
+/* 0x003D3E60 (a text, its letters through 0x003D30C0): inside the list's
+ * draw, the row it belongs to and its letters' box on the texture. */
+extern void sub_003D3E60_gen(void);
+void sub_003D3E60(void)
+{
+    uint32_t p = MEM32(g_esp + 4u), it = cy_items();
+    int i;
+    float x, y;
+    if (s_pl_draw && !s_mt_glyph) {
+        pl_text();
+        return;
+    }
+    if (!s_cy_draw || s_mt_glyph || !it || p < it) {
+        sub_003D3E60_gen();
+        return;
+    }
+    i = (int)((p - it) / CY_ITEM);
+    if (i >= cy_count() || i >= MENU_CYL_ROWS) {
+        sub_003D3E60_gen();
+        return;
+    }
+    x = MEMF(0x00807650u);
+    y = MEMF(0x00807654u);
+    s_mt_glyph = 1;
+    s_mt_g[0] = s_mt_g[1] = 1e9f;
+    s_mt_g[2] = s_mt_g[3] = -1e9f;
+    sub_003D3E60_gen();
+    s_mt_glyph = 0;
+    if (s_cy_log_frame)
+        fprintf(stderr, "[MCYL]  row %d%s at %.1f %.1f letters (%.1f %.1f)-(%.1f %.1f)\n", i,
+                (p - it) % CY_ITEM ? " (2nd line)" : "", x, y, s_mt_g[0], s_mt_g[1], s_mt_g[2],
+                s_mt_g[3]);
+    if (s_mt_g[2] > s_mt_g[0] && s_mt_g[3] > s_mt_g[1]) {
+        MenuCylRow *r = &s_cy_cur.row[i];
+        if ((p - it) % CY_ITEM) {       /* the second line: a picker's value */
+            r->vx0 = s_mt_g[0];
+            r->vy0 = s_mt_g[1];
+            r->vx1 = s_mt_g[2];
+            r->vy1 = s_mt_g[3];
+            r->vok = 1;
+        }
+        if (!r->ok) {
+            r->x0 = s_mt_g[0];
+            r->y0 = s_mt_g[1];
+            r->x1 = s_mt_g[2];
+            r->y1 = s_mt_g[3];
+            r->ok = 1;
+        } else {
+            if (s_mt_g[0] < r->x0) r->x0 = s_mt_g[0];
+            if (s_mt_g[1] < r->y0) r->y0 = s_mt_g[1];
+            if (s_mt_g[2] > r->x1) r->x1 = s_mt_g[2];
+            if (s_mt_g[3] > r->y1) r->y1 = s_mt_g[3];
+        }
+    }
+}
+
+/* A point through the camera: normalised picture coordinates; 0 behind. */
+static int cy_project(uint32_t cam, const float w[3], float *nx, float *ny)
+{
+    float v[4], c[4];
+    int i;
+    for (i = 0; i < 4; i++)
+        v[i] = w[0] * MEMF(cam + 0x10u + 4u * (uint32_t)i)
+             + w[1] * MEMF(cam + 0x20u + 4u * (uint32_t)i)
+             + w[2] * MEMF(cam + 0x30u + 4u * (uint32_t)i) + MEMF(cam + 0x40u + 4u * (uint32_t)i);
+    for (i = 0; i < 4; i++)
+        c[i] = v[0] * MEMF(cam + 0x90u + 4u * (uint32_t)i)
+             + v[1] * MEMF(cam + 0xA0u + 4u * (uint32_t)i)
+             + v[2] * MEMF(cam + 0xB0u + 4u * (uint32_t)i)
+             + v[3] * MEMF(cam + 0xC0u + 4u * (uint32_t)i);
+    if (!(c[3] > 1e-4f))
+        return 0;
+    *nx = c[0] / c[3];
+    *ny = c[1] / c[3];
+    return *nx > -50.0f && *nx < 50.0f && *ny > -50.0f && *ny < 50.0f;
+}
+
+/* A point through a guest matrix as D3DXVec3TransformCoord does (row
+ * vector, w divided out); none (0): unchanged. */
+static void mat_coord(uint32_t mat, const float p[3], float q[3])
+{
+    int k;
+    if (mat && xact_va_ok(mat)) {
+        float ww = p[0] * MEMF(mat + 12u) + p[1] * MEMF(mat + 28u)
+                 + p[2] * MEMF(mat + 44u) + MEMF(mat + 60u);
+        for (k = 0; k < 3; k++)
+            q[k] = p[0] * MEMF(mat + 4u * (uint32_t)k)
+                 + p[1] * MEMF(mat + 16u + 4u * (uint32_t)k)
+                 + p[2] * MEMF(mat + 32u + 4u * (uint32_t)k)
+                 + MEMF(mat + 48u + 4u * (uint32_t)k);
+        if (ww != 1.0f && ww > 1e-6f)
+            for (k = 0; k < 3; k++)
+                q[k] /= ww;
+    } else {
+        for (k = 0; k < 3; k++)
+            q[k] = p[k];
+    }
+}
+
+/* 0x002170E0 (cdecl: centre, R, H, arc, columns, rows, u / v scales, matrix,
+ * ...): inside the list's draw, the cylinder put on the screen as a grid. */
+extern void sub_002170E0_gen(void);
+void sub_002170E0(void)
+{
+    if (s_cy_draw) {
+        uint32_t ctr = MEM32(g_esp + 4u), mat = MEM32(g_esp + 36u), cam = MEM32(0x0084B868u);
+        float R = MEMF(g_esp + 8u), H = MEMF(g_esp + 12u), arc = MEMF(g_esp + 16u);
+        float half = (1.0f - arc) * 0.5f + arc;
+        int ok = xact_va_ok(ctr) && xact_va_ok(cam) && R > 0.0f && H > 0.0f, iu, iv;
+        for (iu = 0; ok && iu <= MENU_CYL_COLS; iu++) {
+            float t = (float)iu / (float)MENU_CYL_COLS * arc - half;
+            if (t < -1.0f) t = -1.0f;
+            if (t > 1.0f) t = 1.0f;
+            for (iv = 0; ok && iv <= MENU_CYL_VSTEPS; iv++) {
+                float p[3], q[3];
+                p[0] = cosf(t * 3.1415927f) * R;
+                p[1] = (1.0f - (float)iv / (float)MENU_CYL_VSTEPS) * H;
+                p[2] = -sinf(t * 3.1415927f) * R;
+                mat_coord(mat, p, q);
+                q[0] += MEMF(ctr);
+                q[1] += MEMF(ctr + 4u);
+                q[2] += MEMF(ctr + 8u);
+                ok = cy_project(cam, q, &s_cy_cur.pt[iv][iu][0], &s_cy_cur.pt[iv][iu][1]);
+            }
+        }
+        s_cy_cur.grid_ok = ok;
+    }
+    sub_002170E0_gen();
+}
+
+/* 0x0020C870: the list's draw (texture, then the cylinder). The frame's
+ * rows and cylinder, kept for the executor. */
+extern void sub_0020C870_gen(void);
+void sub_0020C870(void)
+{
+    MenuCylSnap *s = &s_cy_cur;
+    DWORD now;
+    int i;
+    uint32_t from = MEM32(g_esp);
+    if (s_cy_draw) {
+        sub_0020C870_gen();
+        return;
+    }
+    if (s_cy_log < 0) {
+        const char *e = getenv("RECOMP_MENU_TEXT_LOG");
+        s_cy_log = e && *e == '1';
+    }
+    memset(s, 0, sizeof *s);
+    s_cy_frames++;
+    s_cy_log_frame = s_cy_log > 0 && (s_cy_frames % 30u == 0u || s_cy_sel != s_cy_log_sel);
+    s_cy_log_sel = s_cy_sel;
+    s_cy_draw = 1;
+    sub_0020C870_gen();
+    s_cy_draw = 0;
+    s->cls = cy_class_select();
+    if (!s->grid_ok || (!cy_items() && s->cls < 0))
+        return;
+    now = GetTickCount();
+    s->seq = s_cy_frames;
+    s->input = now - s_cy_pause_at < 200u ? 2 : now - s_cy_fe_at < 200u ? 1 : 0;
+    s->id = MEM32(0x006BD4BCu);
+    s->sig = cy_sig();
+    s->still = MEMF(0x006BD4CCu) == 1.0f;
+    s->scrolls = cy_scrolls();
+    s->grid = cy_grid();
+    s->n = !cy_items() ? 0 : cy_count() < MENU_CYL_ROWS ? cy_count() : MENU_CYL_ROWS;
+    s->sel = s_cy_sel;
+    s->centre = (int)MEM32(CY_CENTRE);
+    s->pitch = MEMF(0x006BD4C4u) * 1.25f;
+    s->bracket = MEMF(CY_BRACKET);
+    for (i = 0; i < s->n; i++) {
+        uint32_t it = cy_items() + CY_ITEM * (uint32_t)i;
+        s->row[i].grey = MEM8(it + 0x103u) != 0;
+        s->row[i].picker = MEM8(it + 0x108u) != 0;
+    }
+    if (s_cy_log_frame) {
+        fprintf(stderr, "[MCYL] from %08X sig %08X id %08X input %d still %d scrolls %d grid %d"
+                " n %d sel %d class %d centre %d pitch %.1f bracket %.3f max %d corners (%.3f %.3f)"
+                " (%.3f %.3f) (%.3f %.3f) (%.3f %.3f)\n", from, s->sig, s->id, s->input, s->still, s->scrolls, s->grid, s->n, s->sel, s->cls,
+                s->centre, s->pitch, s->bracket, (int)MEM32(0x006BD4C8u), s->pt[0][0][0],
+                s->pt[0][0][1], s->pt[0][MENU_CYL_COLS][0], s->pt[0][MENU_CYL_COLS][1],
+                s->pt[MENU_CYL_VSTEPS][0][0], s->pt[MENU_CYL_VSTEPS][0][1],
+                s->pt[MENU_CYL_VSTEPS][MENU_CYL_COLS][0], s->pt[MENU_CYL_VSTEPS][MENU_CYL_COLS][1]);
+    }
+    AcquireSRWLockExclusive(&s_cy_lock);
+    s_cy = *s;
+    s_cy_tick = now;
+    ReleaseSRWLockExclusive(&s_cy_lock);
+}
+
+int conker_MenuCylSnap(MenuCylSnap *s)
+{
+    DWORD age;
+    AcquireSRWLockShared(&s_cy_lock);
+    *s = s_cy;
+    age = GetTickCount() - s_cy_tick;
+    ReleaseSRWLockShared(&s_cy_lock);
+    return age <= 250u && s->grid_ok && (s->n > 0 || s->cls >= 0);
+}
+
+void conker_MenuCylGo(int target, int press)
+{
+    _InterlockedExchange(&s_cy_target, -1);
+    _InterlockedExchange(&s_cy_a, 0);
+    _InterlockedIncrement(&s_cy_req);
+    _InterlockedExchange(&s_cy_a, press > 0 && press < 4 ? press : 0);
+    _InterlockedExchange(&s_cy_target, target);
+}
+
+void conker_MenuCylHold(int centre, uint32_t sig)
+{
+    _InterlockedExchange(&s_cy_hold, -1);
+    _InterlockedExchange(&s_cy_hold_sig, (long)sig);
+    _InterlockedExchange(&s_cy_hold, centre);
+}
+
+/* ---- mouse in menus: the multiplayer screens' button prompts (to-do 40 step 5b) ----
+ *
+ * conker-notes 2026-11-14 "the multiplayer screens' button prompts". Each
+ * side panel of a multiplayer screen ends in a plate with its prompt (A
+ * Select, B Back, X Configure, the waiting room's A Ready / Y Mission Brief /
+ * X Level Details ...), drawn by 0x00201360 (ecx = the panel, eax = the
+ * button: 1 A, 2 B, 3 X, 4 Y, its picture loaded by 0x00200EE0 from
+ * frontend\pause\<A|B|X|Y>_BUTT; [esp+4] the text); a panel's top plate
+ * (0x002010E0, the button at [esp+8]) can be one too, then often a
+ * scrolling marquee (the Welcome screen's A Select). Both call 0x0020E5C0
+ * (ecx = the words, eax = the picture's texture or 0, [esp+4] the panel's
+ * matrix, +8 the position, +0xC the scale, +0x10 an x offset), which draws
+ * the words (0x003D3E60) and the picture (0x0021D4B0: centre x = where the
+ * words start + 128 - [0x0075E240], y [0x0075E244], half sizes [0x0075E238] /
+ * [0x0075E23C], texture px) into a 256 x 256 texture (units -128..128, y
+ * down) and shows it on a square: u 0..1 from x + 3600 to x + 5600, v 0..1
+ * from y + 2380 down to y + 380 (each times the scale; z (z + 75) x scale),
+ * through the matrix (D3DXVec3TransformCoord), seen by the camera
+ * [0x0084B868] (view +0x10, projection +0x90). The prompt's box (words and
+ * picture, texture units) goes onto the screen the same way. Panels drawn
+ * while the list [0x0086267C] has entries (a popup over the screen: the
+ * waiting room's Level Details, panel slot +0x20 = 5) show their texture
+ * flat instead (0x00222DD0 -> 0x0021AE40, the whole texture on a square):
+ * the box goes through that square's corners. While a slot 5 panel is drawn
+ * only its own prompts take clicks (the screen behind it none, its list no
+ * hover either: MenuPlateSnap.popup).
+ *
+ * The hovered prompt glows: its words eased towards warm white. A halo as
+ * the pause screen's (rings of faint gold copies first) comes out as a dark
+ * smudge here: what the text draw leaves see-through in the texture is
+ * darkened when the plate shows it, so it is off (RECOMP_PLATE_GLOW=
+ * <radius>,<alpha> tries one: the inner ring's radius as a share of the
+ * letters' height, an inner copy's alpha; RECOMP_PROMPT_GLOW=0 turns both
+ * glows off). */
+#define PL_MAX 8
+#define PL_MS 150u                      /* a prompt not drawn for this long: gone */
+
+typedef struct {
+    MenuPlatePrompt p;
+    float h;                            /* its letters' height, texture units */
+    int popup;                          /* a popup's (panel slot 5) */
+    DWORD tick, logged;
+} PlEntry;
+
+static int s_pl_on;                     /* inside 0x00201360: its button, 1 A 2 B 3 X 4 Y */
+static uint32_t s_pl_key;               /* its text: the prompt's name */
+static int s_pl_popup;                  /* that plate is a popup's */
+static uint32_t s_pl_slot;              /* its panel's slot (+0x20) */
+static DWORD s_pl_popup_at;             /* a popup's panel last drawn */
+static int s_pl_flat_ok;                /* the plate was shown flat: its corners */
+static float s_pl_flat_q[4][2];         /* (normalised; top left, top right, bottom right, bottom left) */
+static float s_pl_g[4];                 /* the words' letters, texture units */
+static int s_pl_text_ok;
+static float s_pl_x0;                   /* where the words start (x, texture units) */
+static PlEntry s_pl[PL_MAX];            /* written on the game thread under the lock */
+static SRWLOCK s_pl_lock = SRWLOCK_INIT;
+static int s_pl_log = -1;
+static float s_pl_glow_r = 0.13f;       /* the inner ring's radius: a share of the letters' height */
+static float s_pl_glow_a = 0.0f;        /* an inner copy's alpha at full glow: 0 = no halo (copies
+                                         * partly see-through come out dark on the plate) */
+
+static void pl_begin(int button, uint32_t text);
+
+static PlEntry *pl_find(uint32_t key, int button)
+{
+    int i;
+    for (i = 0; i < PL_MAX; i++)
+        if (s_pl[i].p.key == key && s_pl[i].p.button == button)
+            return &s_pl[i];
+    return NULL;
+}
+
+/* Keeps a prompt drawn now (its button and name: the plate being drawn's);
+ * 1 = log it now (RECOMP_MENU_TEXT_LOG, once a second each). */
+static int pl_store(MenuPlatePrompt *pr)
+{
+    DWORD now = GetTickCount();
+    PlEntry *e;
+    int log;
+    pr->button = s_pl_on - 1;
+    pr->key = s_pl_key;
+    AcquireSRWLockExclusive(&s_pl_lock);
+    e = pl_find(pr->key, pr->button);
+    if (!e) {
+        int i, old = 0;
+        for (i = 1; i < PL_MAX; i++)
+            if (now - s_pl[i].tick > now - s_pl[old].tick)
+                old = i;
+        e = &s_pl[old];
+        e->logged = now - 1000u;
+    }
+    e->p = *pr;
+    e->h = s_pl_g[3] - s_pl_g[1];
+    e->popup = s_pl_popup;
+    e->tick = now;
+    log = s_pl_log > 0 && now - e->logged >= 1000u;
+    if (log)
+        e->logged = now;
+    ReleaseSRWLockExclusive(&s_pl_lock);
+    return log;
+}
+
+/* The prompt's words into its texture (in place of 0x003D3E60's call): a
+ * hovered prompt's gold halo first, then the words (eased towards warm
+ * white); the words' letters' box kept. */
+static void pl_text(void)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+    float x = MEMF(0x00807650u), y = MEMF(0x00807654u), z = MEMF(0x00807658u);
+    float lv = s_glow_on > 0 ? glow_level(s_pl_key) : 0.0f;
+    uint8_t own[4], lit[3] = { 0, 0, 0 };
+    int i, ring, k;
+    for (i = 0; i < 4; i++)
+        own[i] = MEM8(0x00807664u + (uint32_t)i);
+    s_pl_x0 = x;
+    if (lv > 0.0f) {
+        const PlEntry *e = pl_find(s_pl_key, s_pl_on - 1);
+        float h = e && e->h > 2.0f ? e->h : 20.0f, r = s_pl_glow_r * h;
+        for (ring = 1; ring <= GLOW_RINGS && s_pl_glow_a > 0.0f; ring++)
+            for (k = 0; k < GLOW_COPIES; k++) {
+                float ang = (float)k * (6.2831853f / GLOW_COPIES) + (ring & 1 ? 0.0f : 0.3927f);
+                float a = s_pl_glow_a * s_glow_ring_a[ring - 1] * lv * (float)own[3];
+                MEMF(0x00807650u) = x + cosf(ang) * r * (float)ring;
+                MEMF(0x00807654u) = y + sinf(ang) * r * (float)ring;
+                MEMF(0x00807658u) = z;
+                for (i = 0; i < 3; i++)
+                    MEM8(0x00807664u + (uint32_t)i) = (uint8_t)(s_glow_rgb[i] * 255.0f + 0.5f);
+                MEM8(0x00807667u) = (uint8_t)(a > 255.0f ? 255.0f : a + 0.5f);
+                g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+                g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+                sub_003D3E60_gen();
+            }
+        g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+        g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+        MEMF(0x00807650u) = x;
+        MEMF(0x00807654u) = y;
+        MEMF(0x00807658u) = z;
+        for (i = 0; i < 3; i++) {
+            float c = (float)own[i] + (s_glow_lit[i] * 255.0f - (float)own[i]) * lv;
+            lit[i] = (uint8_t)(c + 0.5f);
+            MEM8(0x00807664u + (uint32_t)i) = lit[i];
+        }
+        MEM8(0x00807667u) = own[3];
+    }
+    s_mt_glyph = 1;
+    s_mt_g[0] = s_mt_g[1] = 1e9f;
+    s_mt_g[2] = s_mt_g[3] = -1e9f;
+    sub_003D3E60_gen();
+    s_mt_glyph = 0;
+    if (lv > 0.0f)
+        for (i = 0; i < 3; i++)
+            if (MEM8(0x00807664u + (uint32_t)i) == lit[i])
+                MEM8(0x00807664u + (uint32_t)i) = own[i];
+    if (s_mt_g[2] > s_mt_g[0] && s_mt_g[3] > s_mt_g[1]) {
+        memcpy(s_pl_g, s_mt_g, sizeof s_pl_g);
+        s_pl_text_ok = 1;
+    }
+}
+
+/* 0x0021AE40 (eax the size w / h; [esp+4] matrix, +8 x, +0xC y; caller
+ * pops): a texture shown whole on a square, top left at (x, y) (plus
+ * [0x00849B58] / [0x00849B5C]), w x [0x006BD590] wide, h x [0x006BD594]
+ * tall, z 0, through the matrix, seen by the camera [0x0084B868]. Inside a
+ * prompt's plate this is the flat way (0x00222DD0): its corners kept. */
+extern void sub_0021AE40_gen(void);
+void sub_0021AE40(void)
+{
+    if (s_pl_draw && s_pl_on) {
+        uint32_t mat = MEM32(g_esp + 4u), sz = g_eax, cam = MEM32(0x0084B868u);
+        float x = MEMF(0x00849B58u) + MEMF(g_esp + 8u), y = MEMF(0x00849B5Cu) + MEMF(g_esp + 12u);
+        if (xact_va_ok(sz) && xact_va_ok(cam)) {
+            float w = MEMF(0x006BD590u) * MEMF(sz), h = MEMF(0x006BD594u) * MEMF(sz + 4u);
+            int k, ok = 1;
+            for (k = 0; k < 4 && ok; k++) {
+                float p[3], q[3];
+                p[0] = x + (k == 1 || k == 2 ? w : 0.0f);
+                p[1] = y - (k >= 2 ? h : 0.0f);
+                p[2] = 0.0f;
+                mat_coord(mat, p, q);
+                ok = cy_project(cam, q, &s_pl_flat_q[k][0], &s_pl_flat_q[k][1]);
+            }
+            s_pl_flat_ok = ok;
+        }
+    }
+    sub_0021AE40_gen();
+}
+
+/* A texture point (units, y down) on the flat square, normalised. */
+static void pl_flat_pt(float tx, float ty, float out[2])
+{
+    float u = (tx + 128.0f) / 256.0f, v = (ty + 128.0f) / 256.0f;
+    int k;
+    for (k = 0; k < 2; k++) {
+        float top = s_pl_flat_q[0][k] + (s_pl_flat_q[1][k] - s_pl_flat_q[0][k]) * u;
+        float bot = s_pl_flat_q[3][k] + (s_pl_flat_q[2][k] - s_pl_flat_q[3][k]) * u;
+        out[k] = top + (bot - top) * v;
+    }
+}
+
+/* 0x0020E5C0 (ecx the words, eax the button picture or 0; [esp+4] the
+ * panel's matrix, +8 the position, +0xC the scale, +0x10 an x offset;
+ * caller pops): inside a prompt's plate, its words' and picture's box
+ * carried onto the screen. */
+extern void sub_0020E5C0_gen(void);
+void sub_0020E5C0(void)
+{
+    static const int cu[4] = { 0, 1, 1, 0 }, cv[4] = { 0, 0, 1, 1 };
+    uint32_t mat, pp, ps, icon = g_eax, words = g_ecx, cam, lst;
+    float pos[3], scl[3], b[4];
+    MenuPlatePrompt pr;
+    int flat, k, ok = 1;
+    if (!s_pl_on || s_pl_draw) {
+        sub_0020E5C0_gen();
+        return;
+    }
+    mat = MEM32(g_esp + 4u);
+    pp = MEM32(g_esp + 8u);
+    ps = MEM32(g_esp + 12u);
+    if (!xact_va_ok(pp) || !xact_va_ok(ps)) {
+        sub_0020E5C0_gen();
+        return;
+    }
+    for (k = 0; k < 3; k++) {
+        pos[k] = MEMF(pp + 4u * (uint32_t)k);
+        scl[k] = MEMF(ps + 4u * (uint32_t)k);
+    }
+    lst = MEM32(0x0086267Cu);
+    flat = lst != 0 && MEM32(0x00862680u) - lst >= 4u;
+    s_pl_draw = 1;
+    s_pl_text_ok = 0;
+    s_pl_flat_ok = 0;
+    s_pl_x0 = 0.0f;
+    sub_0020E5C0_gen();
+    s_pl_draw = 0;
+    if (!s_pl_text_ok || (flat && !s_pl_flat_ok))
+        return;
+    memcpy(b, s_pl_g, sizeof b);
+    if (icon) {
+        float cx = s_pl_x0 - MEMF(0x0075E240u), cy = MEMF(0x0075E244u) - 128.0f;
+        float hw = MEMF(0x0075E238u), hh = MEMF(0x0075E23Cu);
+        if (hw > 0.0f && hw < 128.0f && hh > 0.0f && hh < 128.0f) {
+            if (cx - hw < b[0]) b[0] = cx - hw;
+            if (cy - hh < b[1]) b[1] = cy - hh;
+            if (cx + hw > b[2]) b[2] = cx + hw;
+            if (cy + hh > b[3]) b[3] = cy + hh;
+        }
+    }
+    if (b[0] < -128.0f)                 /* a marquee runs past the texture's edges */
+        b[0] = -128.0f;
+    if (b[2] > 128.0f)
+        b[2] = 128.0f;
+    if (!(b[2] > b[0] + 1.0f))
+        return;
+    cam = MEM32(0x0084B868u);
+    if (!xact_va_ok(cam))
+        return;
+    memset(&pr, 0, sizeof pr);
+    for (k = 0; k < 4 && ok; k++) {
+        float tx = cu[k] ? b[2] : b[0], ty = cv[k] ? b[3] : b[1];
+        float u = (tx + 128.0f) / 256.0f, v = (ty + 128.0f) / 256.0f, w[3], q[3];
+        if (flat) {
+            pl_flat_pt(tx, ty, pr.pt[k]);
+            continue;
+        }
+        w[0] = (pos[0] + 3600.0f + 2000.0f * u) * scl[0];
+        w[1] = (pos[1] + 2380.0f - 2000.0f * v) * scl[1];
+        w[2] = (pos[2] + 75.0f) * scl[2];
+        mat_coord(mat, w, q);
+        ok = cy_project(cam, q, &pr.pt[k][0], &pr.pt[k][1]);
+    }
+    if (!ok)
+        return;
+    pr.n = 4;
+    if (pl_store(&pr)) {
+        char key[40], txt[40];
+        mt_str(pr.key ^ (s_pl_slot << 28), key, (int)sizeof key);
+        mt_str(words, txt, (int)sizeof txt);
+        fprintf(stderr, "[MPROMPT] %c '%s' ('%s') pos %.0f %.0f %.0f scale %.2f %.2f %.2f"
+                " words (%.1f %.1f)-(%.1f %.1f) start %.1f picture %s box (%.1f %.1f)-(%.1f %.1f)"
+                " screen (%.3f %.3f) (%.3f %.3f) (%.3f %.3f) (%.3f %.3f)\n",
+                "ABXY"[pr.button], key, txt, pos[0], pos[1], pos[2], scl[0], scl[1], scl[2],
+                s_pl_g[0], s_pl_g[1], s_pl_g[2], s_pl_g[3], s_pl_x0, icon ? "yes" : "no",
+                b[0], b[1], b[2], b[3], pr.pt[0][0], pr.pt[0][1], pr.pt[1][0], pr.pt[1][1],
+                pr.pt[2][0], pr.pt[2][1], pr.pt[3][0], pr.pt[3][1]);
+    }
+}
+
+/* The middle column's two bands (above and below the list, a scrolling
+ * marquee of the screen's prompt: "Welcome --- A Select", "drop --- B
+ * Back"): 0x0020DC60 draws the top one from the item 0x0084C298, 0x002162C0
+ * ([esp+4] matrix, +8 another text instead when set) the bottom one from
+ * 0x0084C9C8 (items as the lists': +0x80 the text, +0x191 a button shown,
+ * +0x394 which, 1 A 2 B 3 X 4 Y). Each writes the text three times over into
+ * the texture, a button picture before each (0x0020DB70 places them), and
+ * wraps v 0..0.25 of it round part of a cylinder by 0x00217970 (args as the
+ * lists' 0x002170E0: centre, R, H, arc, columns, rows, u / v scales,
+ * matrix ...). The prompt is the band's whole width at its words' height. */
+static int s_pl_band;                   /* inside a band's draw */
+static int s_pl_hint;                   /* that is the hint line over a list */
+
+/* The band item's button (1..4) when it shows one, else 0. */
+static int pl_band_button(uint32_t item)
+{
+    int k = (int)MEM32(item + 0x394u);
+    return MEM8(item + 0x191u) && k >= 1 && k <= 4 ? k : 0;
+}
+
+/* The band's part across that takes clicks (texture u 0..1): all of a
+ * scrolling band; the hint line's picture and words. */
+static void pl_band_urange(float u[2])
+{
+    u[0] = 0.0f;
+    u[1] = 1.0f;
+    if (s_pl_hint) {
+        float hw = MEMF(0x0075E17Cu), x0 = s_pl_g[0];
+        if (hw > 0.0f && hw < 128.0f && s_pl_x0 - hw < x0)
+            x0 = s_pl_x0 - hw;
+        u[0] = (x0 + 128.0f) / 256.0f - 0.02f;
+        u[1] = (s_pl_g[2] + 128.0f) / 256.0f + 0.02f;
+        u[0] = u[0] < 0.0f ? 0.0f : u[0];
+        u[1] = u[1] > 1.0f ? 1.0f : u[1];
+    }
+}
+
+/* 0x00217970 (cdecl, as 0x002170E0): inside a band with its words drawn,
+ * the band's outline at their height carried onto the screen. */
+extern void sub_00217970_gen(void);
+void sub_00217970(void)
+{
+    if (s_pl_band && s_pl_on && s_pl_text_ok) {
+        uint32_t ctr = MEM32(g_esp + 4u), mat = MEM32(g_esp + 36u), cam = MEM32(0x0084B868u);
+        float R = MEMF(g_esp + 8u), H = MEMF(g_esp + 12u), arc = MEMF(g_esp + 16u);
+        float vs = MEMF(g_esp + 32u), half = (1.0f - arc) * 0.5f + arc, f[2], u[2];
+        MenuPlatePrompt pr;
+        int ok = xact_va_ok(ctr) && xact_va_ok(cam) && R > 0.0f && H > 0.0f && vs > 0.0f;
+        int i, e, half_n = MENU_PLATE_PTS / 2;
+        memset(&pr, 0, sizeof pr);
+        f[0] = (s_pl_g[1] + 128.0f) / 256.0f / vs - 0.1f;
+        f[1] = (s_pl_g[3] + 128.0f) / 256.0f / vs + 0.1f;
+        pl_band_urange(u);
+        for (e = 0; e < 2; e++)
+            f[e] = f[e] < 0.0f ? 0.0f : f[e] > 1.0f ? 1.0f : f[e];
+        for (e = 0; e < 2 && ok; e++)
+            for (i = 0; i < half_n && ok; i++) {
+                float uu = u[0] + (u[1] - u[0]) * (float)i / (float)(half_n - 1);
+                float t = uu * arc - half, p[3], q[3];
+                int at = e ? MENU_PLATE_PTS - 1 - i : i;
+                if (t < -1.0f) t = -1.0f;
+                if (t > 1.0f) t = 1.0f;
+                p[0] = cosf(t * 3.1415927f) * R;
+                p[1] = (1.0f - f[e]) * H;
+                p[2] = -sinf(t * 3.1415927f) * R;
+                mat_coord(mat, p, q);
+                q[0] += MEMF(ctr);
+                q[1] += MEMF(ctr + 4u);
+                q[2] += MEMF(ctr + 8u);
+                ok = cy_project(cam, q, &pr.pt[at][0], &pr.pt[at][1]);
+            }
+        if (ok) {
+            pr.n = MENU_PLATE_PTS;
+            if (pl_store(&pr)) {
+                char key[40];
+                mt_str(s_pl_hint ? MEM32(pr.key) : pr.key + 0x80u, key, (int)sizeof key);
+                fprintf(stderr, "[MPROMPT] %c band %08X '%s' words (%.1f %.1f)-(%.1f %.1f)"
+                        " rows %.2f..%.2f R %.0f H %.0f arc %.3f v %.2f screen (%.3f %.3f)"
+                        " (%.3f %.3f) (%.3f %.3f) (%.3f %.3f)\n", "ABXY"[pr.button], pr.key,
+                        key, s_pl_g[0], s_pl_g[1], s_pl_g[2], s_pl_g[3], f[0], f[1], R, H, arc,
+                        vs, pr.pt[0][0], pr.pt[0][1], pr.pt[half_n - 1][0],
+                        pr.pt[half_n - 1][1], pr.pt[half_n][0], pr.pt[half_n][1],
+                        pr.pt[MENU_PLATE_PTS - 1][0], pr.pt[MENU_PLATE_PTS - 1][1]);
+            }
+        }
+    }
+    sub_00217970_gen();
+}
+
+/* A band's draw with its prompt (item, button 1..4) bracketed. */
+static void pl_band(uint32_t item, int button, void (*gen)(void))
+{
+    pl_begin(button, item);
+    s_pl_popup = 0;
+    s_pl_band = 1;
+    s_pl_draw = 1;
+    s_pl_text_ok = 0;
+    s_pl_flat_ok = 0;
+    gen();
+    s_pl_band = 0;
+    s_pl_draw = 0;
+    if (s_pl_flat_ok && s_pl_text_ok) { /* shown flat: its words' rows on the square */
+        MenuPlatePrompt pr;
+        float u[2], y0 = s_pl_g[1] - 6.0f, y1 = s_pl_g[3] + 6.0f;
+        memset(&pr, 0, sizeof pr);
+        pl_band_urange(u);
+        pl_flat_pt(u[0] * 256.0f - 128.0f, y0, pr.pt[0]);
+        pl_flat_pt(u[1] * 256.0f - 128.0f, y0, pr.pt[1]);
+        pl_flat_pt(u[1] * 256.0f - 128.0f, y1, pr.pt[2]);
+        pl_flat_pt(u[0] * 256.0f - 128.0f, y1, pr.pt[3]);
+        pr.n = 4;
+        pl_store(&pr);
+    }
+    s_pl_on = 0;
+}
+
+/* 0x0020DC60: the top band. */
+extern void sub_0020DC60_gen(void);
+void sub_0020DC60(void)
+{
+    int b = s_pl_on ? 0 : pl_band_button(0x0084C298u);
+    if (b)
+        pl_band(0x0084C298u, b, sub_0020DC60_gen);
+    else
+        sub_0020DC60_gen();
+}
+
+/* 0x002162C0 ([esp+4] matrix, +8 the hint line instead): the bottom band;
+ * or the hint line over a list (the map list's "X Configure": the text at
+ * [0x0085E578], its button [0x006BD58C], set by 0x00216280), one line not
+ * scrolling, its picture centred on where the words start (half sizes
+ * [0x0075E17C] / [0x0075E178]). */
+extern void sub_002162C0_gen(void);
+void sub_002162C0(void)
+{
+    int hint = MEM8(g_esp + 8u) != 0, b = 0;
+    uint32_t item = 0x0084C9C8u;
+    if (!s_pl_on && !hint) {
+        b = pl_band_button(item);
+    } else if (!s_pl_on) {
+        int k = (int)MEM32(0x006BD58Cu);
+        item = 0x0085E578u;
+        b = MEM32(item) && k >= 1 && k <= 4 ? k : 0;
+    }
+    if (b) {
+        s_pl_hint = hint;
+        pl_band(item, b, sub_002162C0_gen);
+        s_pl_hint = 0;
+    } else {
+        sub_002162C0_gen();
+    }
+}
+
+static void pl_env(void)
+{
+    if (s_pl_log < 0) {
+        const char *e = getenv("RECOMP_MENU_TEXT_LOG"), *g = getenv("RECOMP_PLATE_GLOW");
+        s_pl_log = e && *e == '1';
+        if (g)
+            sscanf(g, "%f,%f", &s_pl_glow_r, &s_pl_glow_a);
+    }
+}
+
+/* RECOMP_MENU_TEXT_LOG=1: a panel plate's call (ecx the panel: +0x20 its
+ * slot), once a second per slot and kind. */
+static void pl_trace(const char *fn, uint32_t panel, int kind, uint32_t text)
+{
+    static DWORD at[8][12];
+    int slot = xact_va_ok(panel) ? (int)MEM32(panel + 0x20u) : -1;
+    DWORD now = GetTickCount();
+    char txt[40];
+    pl_env();
+    if (s_pl_log <= 0 || slot < 0 || slot > 7 || kind < 0 || kind > 11
+        || now - at[slot][kind] < 1000u)
+        return;
+    at[slot][kind] = now;
+    mt_str(text, txt, (int)sizeof txt);
+    fprintf(stderr, "[MPROMPT] call %s panel %08X slot %d kind %d '%s' from %08X\n", fn, panel,
+            slot, kind, txt, MEM32(g_esp));
+}
+
+/* A panel's plate (ecx of 0x00201360 / 0x002010E0): a popup's (slot 5)? */
+static void pl_panel(uint32_t panel)
+{
+    s_pl_slot = xact_va_ok(panel) ? MEM32(panel + 0x20u) & 7u : 0u;
+    s_pl_popup = s_pl_slot == 5u;
+    if (s_pl_popup)
+        s_pl_popup_at = GetTickCount();
+}
+
+/* A panel plate's name: its text with the panel's slot in the top bits (the
+ * waiting room's B Back and its popup's B Back share a text). */
+static uint32_t pl_plate_key(uint32_t text)
+{
+    return text ? text ^ (s_pl_slot << 28) : 0u;
+}
+
+/* A prompt's plate begins: its button (1 A 2 B 3 X 4 Y) and text. */
+static void pl_begin(int button, uint32_t text)
+{
+    pl_env();
+    glow_frame();
+    s_pl_on = button;
+    s_pl_key = text ? text : 0x80000000u | (uint32_t)button;
+}
+
+/* 0x00201360 (ecx the panel, eax its button: 1 A 2 B 3 X 4 Y; [esp+4] the
+ * text, +8 the text raw, +0xC its size; ret 0xC): a panel's foot plate, a
+ * prompt (A Select, B Back ...). */
+extern void sub_00201360_gen(void);
+void sub_00201360(void)
+{
+    int b = (int)g_eax;
+    pl_trace("00201360", g_ecx, b, MEM32(g_esp + 4u));
+    if (!s_pl_on)
+        pl_panel(g_ecx);
+    if (s_pl_on || b < 1 || b > 4) {
+        sub_00201360_gen();
+        return;
+    }
+    pl_begin(b, pl_plate_key(MEM32(g_esp + 4u)));
+    sub_00201360_gen();
+    s_pl_on = 0;
+}
+
+/* 0x002010E0 (ecx the panel, eax the text; [esp+4] the text raw, +8 a
+ * picture before it: 1 A 2 B 3 X 4 Y, 5-10 the teams' and arrow pictures;
+ * +0xC scrolling (a marquee when too long: the text four times over), +0x10
+ * its size; ret 0x10): a panel's top plate, a prompt when its picture is a
+ * button (the Welcome screen's scrolling A Select, the waiting room's Y). */
+extern void sub_002010E0_gen(void);
+void sub_002010E0(void)
+{
+    int b = (int)MEM32(g_esp + 8u);
+    pl_trace("002010E0", g_ecx, b, g_eax);
+    if (!s_pl_on)
+        pl_panel(g_ecx);
+    if (s_pl_on || b < 1 || b > 4) {
+        sub_002010E0_gen();
+        return;
+    }
+    pl_begin(b, pl_plate_key(g_eax));
+    sub_002010E0_gen();
+    s_pl_on = 0;
+}
+
+int conker_MenuPlateSnap(MenuPlateSnap *s)
+{
+    DWORD now = GetTickCount();
+    int i;
+    memset(s, 0, sizeof *s);
+    /* A popup panel drawn lately, or the waiting room's Mission Brief playing
+     * (its movie [0x00849C4C]; its own B Back is drawn elsewhere: right click) */
+    s->popup = now - s_pl_popup_at < PL_MS || MEM32(0x00849C4Cu) != 0;
+    AcquireSRWLockShared(&s_pl_lock);
+    for (i = 0; i < PL_MAX && s->n < MENU_PLATE_PROMPTS; i++)
+        if (s_pl[i].p.key && now - s_pl[i].tick < PL_MS && (!s->popup || s_pl[i].popup))
+            s->p[s->n++] = s_pl[i].p;
+    ReleaseSRWLockShared(&s_pl_lock);
+    return s->n > 0;
+}
+
+/* ---- mouse in menus: the profile name keyboard (to-do 40 step 5d) ----
+ *
+ * conker-notes 2026-11-15 "the name keyboard". New Profile / Rename (and one
+ * other text box, 0x00226055) run 0x00256C90 every frame (esi = the name,
+ * UTF-16; [esp+4] the title, +8 the most characters, +0xC / +0x10 where
+ * (0, 0: the 640 x 480 frame), +0x14 draw it): it asks 0x002563E0 for one
+ * key a frame and acts on what comes back: a character (inserted at the
+ * text cursor [0x00849D84], if the name is shorter than the most and
+ * narrower than 430 px), -1 Backspace, 0xFFFC / 0xFFFD the cursor left /
+ * right, 0xFFFE Create, 0xFFFF Cancel, 0 nothing; then 0x00254F80 draws the
+ * keyboard. 0x002563E0 reads the pad record [[0x008470FC] + 8] (+8 pressed:
+ * A 0x100 types the highlighted key, Back 0x20 cancels; the D-pad and the
+ * stick [0x00763264] / [0x00763268] move the highlight, repeating), the
+ * highlight being row [0x00849D88] and column [0x00849D8C], the page
+ * [0x00849D98] (0 letters, 1 accented [0x006BE87E], 2 symbols [0x006BE82E],
+ * UTF-16 by row * 10 + column), Shift / Caps Lock [0x00849D94] (0 off, 1
+ * Shift: one letter, 2 Caps Lock). Column 0 is the buttons on the left:
+ * rows 0-5 Create, Cancel, Shift, Caps Lock, Symbol, Accented (0x00256BF0);
+ * the grid columns 1-10 rows 0-3 (row 3: 1-6 letters, 7 Backspace), row 4:
+ * column 1 Space, 7 the left arrow, 9 the right one. Sounds through
+ * 0x002431E0 (eax = 6 a move, 7 a key typed).
+ *
+ * Typing on the PC's keyboard: the window thread queues what was typed
+ * (conker_NameKbType); this wrapper hands the game one item a frame as
+ * 0x002563E0's answer, in its place (a character the game's keyboard has
+ * none of is dropped). The mouse: a hover moves the highlight (the game's
+ * move sound), a click sets it and presses A for that one call. */
+#define NK_ROW 0x00849D88u
+#define NK_COL 0x00849D8Cu
+#define NK_SHIFT 0x00849D94u
+#define NK_PAGE 0x00849D98u
+#define NK_MS 250u                      /* the input not run for this long: the keyboard is gone */
+#define NK_Q 64
+
+static volatile long s_nk_tick;         /* GetTickCount when 0x002563E0 last ran */
+static volatile long s_nk_state;        /* row | col << 4 | page << 8 | shift << 12 */
+static volatile long s_nk_hover = -1;   /* the key the mouse is on: row | col << 4 */
+static volatile long s_nk_click = -1;   /* a key clicked */
+static SRWLOCK s_nk_lock = SRWLOCK_INIT;
+static int32_t s_nk_q[NK_Q];            /* typed: characters and the codes above */
+static int s_nk_qn;
+static int s_nk_a_held;                 /* the A that opened it still held (game thread) */
+
+/* Is (row, col) a key on this page? As 0x002563E0's moves allow. */
+static int nk_valid(int page, int shift, int row, int col)
+{
+    if (col == 0)
+        return row >= 0 && row <= 5 && !(page == 2 && (row == 2 || row == 3));
+    if (row == 4)
+        return col == 1 || col == 7 || col == 9;
+    if (row < 0 || row > 3 || col < 1 || col > 10)
+        return 0;
+    if (row == 3 && col > 7)
+        return 0;                       /* Backspace is column 7 */
+    if (page == 1 && row == 0)
+        return col <= 3;
+    if (page == 1 && row == 3 && shift && col == 6)
+        return 0;                       /* no capital ÿ */
+    if (page == 2 && row == 0)
+        return col <= 7;
+    return 1;
+}
+
+/* Can the game's keyboard type c? Its letters, digits and space, and what
+ * its two other pages hold (the accented page's capitals and, as it types
+ * them without Shift, their small letters; no capital ÿ). */
+static int nk_allowed(uint32_t c)
+{
+    int i;
+    if (c == ' ' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+        return 1;
+    if (c < 0x20 || c >= 0xFFFC)
+        return 0;
+    for (i = 1; i <= 40; i++) {
+        uint32_t s = MEM16(0x006BE82Eu + 2u * (uint32_t)i);
+        uint32_t a = MEM16(0x006BE87Eu + 2u * (uint32_t)i);
+        if (s && c == s)
+            return 1;
+        if (!a)
+            continue;
+        if (c == a && a != 0x178u)
+            return 1;
+        if (c == (a == 0x178u ? 0xFFu : a == 0xDFu ? 0xDFu : a + 0x20u))
+            return 1;
+    }
+    return 0;
+}
+
+/* The game's menu sound (0x002431E0; eax 6 a move, 7 a key typed). */
+extern void sub_002431E0(void);
+static void nk_sound(uint32_t kind)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_ebp = g_ebp, r_esp = g_esp;
+    g_eax = kind;
+    g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
+    sub_002431E0();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_ebp = r_ebp; g_esp = r_esp;
+}
+
+static void nk_publish(void)
+{
+    long st = (long)(MEM32(NK_ROW) & 15u) | (long)((MEM32(NK_COL) & 15u) << 4)
+            | (long)((MEM32(NK_PAGE) & 15u) << 8) | (long)((MEM32(NK_SHIFT) & 15u) << 12);
+    _InterlockedExchange(&s_nk_state, st);
+}
+
+extern void sub_002563E0_gen(void);
+void sub_002563E0(void)
+{
+    DWORD now = GetTickCount();
+    uint32_t rec, a_was = 0;
+    int32_t code = 0;
+    int have = 0, page, shift;
+    long h, c;
+
+    rec = xact_va_ok(MEM32(0x008470FCu)) ? MEM32(MEM32(0x008470FCu) + 8u) : 0u;
+    if (rec && !xact_va_ok(rec))
+        rec = 0;
+    if (now - (DWORD)s_nk_tick > NK_MS) {
+        /* Just opened: nothing typed or clicked before it counts, and the A
+         * that opened it, still held, does not type (held, the pad's repeats
+         * pressed Create on the empty name). */
+        AcquireSRWLockExclusive(&s_nk_lock);
+        s_nk_qn = 0;
+        ReleaseSRWLockExclusive(&s_nk_lock);
+        _InterlockedExchange(&s_nk_hover, -1);
+        _InterlockedExchange(&s_nk_click, -1);
+        s_nk_a_held = rec && (MEM32(rec + 4u) & 0x100u) != 0;
+        fprintf(stderr, "[NAMEKB] up (page %u)%s\n", MEM32(NK_PAGE),
+                s_nk_a_held ? ", A held from before" : "");
+    }
+    _InterlockedExchange(&s_nk_tick, (long)now);
+    if (s_nk_a_held && rec && !(MEM32(rec + 4u) & 0x100u))
+        s_nk_a_held = 0;
+
+    /* Typed on the PC's keyboard: one item a frame, in the game's call's place. */
+    for (;;) {
+        AcquireSRWLockExclusive(&s_nk_lock);
+        have = s_nk_qn > 0;
+        if (have) {
+            code = s_nk_q[0];
+            memmove(s_nk_q, s_nk_q + 1, (size_t)(--s_nk_qn) * sizeof s_nk_q[0]);
+        }
+        ReleaseSRWLockExclusive(&s_nk_lock);
+        if (!have)
+            break;
+        if (code == -1 || (code >= 0xFFFC && code <= 0xFFFF) || nk_allowed((uint32_t)code))
+            break;
+        fprintf(stderr, "[NAMEKB] typed U+%04X: not on the game's keyboard\n", (unsigned)code);
+        have = 0;
+    }
+    if (have) {
+        if (code == -1)
+            fprintf(stderr, "[NAMEKB] typed Backspace\n");
+        else
+            fprintf(stderr, "[NAMEKB] typed %s%04X\n", code < 0xFFFC ? "U+" : "code ",
+                    (unsigned)code);
+        if (code < 0xFFFE)              /* a key, as the game's own A on one sounds */
+            nk_sound(7);
+        g_esp += 4;                     /* ret: the generated body is skipped */
+        g_eax = (uint32_t)code;
+        nk_publish();
+        return;
+    }
+
+    page = (int)MEM32(NK_PAGE);
+    shift = (int)MEM32(NK_SHIFT);
+    h = _InterlockedExchange(&s_nk_hover, -1);
+    c = _InterlockedExchange(&s_nk_click, -1);
+    if (h >= 0 && nk_valid(page, shift, (int)(h & 15), (int)(h >> 4))
+        && ((uint32_t)(h & 15) != MEM32(NK_ROW) || (uint32_t)(h >> 4) != MEM32(NK_COL))) {
+        MEM32(NK_ROW) = (uint32_t)(h & 15);
+        MEM32(NK_COL) = (uint32_t)(h >> 4);
+        nk_sound(6);
+    }
+    if (c >= 0 && nk_valid(page, shift, (int)(c & 15), (int)(c >> 4)) && rec) {
+        MEM32(NK_ROW) = (uint32_t)(c & 15);
+        MEM32(NK_COL) = (uint32_t)(c >> 4);
+        fprintf(stderr, "[NAMEKB] click row %d col %d (page %d)\n", (int)(c & 15),
+                (int)(c >> 4), page);
+        a_was = MEM32(rec + 8u) & 0x100u;
+        MEM32(rec + 8u) |= 0x100u;      /* A pressed, for this call only */
+        sub_002563E0_gen();
+        MEM32(rec + 8u) = (MEM32(rec + 8u) & ~0x100u) | a_was;
+    } else if (s_nk_a_held && rec) {
+        /* The opening A still held: neither pressed nor repeating, this call. */
+        uint32_t p8 = MEM32(rec + 8u), pc = MEM32(rec + 0xCu);
+        MEM32(rec + 8u) = p8 & ~0x100u;
+        MEM32(rec + 0xCu) = pc & ~0x100u;
+        sub_002563E0_gen();
+        MEM32(rec + 8u) = (MEM32(rec + 8u) & ~0x100u) | (p8 & 0x100u);
+        MEM32(rec + 0xCu) = (MEM32(rec + 0xCu) & ~0x100u) | (pc & 0x100u);
+    } else {
+        sub_002563E0_gen();
+    }
+    nk_publish();
+}
+
+int conker_NameKbSnap(int *row, int *col, int *page, int *shift)
+{
+    long st = s_nk_state;
+    if (row) *row = (int)(st & 15);
+    if (col) *col = (int)((st >> 4) & 15);
+    if (page) *page = (int)((st >> 8) & 15);
+    if (shift) *shift = (int)((st >> 12) & 15);
+    return s_nk_tick && GetTickCount() - (DWORD)s_nk_tick <= NK_MS;
+}
+
+int conker_NameKbValid(int page, int shift, int row, int col)
+{
+    return nk_valid(page, shift, row, col);
+}
+
+void conker_NameKbType(int code)
+{
+    if (!conker_NameKbSnap(NULL, NULL, NULL, NULL))
+        return;
+    AcquireSRWLockExclusive(&s_nk_lock);
+    if (s_nk_qn < NK_Q)
+        s_nk_q[s_nk_qn++] = code;
+    ReleaseSRWLockExclusive(&s_nk_lock);
+}
+
+void conker_NameKbHover(int row, int col)
+{
+    _InterlockedExchange(&s_nk_hover, row < 0 ? -1 : (long)(row | col << 4));
+}
+
+void conker_NameKbClick(int row, int col)
+{
+    _InterlockedExchange(&s_nk_click, (long)(row | col << 4));
+}
+
 extern void sub_001FD0F0_gen(void);
 void sub_001FD0F0(void)
 {
     static int log = -1;
-    float v = MEMF(0x0077621Cu), z = MEMF(0x00776224u), k = 1.0f, vk, zk;
+    float v, z, k = 1.0f, vk, zk;
     int ticks = (int)MEM32(0x00776214u);
+    mb_camera_mouse();
+    v = MEMF(0x0077621Cu);
+    z = MEMF(0x00776224u);
     if (g_menu_speed < 0) {
         const char *e = getenv("RECOMP_MENU_SPEED");
         g_menu_speed = !(e && *e == '0');
@@ -7584,6 +10320,11 @@ static uint32_t mp_vehicle(uint32_t chr, int *type)
     return 0;
 }
 
+/* Unlocked Camera (below, by pad_filter): its view test and tilt range. */
+static int ucam_view(uint32_t cam);
+#define UCAM_LO_M (-85.0f)
+#define UCAM_HI_M 55.0f
+
 static void mouse_look(int set)
 {
     static const char *const kinds[] = {
@@ -7910,6 +10651,8 @@ static void mouse_look(int set)
              * the same amount or the camera eases back. */
             if (MEM8(ctl + 0x8C4u) || MEM8(ctl + 0x8C5u))
                 lo = -65.0f, hi = 65.0f;
+            else if (ucam_view(cam))            /* Unlocked Camera */
+                lo = UCAM_LO_M, hi = UCAM_HI_M;
             else if (MEM16(cam + 0x220u) == 3u)
                 lo = -30.0f, hi = -5.0f;
             else
@@ -8186,6 +10929,424 @@ void conker_InputDisplayState(unsigned short *buttons, unsigned char analog[8],
     sticks[3] = g.sThumbRY;
 }
 
+/* ── Unlocked Camera (to-dos 41, 227; F2 Fixes "Unlocked Camera") ─────────
+ *
+ * On by default (user 2026-11-15). Single player's normal view only: camera
+ * 0, mode without 0x100, controller +0x8C4 / +0x8C5 clear (their own +-65
+ * cameras), and the game's own stick look running (cam_stick_look
+ * 0x00047730, called only with the camera's "pans" flag: a zone's fixed
+ * camera keeps the game's camera).
+ *  - Tilt: the wanted pitch +0x8EC goes from UCAM_LO (nearly straight down
+ *    on Conker; the eye orbits the target, Conker + 100 up, at the distance
+ *    +0x24C) to UCAM_HI (looking up from low down), by stick and mouse. The
+ *    game still sees its own range: the wrapper hands it the pitch clamped
+ *    to the preset's limits (cam_pitch_limits 0x00047DC0: -45..-2, the far
+ *    camera -30..-5) and the stick's y at rest, so the far camera's distance
+ *    and wider view (made from the pitch's share of that range at
+ *    0x0004793E, to-do 227's trap) stay what they are at the nearest angle
+ *    the console allowed. The pitch it then wrote (+0x38: slope term and
+ *    ceiling raise included) is moved by what the clamp took off.
+ *  - Zoom: a factor on the target distance +0x26C and height +0x270 for the
+ *    controller's ease (sub_000386C0 -> cam_ctl_ease), put back after, so the
+ *    game's own values (presets, level scripts, the far camera's per-frame
+ *    distance) never compound. Wheel notches (F3 "Camera zoom in / out",
+ *    conker_CameraZoomNotch), or D-pad up held with the right stick's up /
+ *    down (the camera doesn't tilt meanwhile). The game ignores the D-pad in
+ *    single player (its pad table has no D-pad bits there, 2026-11-15).
+ *  - Reset: the game's zoom button (right stick click / V; cam_zoom_toggle
+ *    0x0004A7D0 steps the preset near <-> far) gives zoom 1, the pitch a
+ *    level starts with (the preset's low limit) and the camera swung behind
+ *    Conker instead; the preset stays.
+ * conker-notes 2026-11-15 "the single-player camera's distance, pitch and
+ * field of view". unlocked_camera = 0 / RECOMP_UNLOCKED_CAMERA=0 = original
+ * (the button steps near <-> far again). RECOMP_UCAM_LOG=1: [UCAM] every 2 s. */
+#define UCAM_LO        UCAM_LO_M     /* mouse_look uses the same range */
+#define UCAM_HI        UCAM_HI_M
+#define UCAM_ZOOM_MIN  0.25f
+#define UCAM_ZOOM_MAX  2.0f
+#define UCAM_DIST_MIN  80.0f    /* under 40 the game marks the camera inside Conker */
+#define UCAM_NOTCH     0.88f    /* one wheel notch in */
+#define UCAM_STICK_ZOOM 1.6f    /* zoom e-folds a second at full tilt */
+
+static volatile int g_ucam = -1;
+static volatile LONG s_ucam_notch;          /* wheel notches, + = in (window thread) */
+static float s_ucam_zoom = 1.0f, s_ucam_zoom_tgt = 1.0f;
+static unsigned s_ucam_frame;               /* s_ctl_frame of the last free frame */
+static int s_ucam_swing;                    /* reset: swinging behind Conker */
+static float s_ucam_swing_to;
+static long s_ucam_ms;
+
+void conker_SetUnlockedCamera(int on)
+{
+    g_ucam = on != 0;
+}
+
+void conker_CameraZoomNotch(int notches)
+{
+    InterlockedExchangeAdd(&s_ucam_notch, notches);
+}
+
+static int ucam_on(void)
+{
+    if (g_ucam < 0) {
+        const char *e = getenv("RECOMP_UNLOCKED_CAMERA");
+        g_ucam = !(e && *e == '0');
+    }
+    return g_ucam;
+}
+
+static int ucam_log(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_UCAM_LOG");
+        on = e && *e && *e != '0';
+    }
+    return on;
+}
+
+/* The normal view the Unlocked Camera takes over (see above), cam_stick_look
+ * aside: that it runs is known only inside it. */
+static int ucam_view(uint32_t cam)
+{
+    uint32_t ctl;
+    if (!ucam_on() || !cam || cam != MEM32(0x008470DCu) || MEM8(0x007819D5u)
+        || MEM8(0x0076F0E0u) == 1)
+        return 0;
+    ctl = MEM32(cam + 4u);
+    return ctl && !(MEM32(cam + 0xC0u) & 0x100u) && !MEM8(cam)
+        && !MEM8(ctl + 0x8C4u) && !MEM8(ctl + 0x8C5u);
+}
+
+/* The preset's own limits, as cam_pitch_limits. */
+static void ucam_game_limits(uint32_t cam, float *lo, float *hi)
+{
+    if (MEM16(cam + 0x220u) == 3u)
+        *lo = -30.0f, *hi = -5.0f;
+    else
+        *lo = -45.0f, *hi = -2.0f;
+}
+
+static float ucam_clamp(float v, float lo, float hi)
+{
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+/* Zoom input and easing, once a frame of the view it is for: dt in seconds
+ * (real time); the normal view's zoom or a weapon's, each in its range. */
+static void ucam_zoom_step(float *zoom, float *tgt, float lo, float hi,
+                           float dt, int dpad_up, float stick_y)
+{
+    LONG n = InterlockedExchange(&s_ucam_notch, 0);
+    float t = *tgt;
+    while (n > 0) { t *= UCAM_NOTCH; n--; }
+    while (n < 0) { t /= UCAM_NOTCH; n++; }
+    if (dpad_up && (stick_y > 0.2f || stick_y < -0.2f))
+        t *= expf(-stick_y * UCAM_STICK_ZOOM * dt);   /* up = in */
+    *tgt = ucam_clamp(t, lo, hi);
+    /* Smooth: 90 % of the way in about a quarter second. */
+    *zoom += (*tgt - *zoom) * (1.0f - expf(-9.0f * (dt < 0.25f ? dt : 0.25f)));
+}
+
+/* ── With a weapon out (to-do 41's weapon step) ─────────────────────────
+ * Camera mode 0x100 with byte +0 = 1 is the aim camera (cam_aim_update
+ * 0x00039B40). Each single-player weapon loads its own camera file into
+ * controller +0x8FC; cam_aim_distance writes its distance into the target
+ * +0x26C every frame (bat and pan 320; the normal view 470-630), and the aim
+ * pitch (aim data [aim+0x4D4]+0x40, the camera's source) is kept inside the
+ * file's aim record [[aim+0x4D4]] +0x18 / +0x1C by the aim update
+ * (0x002F99A0) and by cam_aim_update itself. Melee weapons (B kind aim
+ * +0xA0: bat 0x75, frying pan 0x76, the Vault suit's punches 0x77):
+ *  - Tilt: the aim record's limits are widened to the Unlocked Camera's
+ *    range while one is out (originally bat -20..0, pan -45..55), and put
+ *    back once it goes away or the option goes off: only while Conker's aim
+ *    data still points at the record and it still holds what we wrote (a
+ *    level load frees it). Not the camera file's lifetime: the camera file
+ *    can load a frame after the record (the bat's restore was missed so).
+ *  - Zoom: a factor of its own, UCAM_WZOOM_MIN..MAX, on the weapon's
+ *    distance, the same inputs as the normal view; while D-pad up is held
+ *    the game doesn't see the right stick's up / down (pad_filter), so the
+ *    aim stays put. The normal view's zoom is left as it was.
+ * SMG (0x09) and shotgun (0x37), user 2026-11-15: the zoom only; their tilt
+ * stays the game's (the aim follows it). The SMG's crosshair is fixed at the
+ * screen's centre, so its aim depends on the camera: see conker-notes
+ * 2026-11-15 "the weapon camera" for the check at both zoom ends. */
+#define UCAM_WZOOM_MIN 0.8f
+#define UCAM_WZOOM_MAX 1.25f
+
+static float s_ucam_wzoom = 1.0f, s_ucam_wzoom_tgt = 1.0f;
+static unsigned s_ucam_wframe;              /* s_ctl_frame of the last weapon frame */
+static long s_ucam_wms;
+static uint32_t s_ucam_wrec;                              /* the widened aim record */
+static float s_ucam_wrec_lo, s_ucam_wrec_hi;              /* its own limits */
+static float s_ucam_wrec_wlo, s_ucam_wrec_whi;            /* what we wrote */
+
+/* The aim camera with a weapon of ours out (melee, SMG, shotgun): its aim
+ * data, or 0; *melee = the tilt is ours too. */
+static uint32_t ucam_weapon(uint32_t cam, uint32_t *kind, int *melee)
+{
+    uint32_t chr, aim, aimd, k;
+
+    if (!ucam_on() || !cam || cam != MEM32(0x008470DCu) || MEM8(0x007819D5u)
+        || MEM8(0x0076F0E0u) == 1 || MEM8(cam) != 1u
+        || MEM32(cam + 0xC0u) != 0x100u || !MEM32(cam + 4u))
+        return 0;
+    chr = MEM32(cam + 0x3E0u);
+    aim = chr ? MEM32(chr + 0x568u) : 0;
+    if (!aim)
+        return 0;
+    k = MEM32(aim + 0xA0u);
+    if (k != 0x75u && k != 0x76u && k != 0x77u && k != 0x09u && k != 0x37u)
+        return 0;
+    aimd = MEM32(aim + 0x4D4u);
+    if (!aimd || !MEM32(aimd))
+        return 0;
+    if (kind)
+        *kind = k;
+    if (melee)
+        *melee = k == 0x75u || k == 0x76u || k == 0x77u;
+    return aimd;
+}
+
+static void ucam_wrec_restore(uint32_t cam)
+{
+    uint32_t r = s_ucam_wrec, chr = MEM32(cam + 0x3E0u);
+    uint32_t aim = chr ? MEM32(chr + 0x568u) : 0;
+    uint32_t aimd = aim ? MEM32(aim + 0x4D4u) : 0;
+
+    if (r && aimd && MEM32(aimd) == r
+        && MEMF(r + 0x18u) == s_ucam_wrec_wlo && MEMF(r + 0x1Cu) == s_ucam_wrec_whi) {
+        MEMF(r + 0x18u) = s_ucam_wrec_lo;
+        MEMF(r + 0x1Cu) = s_ucam_wrec_hi;
+        if (ucam_log())
+            fprintf(stderr, "[UCAM] t=%ld weapon tilt back to %.0f..%.0f\n",
+                    attach_ms(), s_ucam_wrec_lo, s_ucam_wrec_hi);
+    }
+    s_ucam_wrec = 0;
+}
+
+/* Every frame of camera 0 (from cam_ctl_ease_caller, which camera_update
+ * calls in every mode): a melee weapon's aim limits widened while it is
+ * out, its own back otherwise. */
+static void ucam_wrec_update(uint32_t cam)
+{
+    uint32_t kind = 0, aimd, r;
+    int melee = 0;
+
+    aimd = ucam_weapon(cam, &kind, &melee);
+    r = aimd && melee ? MEM32(aimd) : 0;
+
+    if (r && r == s_ucam_wrec && MEMF(r + 0x18u) == s_ucam_wrec_wlo
+        && MEMF(r + 0x1Cu) == s_ucam_wrec_whi)
+        return;
+    if (r != s_ucam_wrec)
+        ucam_wrec_restore(cam);
+    s_ucam_wrec = 0;                        /* same record reloaded: its own values */
+    if (!r)
+        return;
+    s_ucam_wrec = r;
+    s_ucam_wrec_lo = MEMF(r + 0x18u);
+    s_ucam_wrec_hi = MEMF(r + 0x1Cu);
+    s_ucam_wrec_wlo = s_ucam_wrec_lo < UCAM_LO ? s_ucam_wrec_lo : UCAM_LO;
+    s_ucam_wrec_whi = s_ucam_wrec_hi > UCAM_HI ? s_ucam_wrec_hi : UCAM_HI;
+    MEMF(r + 0x18u) = s_ucam_wrec_wlo;
+    MEMF(r + 0x1Cu) = s_ucam_wrec_whi;
+    fprintf(stderr, "[UCAM] t=%ld weapon 0x%02X out: tilt %.0f..%.0f -> %.0f..%.0f, "
+            "distance %.0f\n", attach_ms(), kind, s_ucam_wrec_lo, s_ucam_wrec_hi,
+            s_ucam_wrec_wlo, s_ucam_wrec_whi, MEMF(MEM32(cam + 4u) + 0x26Cu));
+}
+
+/* cam_stick_look (cdecl: camera, flag): pitch and yaw from the right stick,
+ * the far camera's distance and view width, every frame of free camera. */
+extern void sub_00047730_gen(void);
+void sub_00047730(void)
+{
+    uint32_t cam = MEM32(g_esp + 4u), ctl, stick;
+    float lo, hi, w, u, c, sy, sy_game, e;
+    int dpad_up;
+    long now;
+    float dt;
+
+    if (!ucam_view(cam)) {
+        sub_00047730_gen();
+        return;
+    }
+    ctl = MEM32(cam + 4u);
+    stick = MEM32(ctl + 0x8B4u);
+    now = attach_ms();
+    dt = s_ucam_frame + 1u == s_ctl_frame && now > s_ucam_ms
+       ? (float)(now - s_ucam_ms) / 1000.0f : 0.0f;
+    s_ucam_ms = now;
+    s_ucam_frame = s_ctl_frame;
+
+    sy_game = stick ? MEMF(stick + 0x44u) : 0.0f;
+    dpad_up = (s_input_seen.wButtons & XBOX_GAMEPAD_DPAD_UP) != 0;
+    sy = s_input_seen.sThumbRY / 32767.0f;
+    ucam_zoom_step(&s_ucam_zoom, &s_ucam_zoom_tgt, UCAM_ZOOM_MIN, UCAM_ZOOM_MAX,
+                   dt, dpad_up, sy);
+
+    ucam_game_limits(cam, &lo, &hi);
+    w = MEMF(ctl + 0x8ECu);
+    /* Past even the wide range = the game's own "as far as it goes": -89
+     * after a load or a cutscene (cam_queue_run, 0x000442C5), which its
+     * limits make the preset's lowest angle. The same here, or every level
+     * started looking straight down (2026-11-15). */
+    if (w < UCAM_LO || w > UCAM_HI)
+        w = ucam_clamp(w, lo, hi);
+    u = w;
+    if (!dpad_up && MEMF(ctl + 0x29Cu) == 0.0f)
+        u -= sy_game * 1.2f;                    /* as cam_stick_look */
+    u = ucam_clamp(u, UCAM_LO, UCAM_HI);
+    c = ucam_clamp(u, lo, hi);
+
+    MEMF(ctl + 0x8ECu) = c;
+    if (stick)
+        MEMF(stick + 0x44u) = 0.0f;
+    sub_00047730_gen();
+    if (stick)
+        MEMF(stick + 0x44u) = sy_game;
+    if (!MEM8(ctl + 0x96u)) {
+        e = MEMF(ctl + 0x38u) + (u - c);
+        MEMF(ctl + 0x38u) = ucam_clamp(e, UCAM_LO - 3.0f, UCAM_HI + 3.0f);
+    }
+    MEMF(ctl + 0x8ECu) = u;
+
+    /* The reset's swing behind Conker: the yaw (+0x60, the normal view's
+     * source; cam_stick_look sets +0x5C from it) eased round. */
+    if (s_ucam_swing) {
+        uint32_t chr = MEM32(cam + 0x3E0u);
+        float y = MEMF(ctl + 0x60u), d;
+        if (chr)
+            s_ucam_swing_to = MEMF(chr + 0x114u) - 180.0f;
+        d = fmodf(s_ucam_swing_to - y, 360.0f);
+        if (d > 180.0f) d -= 360.0f;
+        if (d < -180.0f) d += 360.0f;
+        if ((d < 0.5f && d > -0.5f) || s_ucam_swing > 90) {
+            y += d;
+            s_ucam_swing = 0;
+        } else {
+            y += d * (1.0f - expf(-12.0f * (dt > 0.0f ? dt : 1.0f / 60.0f)));
+            s_ucam_swing++;
+        }
+        while (y < 0.0f) y += 360.0f;
+        while (y >= 360.0f) y -= 360.0f;
+        MEMF(ctl + 0x60u) = y;
+        MEMF(ctl + 0x5Cu) = y;
+    }
+
+    if (ucam_log()) {
+        static long last;
+        if (now - last >= 2000) {
+            last = now;
+            fprintf(stderr, "[UCAM] t=%ld pitch %.1f (game %.1f, limits %.0f..%.0f) "
+                    "preset %u zoom %.2f -> %.2f distance %.0f (target %.0f)\n",
+                    now, u, c, lo, hi, MEM16(cam + 0x220u), s_ucam_zoom,
+                    s_ucam_zoom_tgt, MEMF(ctl + 0x24Cu), MEMF(ctl + 0x26Cu));
+        }
+    }
+}
+
+/* cam_ctl_ease_caller (esi = controller, ebx = camera, [esp+4] = dt): eases
+ * every channel; the zoom (the normal view's or a weapon's) is on its
+ * distance and height targets for the call. */
+extern void sub_000386C0_gen(void);
+void sub_000386C0(void)
+{
+    uint32_t ctl = g_esi, cam = g_ebx;
+    float d0, h0, z = 1.0f;
+
+    if (cam && cam == MEM32(0x008470DCu))
+        ucam_wrec_update(cam);
+    if (cam && MEM32(cam + 4u) == ctl) {
+        if (s_ucam_wframe == s_ctl_frame && ucam_weapon(cam, NULL, NULL))
+            z = s_ucam_wzoom;
+        else if (s_ucam_frame == s_ctl_frame && ucam_view(cam))
+            z = s_ucam_zoom;
+    }
+    if (z > 0.999f && z < 1.001f) {
+        sub_000386C0_gen();
+        return;
+    }
+    d0 = MEMF(ctl + 0x26Cu);
+    h0 = MEMF(ctl + 0x270u);
+    if (d0 * z < UCAM_DIST_MIN && d0 > UCAM_DIST_MIN)
+        z = UCAM_DIST_MIN / d0;
+    MEMF(ctl + 0x26Cu) = d0 * z;
+    MEMF(ctl + 0x270u) = h0 * z;
+    sub_000386C0_gen();
+    MEMF(ctl + 0x26Cu) = d0;
+    MEMF(ctl + 0x270u) = h0;
+}
+
+/* cam_zoom_toggle (this = ecx = the camera's pad record, eax = camera, edi =
+ * controller + 0x248, [esp+4] = dt): its press (record +0x10C, the right
+ * stick click) resets the Unlocked Camera instead of stepping the preset;
+ * the game's call then sees no press (only its 0.5 s timer runs). */
+extern void sub_0004A7D0_gen(void);
+void sub_0004A7D0(void)
+{
+    uint32_t pad = g_ecx, cam = g_eax, ctl = g_edi - 0x248u;
+    uint32_t press;
+    float lo, hi;
+
+    if (!ucam_view(cam) || MEM32(cam + 4u) != ctl || !MEM32(pad + 0x10Cu)
+        || MEMF(g_edi + 0x54u) != 0.0f || (MEM32(cam + 0xC0u) & 0x80u)) {
+        sub_0004A7D0_gen();
+        return;
+    }
+    press = MEM32(pad + 0x10Cu);
+    MEM32(pad + 0x10Cu) = 0;
+    sub_0004A7D0_gen();
+    MEM32(pad + 0x10Cu) = press;
+
+    ucam_game_limits(cam, &lo, &hi);
+    MEMF(ctl + 0x8ECu) = lo;
+    s_ucam_zoom_tgt = 1.0f;
+    s_ucam_swing = 1;
+    MEMF(g_edi + 0x54u) = 0.5f;                 /* the game's pause after a press */
+    fprintf(stderr, "[UCAM] t=%ld reset: pitch %.0f, zoom 1, behind Conker\n",
+            attach_ms(), lo);
+}
+
+/* cam_aim_update (eax = camera): the aim camera, every frame of camera mode
+ * 0x100. With a weapon of ours out (ucam_weapon): the weapon zoom's input
+ * and easing (a melee weapon's tilt is its aim record's limits,
+ * ucam_wrec_update). */
+extern void sub_00039B40_gen(void);
+void sub_00039B40(void)
+{
+    uint32_t cam = g_eax, kind = 0, aimd = ucam_weapon(cam, &kind, NULL);
+    long now;
+    float dt;
+
+    if (!aimd) {
+        sub_00039B40_gen();
+        return;
+    }
+    now = attach_ms();
+    dt = s_ucam_wframe + 1u == s_ctl_frame && now > s_ucam_wms
+       ? (float)(now - s_ucam_wms) / 1000.0f : 0.0f;
+    s_ucam_wms = now;
+    s_ucam_wframe = s_ctl_frame;
+    ucam_zoom_step(&s_ucam_wzoom, &s_ucam_wzoom_tgt, UCAM_WZOOM_MIN, UCAM_WZOOM_MAX,
+                   dt, (s_input_seen.wButtons & XBOX_GAMEPAD_DPAD_UP) != 0,
+                   s_input_seen.sThumbRY / 32767.0f);
+    sub_00039B40_gen();
+
+    if (ucam_log()) {
+        static long last;
+        uint32_t ctl = MEM32(cam + 4u), rec = MEM32(aimd);
+        if (now - last >= 2000) {
+            last = now;
+            fprintf(stderr, "[UCAM] t=%ld weapon 0x%02X pitch %.1f (limits %.0f..%.0f) "
+                    "zoom %.2f -> %.2f distance %.0f (target %.0f)\n", now, kind,
+                    MEMF(aimd + 0x40u), MEMF(rec + 0x18u), MEMF(rec + 0x1Cu),
+                    s_ucam_wzoom, s_ucam_wzoom_tgt, MEMF(ctl + 0x264u),
+                    MEMF(ctl + 0x26Cu));
+        }
+    }
+}
+
 static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
 {
     BYTE *a = st->Gamepad.bAnalogButtons;
@@ -8208,6 +11369,12 @@ static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
     }
     if (port != 0)
         return 0;
+    /* Unlocked Camera with a weapon of ours out: D-pad up + the right stick's
+     * up / down zooms, so the game doesn't get that up / down (the aim stays
+     * put; s_input_seen above keeps it for the zoom). */
+    if (s_ucam_wframe && s_ucam_wframe + 2u >= s_ctl_frame
+        && (st->Gamepad.wButtons & XBOX_GAMEPAD_DPAD_UP))
+        st->Gamepad.sThumbRY = 0;
     /* Both sticks clicked at once: Bullet time on / off while the cheat is on
      * (to-do 161); the game gets neither click while both are down. */
     if (cheats_active() & CHEAT_BIT(CHEAT_BULLET)) {
@@ -8354,7 +11521,8 @@ static int modern_poll(int set)
     uint32_t chr = cam ? MEM32(cam + 0x3E0u) : 0;
     uint32_t aim = chr ? MEM32(chr + 0x568u) : 0;
     uint32_t act, cur;
-    int ctx_k, aim_k, att_k, ctx, aiming, att, out, pad, foot;
+    ControlKeys ctx_k, aim_k, att_k;
+    int ctx, aiming, att, out, pad, foot;
     int vertex, mpad, mjump, sling;
     int b = 0, rt = 0;
     long now = attach_ms();
@@ -8382,9 +11550,9 @@ static int modern_poll(int set)
         return 0;
     }
     on_was = 1;
-    ctx = ctx_k > 0 && xbox_KbmHeld((unsigned)ctx_k);
-    aiming = aim_k > 0 && xbox_KbmHeld((unsigned)aim_k);
-    att = att_k > 0 && xbox_KbmHeld((unsigned)att_k);
+    ctx = controls_keys_held(CONTROLS_STORY, ctx_k);
+    aiming = controls_keys_held(CONTROLS_STORY, aim_k);
+    att = controls_keys_held(CONTROLS_STORY, att_k);
     act = MEM8(aim + 0x97u) & 0x7Fu;
     if (!act)
         act = MEM32(aim + 0xACu);
@@ -8522,7 +11690,8 @@ static void zoom_poll(int set)
     uint32_t ctl = cam ? MEM32(cam + 4u) : 0;
     uint32_t chr = cam ? MEM32(cam + 0x3E0u) : 0;
     uint32_t aim = chr ? MEM32(chr + 0x568u) : 0;
-    int key, held, zoomed, scoped, click = 0;
+    ControlKeys key;
+    int held, zoomed, scoped, click = 0;
     long now = attach_ms();
 
     if (!controls_zoom_hold(&key) || set != CONTROLS_MP || !ctl || !aim
@@ -8534,7 +11703,7 @@ static void zoom_poll(int set)
         return;
     }
     on_was = 1;
-    held = key > 0 && xbox_KbmHeld((unsigned)key);
+    held = controls_keys_held(CONTROLS_MP, key);
     scoped = MEM32(aim + 0x2B0u) != 0;
     zoomed = MEM8(ctl + 0x8C1u) == 1u || scoped;
 
@@ -8595,12 +11764,13 @@ static void bat_poll(int set)
     uint32_t cam = MEM32(0x008470DCu);
     uint32_t chr = cam ? MEM32(cam + 0x3E0u) : 0;
     uint32_t fc = chr ? MEM32(chr + 0x564u) : 0;
-    int key, modern, held, aiming, ready, lt = 0;
+    ControlKeys key;
+    int modern, held, aiming, ready, lt = 0;
     long now = attach_ms();
 
     modern = controls_bat_aim(&key);
     /* Modern: the controller's LT held aims too (pad_filter). */
-    if (set != CONTROLS_BAT_AIR || (key <= 0 && !modern) || !chr) {
+    if (set != CONTROLS_BAT_AIR || (!key && !modern) || !chr) {
         if (on_was)
             xbox_KbmForce(XBOX_KBM_LT, 0);
         if (set != CONTROLS_PHOTO && set != CONTROLS_PAUSE)
@@ -8611,7 +11781,7 @@ static void bat_poll(int set)
         return;
     }
     on_was = 1;
-    held = key > 0 && xbox_KbmHeld((unsigned)key);
+    held = controls_keys_held(CONTROLS_STORY, key);
     if (modern)
         held |= (int)s_pad_in_lt;
     aiming = MEM8(0x0084A5B0u) != 0;
@@ -8813,7 +11983,7 @@ static void controls_poll(void)
                    ? CONTROLS_STORY : set);
     {
         static int hooked;
-        int k, modern = controls_modern(&k, &k, &k);
+        int modern = controls_modern(NULL, NULL, NULL);
         int foot = modern_poll(set);
         LONG mode = !modern ? PAD_NATIVE
                   : foot ? PAD_FOOT
@@ -9072,7 +12242,9 @@ void sub_00204060(void)
         return;
     }
     pause_cheats_frame();               /* to-do 196: X Cheats */
+    mp_begin();                         /* mouse in menus (to-do 40): the texts' boxes */
     sub_00204060_gen();
+    mp_end(MENU_SCREEN_PAUSE);
 }
 
 /* Photo mode's HUD (photo_mode.c), hidden by default: 0x002A5DB0 draws
@@ -10195,11 +13367,14 @@ void sub_0015CAF0(void)
 extern void sub_00205490_gen(void);
 void sub_00205490(void)
 {
+    mp_begin();                         /* mouse in menus: the texts' boxes */
     if (photo_hud_hidden() || options_row_hidden()) {   /* to-do 196 */
+        mp_end(MENU_SCREEN_BOARD);
         g_esp += 4;                     /* ret (cdecl) */
         return;
     }
     sub_00205490_gen();
+    mp_end(MENU_SCREEN_BOARD);
 }
 
 /* Idle Demo (to-do 150, SPEC 10.1): frontend_attract_timer 0x001F9EB0 adds

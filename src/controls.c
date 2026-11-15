@@ -1,6 +1,6 @@
 /**
  * Keyboard and mouse controls (SPEC 10.1): the actions of single player and
- * multiplayer, each bound to one key in settings.ini, pressing the button
+ * multiplayer, each bound to up to three keys in settings.ini (to-do 38), pressing the button
  * the original controller has for it. The toolkit turns held keys into a
  * pad (src/input/kbm_pad.c in the fork); this file only says which key is
  * which button, for both sets, and which set is in use.
@@ -143,6 +143,279 @@ const char *controls_key_label(int input)
     return key_text(input, 1);
 }
 
+/* ---- an action's keys (to-do 38) ------------------------------------------ */
+
+#define KEY_BITS  20
+#define KEY_MASK  0xFFFFFu
+
+static int key_bind(ControlKeys k, int j)
+{
+    return (int)(((unsigned long long)k >> (KEY_BITS * j)) & KEY_MASK);
+}
+
+int controls_keys_count(ControlKeys k)
+{
+    int j = 0;
+    while (j < CONTROLS_MAX_KEYS && key_bind(k, j))
+        j++;
+    return j;
+}
+
+int controls_keys_get(ControlKeys k, int j)
+{
+    return j >= 0 && j < CONTROLS_MAX_KEYS ? key_bind(k, j) : 0;
+}
+
+/* The same key, held or not (a key added again is taken off whole). */
+static int same_bind(int a, int b)
+{
+    return (a & ~CONTROLS_KEEP) == (b & ~CONTROLS_KEEP);
+}
+
+int controls_keys_has(ControlKeys k, int bind)
+{
+    int j;
+    for (j = 0; bind > 0 && j < CONTROLS_MAX_KEYS; j++)
+        if (key_bind(k, j) && same_bind(key_bind(k, j), bind))
+            return 1;
+    return 0;
+}
+
+ControlKeys controls_keys_add(ControlKeys k, int bind)
+{
+    int n = controls_keys_count(k);
+    if (CONTROLS_INPUT(bind) <= 0 || (unsigned)bind > KEY_MASK
+        || n >= CONTROLS_MAX_KEYS || controls_keys_has(k, bind))
+        return k;
+    return k | ((ControlKeys)bind << (KEY_BITS * n));
+}
+
+ControlKeys controls_keys_remove(ControlKeys k, int bind)
+{
+    ControlKeys out = 0;
+    int j, b;
+    for (j = 0; j < CONTROLS_MAX_KEYS && (b = key_bind(k, j)) != 0; j++)
+        if (!same_bind(b, bind))
+            out = controls_keys_add(out, b);
+    return out;
+}
+
+/* A combo the window or Windows keeps for itself (Alt+Tab, Alt+F4). */
+static int combo_reserved(int hold, int input)
+{
+    return hold == VK_MENU && (input == VK_TAB || input == VK_F4);
+}
+
+int controls_bind_ok(int bind)
+{
+    int in = CONTROLS_INPUT(bind), hold = CONTROLS_HOLD(bind);
+    if (in <= 0)
+        return 0;
+    if (!hold)
+        return !(bind & CONTROLS_KEEP);
+    return hold != in && hold < XBOX_KBM_WHEEL_UP && !combo_reserved(hold, in);
+}
+
+/* One key of a list: "e", "shift+e", "shift+e keep". -1 when it isn't one. */
+static int parse_bind(char *s)
+{
+    char *plus, *sp;
+    int keep = 0, hold = 0, in, bind;
+
+    sp = strchr(s, ' ');
+    if (sp) {
+        *sp++ = '\0';
+        while (*sp == ' ')
+            sp++;
+        if (_stricmp(sp, "keep"))
+            return -1;
+        keep = CONTROLS_KEEP;
+    }
+    plus = strchr(s, '+');
+    if (plus) {
+        *plus++ = '\0';
+        hold = controls_parse_key(s);
+        if (hold <= 0)
+            return -1;
+        s = plus;
+    }
+    in = controls_parse_key(s);
+    if (in < 0 || (in == 0 && (hold || keep)))
+        return -1;
+    if (in == 0)
+        return 0;                       /* none */
+    bind = CONTROLS_COMBO(hold, in) | keep;
+    return controls_bind_ok(bind) ? bind : -1;
+}
+
+int controls_parse_keys(const char *value, ControlKeys *out)
+{
+    ControlKeys k = 0;
+    const char *p = value ? value : "";
+
+    for (;;) {
+        char name[48];
+        size_t n = 0;
+        int bind;
+        while (*p == ' ' || *p == '\t')
+            p++;
+        while (*p && *p != ',') {
+            if (n + 1 < sizeof(name))
+                name[n++] = *p;
+            p++;
+        }
+        while (n > 0 && (name[n - 1] == ' ' || name[n - 1] == '\t'))
+            n--;
+        name[n] = '\0';
+        bind = parse_bind(name);
+        if (bind < 0)
+            return -1;
+        k = controls_keys_add(k, bind);   /* none, a repeat or a 4th: no change */
+        if (*p != ',')
+            break;
+        p++;
+    }
+    *out = k;
+    return 0;
+}
+
+static char s_keys_text[4][160];
+
+static void bind_text(char *buf, size_t size, int bind, int label)
+{
+    if (CONTROLS_HOLD(bind)) {
+        strcat_s(buf, size, key_text(CONTROLS_HOLD(bind), label));
+        strcat_s(buf, size, label ? " + " : "+");
+    }
+    strcat_s(buf, size, key_text(CONTROLS_INPUT(bind), label));
+    if (bind & CONTROLS_KEEP)
+        strcat_s(buf, size, label ? " (keep)" : " keep");
+}
+
+static const char *keys_text(ControlKeys k, int label)
+{
+    static int slot;
+    char *buf = s_keys_text[slot++ % 4];
+    int j, b;
+
+    if (!k)
+        return label ? "-" : "none";
+    buf[0] = '\0';
+    for (j = 0; j < CONTROLS_MAX_KEYS && (b = key_bind(k, j)) != 0; j++) {
+        if (j)
+            strcat_s(buf, sizeof(s_keys_text[0]), label ? " / " : ", ");
+        bind_text(buf, sizeof(s_keys_text[0]), b, label);
+    }
+    return buf;
+}
+
+const char *controls_keys_name(ControlKeys k)
+{
+    return keys_text(k, 0);
+}
+
+const char *controls_keys_label(ControlKeys k)
+{
+    return keys_text(k, 1);
+}
+
+const char *controls_bind_label(int bind)
+{
+    return keys_text(controls_keys_add(0, bind), 1);
+}
+
+/* ---- combos as a key reader sees them -------------------------------------
+ *
+ * The toolkit applies the combo rules to the profile's bindings; keys read
+ * here (photo mode, Modern's three, zoom-hold, bat aim, the window's
+ * hotkeys) follow the same ones: a combo is on when its hold key went down
+ * first; while one is on its input's plain keys don't count. Each table's
+ * combos are listed when applied (single player with its swimming / bat
+ * rows, multiplayer, photo mode). */
+
+#define COMBO_TABLES 3
+#define COMBO_MAX    64
+static volatile LONG s_combo[COMBO_TABLES][COMBO_MAX];   /* hold << 9 | input */
+static volatile LONG s_ncombo[COMBO_TABLES];
+
+static int combo_table(int set)
+{
+    return set == CONTROLS_PHOTO ? 2
+         : set == CONTROLS_MP || set == CONTROLS_MULE_GUN ? 1 : 0;
+}
+
+/* Is the hold key down? xbox_KbmHeld, or Windows' own key state for the
+ * window's hotkeys while the keyboard and mouse are off. */
+static int hold_down(int hold)
+{
+    return xbox_KbmHeld((unsigned)hold) || (GetKeyState(hold) & 0x8000);
+}
+
+/* Is a combo of this table with this input on? at_press: the window hook
+ * asks at the input's key-down, so a hold key down now was first; else both
+ * held, the hold key first (Mouse 2 held to aim, then Shift: no combo). */
+static int input_shadowed(int set, int input, int at_press)
+{
+    int t = combo_table(set), i, n = (int)s_ncombo[t];
+    for (i = 0; i < n && i < COMBO_MAX; i++) {
+        LONG c = s_combo[t][i];
+        int hold = (int)(c >> 9);
+        if ((c & 0x1FF) != input)
+            continue;
+        if (at_press ? hold_down(hold)
+                     : xbox_KbmComboHeld((unsigned)hold, (unsigned)input))
+            return 1;
+    }
+    return 0;
+}
+
+int controls_keys_held(int set, ControlKeys k)
+{
+    int j, b;
+    for (j = 0; j < CONTROLS_MAX_KEYS && (b = key_bind(k, j)) != 0; j++) {
+        int in = CONTROLS_INPUT(b), hold = CONTROLS_HOLD(b);
+        if (hold ? xbox_KbmComboHeld((unsigned)hold, (unsigned)in)
+                 : xbox_KbmHeld((unsigned)in) && !input_shadowed(set, in, 0))
+            return 1;
+    }
+    return 0;
+}
+
+int controls_keys_pressed(int set, ControlKeys k, int input)
+{
+    int j, b;
+    for (j = 0; input > 0 && j < CONTROLS_MAX_KEYS && (b = key_bind(k, j)) != 0; j++) {
+        int hold = CONTROLS_HOLD(b);
+        if (CONTROLS_INPUT(b) != input)
+            continue;
+        if (hold ? hold_down(hold) : !input_shadowed(set, input, 1))
+            return 1;
+    }
+    return 0;
+}
+
+int controls_keys_alt_pressed(ControlKeys k, int input)
+{
+    int j, b;
+    for (j = 0; input > 0 && j < CONTROLS_MAX_KEYS && (b = key_bind(k, j)) != 0; j++)
+        if (CONTROLS_HOLD(b) == VK_MENU && CONTROLS_INPUT(b) == input)
+            return 1;
+    return 0;
+}
+
+static void list_combos(int set)
+{
+    int t = combo_table(set), n = controls_count(set), i, j, b, k = 0;
+    for (i = 0; i < n; i++) {
+        ControlKeys ks = controls_keys(set, i);
+        for (j = 0; j < CONTROLS_MAX_KEYS && (b = key_bind(ks, j)) != 0; j++)
+            if (CONTROLS_HOLD(b) && k < COMBO_MAX)
+                InterlockedExchange(&s_combo[t][k++],
+                                    (LONG)(CONTROLS_HOLD(b) << 9 | CONTROLS_INPUT(b)));
+    }
+    InterlockedExchange(&s_ncombo[t], k);
+}
+
 /* ---- the actions ---------------------------------------------------------- */
 
 /* where: the only place a swimming or bat action works (SWIM_SURFACE,
@@ -195,7 +468,15 @@ static const Action s_story[] = {
       { XBOX_KBM_LT | XBOX_KBM_TOGGLE }, 0, CLASSIC },
     { { "story_head_cam", "Head-cam (tap on, tap off)", "LB" },
       { XBOX_KBM_LT | XBOX_KBM_TOGGLE }, 0, MODERN },
-    { { "story_zoom", "Zoom", "Right stick click" }, { XBOX_KBM_RTHUMB } },
+    { { "story_zoom", "Zoom (Unlocked Camera: reset camera)", "Right stick click" },
+      { XBOX_KBM_RTHUMB } },
+    /* Unlocked Camera's zoom (to-do 41, user 2026-11-15): no button of the
+     * game's; the window hook passes its presses to the camera
+     * (controls_cam_zoom, conker_CameraZoomNotch). */
+    { { "story_cam_zoom_in", "Camera zoom in (Unlocked Camera)",
+        "D-pad up + right stick up" }, { 0 } },
+    { { "story_cam_zoom_out", "Camera zoom out (Unlocked Camera)",
+        "D-pad up + right stick down" }, { 0 } },
     { { "story_pause", "Pause", "Start" }, { XBOX_KBM_START } },
     { { "story_back_button", "Back button", "Back" }, { XBOX_KBM_BACK } },
     { { "story_dpad_up", "D-pad up", "D-pad up" }, { XBOX_KBM_DPAD_UP } },
@@ -507,17 +788,29 @@ const ControlAction *controls_table_row(int set, int i, int *scheme)
     return &t[i].a;
 }
 
-/* An action's key: settings.ini's for the two player sets, the fixed one
+/* A player set option's keys from settings.ini (already checked there). */
+static ControlKeys keys_of(const char *option)
+{
+    ControlKeys k;
+    return controls_parse_keys(settings_get(option), &k) < 0 ? 0 : k;
+}
+
+/* An action's keys: settings.ini's for the two player sets, the fixed one
  * for menus, the pause screen and cutscenes. */
-int controls_key(int set, int i)
+ControlKeys controls_keys(int set, int i)
 {
     if (set == CONTROLS_MENU || set == CONTROLS_MENU_GAME)
-        return s_menu_keys[i];
+        return controls_keys_add(0, s_menu_keys[i]);
     if (set == CONTROLS_CUTSCENE)
-        return s_cutscene_keys[i];
+        return controls_keys_add(0, s_cutscene_keys[i]);
     if (set == CONTROLS_PAUSE)
-        return s_pause_keys[i];
-    return controls_parse_key(settings_get(controls_action(set, i)->key));
+        return controls_keys_add(0, s_pause_keys[i]);
+    return keys_of(controls_action(set, i)->key);
+}
+
+int controls_key(int set, int i)
+{
+    return CONTROLS_INPUT(controls_keys_get(controls_keys(set, i), 0));
 }
 
 /* ---- to the toolkit ------------------------------------------------------- */
@@ -537,17 +830,13 @@ void controls_mouse(int set, float *sx, float *sy, int *invert)
     *invert = (int)s_inv[i];
 }
 
-/* Is input bound to a swimming or bat action that works here? */
-static volatile LONG s_photo_toggle_key, s_pause_key, s_report_key, s_menu_key, s_noclip_key,
-                     s_bullet_key, s_mark_key;
+/* The photo table's rows that work everywhere, for the window's hook. */
+static volatile LONG64 s_hot[PHOTO_ANYWHERE_LAST + 1];
 
-int controls_photo_toggle_key(void) { return (int)s_photo_toggle_key; }
-int controls_pause_key(void) { return (int)s_pause_key; }
-int controls_report_key(void) { return (int)s_report_key; }
-int controls_menu_key(void) { return (int)s_menu_key; }
-int controls_noclip_key(void) { return (int)s_noclip_key; }
-int controls_bullet_key(void) { return (int)s_bullet_key; }
-int controls_mark_key(void) { return (int)s_mark_key; }
+ControlKeys controls_hotkeys(int row)
+{
+    return row >= 0 && row <= PHOTO_ANYWHERE_LAST ? (ControlKeys)s_hot[row] : 0;
+}
 
 /* Photo mode's profile: nothing bound and the mouse not looking, so the
  * game gets a pad at rest; photo_mode.c reads the keys itself. */
@@ -555,26 +844,23 @@ static void apply_photo(void)
 {
     xbox_KbmBinding none[1] = { { 0, 0 } };
     xbox_KbmMouse m;
+    int r;
 
     memset(&m, 0, sizeof(m));
     m.left.full = m.right.full = 1.0f;
     xbox_KbmSetProfile(CONTROLS_PHOTO, none, 0, &m);
-    InterlockedExchange(&s_photo_toggle_key,
-                        controls_key(CONTROLS_PHOTO, PHOTO_TOGGLE));
-    InterlockedExchange(&s_pause_key, controls_key(CONTROLS_PHOTO, PHOTO_PAUSE));
-    InterlockedExchange(&s_report_key, controls_key(CONTROLS_PHOTO, PHOTO_REPORT));
-    InterlockedExchange(&s_menu_key, controls_key(CONTROLS_PHOTO, PHOTO_MENU));
-    InterlockedExchange(&s_noclip_key, controls_key(CONTROLS_PHOTO, PHOTO_NOCLIP));
-    InterlockedExchange(&s_bullet_key, controls_key(CONTROLS_PHOTO, PHOTO_BULLET));
-    InterlockedExchange(&s_mark_key, controls_key(CONTROLS_PHOTO, PHOTO_MARK));
+    for (r = 0; r <= PHOTO_ANYWHERE_LAST; r++)
+        InterlockedExchange64(&s_hot[r], controls_keys(CONTROLS_PHOTO, r));
 }
 
+/* Is this key bound to a swimming or bat action that works here? */
 static int place_key(const Action *t, const int *map, int n, int set,
-                     int where, int input)
+                     int where, int bind)
 {
     int i;
     for (i = 0; i < n; i++)
-        if (t[map[i]].where == where && controls_key(set, i) == input)
+        if (t[map[i]].where == where
+            && controls_keys_has(controls_keys(set, i), bind))
             return 1;
     return 0;
 }
@@ -586,33 +872,50 @@ static int zoom_hold_set(void)
 
 /* Single player's scheme as last applied, and Modern's three keys, for the
  * game thread (controls_modern); the same for multiplayer's zoom held. */
-static volatile LONG s_modern, s_modern_keys[3];
-static volatile LONG s_zoom_hold, s_zoom_key;
-static volatile LONG s_bat_aim_key;
+static volatile LONG s_modern;
+static volatile LONG64 s_modern_keys[3];
+static volatile LONG s_zoom_hold;
+static volatile LONG64 s_zoom_key;
+static volatile LONG64 s_bat_aim_key;
 static volatile LONG s_sling_toggle;
+static volatile LONG64 s_cam_zoom_keys[2];
+
+/* Unlocked Camera's zoom keys, while single player's on-foot keys are on
+ * (the window thread asks at each key / wheel message). */
+int controls_cam_zoom(ControlKeys *in, ControlKeys *out)
+{
+    LONG set = s_mode;
+    *in = (ControlKeys)s_cam_zoom_keys[0];
+    *out = (ControlKeys)s_cam_zoom_keys[1];
+    return set == CONTROLS_STORY || set == CONTROLS_BEE_GUN
+        || set == CONTROLS_VAULT_SUIT;
+}
 
 int controls_sling_toggle(void)
 {
     return (int)s_sling_toggle;
 }
 
-int controls_bat_aim(int *aim)
+int controls_bat_aim(ControlKeys *aim)
 {
-    *aim = (int)s_bat_aim_key;
+    *aim = (ControlKeys)s_bat_aim_key;
     return (int)s_modern;
 }
 
-int controls_zoom_hold(int *zoom)
+int controls_zoom_hold(ControlKeys *zoom)
 {
-    *zoom = (int)s_zoom_key;
+    *zoom = (ControlKeys)s_zoom_key;
     return (int)s_zoom_hold;
 }
 
-int controls_modern(int *context, int *aim, int *attack)
+int controls_modern(ControlKeys *context, ControlKeys *aim, ControlKeys *attack)
 {
-    *context = (int)s_modern_keys[0];
-    *aim = (int)s_modern_keys[1];
-    *attack = (int)s_modern_keys[2];
+    if (context)
+        *context = (ControlKeys)s_modern_keys[0];
+    if (aim)
+        *aim = (ControlKeys)s_modern_keys[1];
+    if (attack)
+        *attack = (ControlKeys)s_modern_keys[2];
     return (int)s_modern;
 }
 
@@ -645,10 +948,10 @@ static volatile LONG s_start_bits[CONTROLS_PHOTO][8];
 static void apply_set(int set)
 {
     static const char *const prefix[] = { "story", "mp" };
-    xbox_KbmBinding b[128];
+    xbox_KbmBinding b[256];
     xbox_KbmMouse m;
     char key[64];
-    int n, r, j, k = 0, map[MAX_ROWS];
+    int n, r, q, j, k = 0, map[MAX_ROWS];
     const Action *t = set_rows(set, &n, map);
     int where = set == CONTROLS_SWIM_SURFACE ? SWIM_SURFACE
               : set == CONTROLS_SWIM_UNDER ? SWIM_UNDER
@@ -660,14 +963,22 @@ static void apply_set(int set)
     int suit = set == CONTROLS_VAULT_SUIT || set == CONTROLS_VAULT_TAIL;
     int suit_free_m2 = suit;
     int modern = p == 0 && modern_set();
+    ControlKeys attack = keys_of("story_attack");
 
-    for (r = 0; r < n; r++) {
+    /* Each key of each row (to-do 38: up to three a row); a key left out
+     * below is left out alone, the row's other keys go on. A combo key is a
+     * binding with its hold key (the toolkit's combo rules). */
+    memset(b, 0, sizeof(b));
+    for (r = 0, q = 0; r < n; q + 1 < CONTROLS_MAX_KEYS ? q++ : (q = 0, r++)) {
         const Action *a = &t[map[r]];
-        int input = controls_key(set, r);
+        int bind = controls_keys_get(controls_keys(set, r), q);
+        int input = CONTROLS_INPUT(bind);
+        unsigned short hold = (unsigned short)CONTROLS_HOLD(bind);
+        unsigned short flags = (bind & CONTROLS_KEEP) ? XBOX_KBM_KEEP : 0;
         unsigned short out = a->out[0] & ~XBOX_KBM_TOGGLE;
-        if (input <= 0)
+        if (input <= 0 || k + 3 > (int)(sizeof(b) / sizeof(b[0])))
             continue;
-        if (set == s_mode && key_latched(input))
+        if (set == s_mode && !hold && key_latched(input))
             continue;
         if (a->where != 0 && a->where != where)
             continue;
@@ -691,12 +1002,14 @@ static void apply_set(int set)
         if (modern && !strcmp(a->a.key, "story_aim")) {
             if (suit) {
                 b[k].input = (unsigned short)input;
+                b[k].hold = hold;
+                b[k].flags = flags;
                 b[k].output = XBOX_KBM_LT;
                 k++;
             }
             continue;
         }
-        if (input == VK_RBUTTON)
+        if (bind == VK_RBUTTON)
             suit_free_m2 = 0;
         if (!a->where && where) {
             if ((where == SWIM_SURFACE || where == SWIM_UNDER)
@@ -708,7 +1021,7 @@ static void apply_set(int set)
                 && (out == XBOX_KBM_A || out == XBOX_KBM_B
                     || out == XBOX_KBM_LT || out == XBOX_KBM_RT))
                 continue;
-            if (place_key(t, map, n, set, where, input))
+            if (place_key(t, map, n, set, where, bind))
                 continue;
         }
         for (j = 0; j < 2 && a->out[j]; j++) {
@@ -729,7 +1042,7 @@ static void apply_set(int set)
              * there (user 2026-10-28; not in F3, not changeable). A Crouch
              * key that is also the Attack key keeps hitting. */
             if (suit && !strcmp(a->a.key, "story_crouch")
-                && input != controls_parse_key(settings_get("story_attack")))
+                && !controls_keys_has(attack, bind))
                 o = XBOX_KBM_LT;
             /* Holding the alien's tail the left stick goes round to spin
              * him (user 2026-10-28): Move right spins clockwise, Move left
@@ -739,6 +1052,8 @@ static void apply_set(int set)
             else if (set == CONTROLS_VAULT_TAIL && o == XBOX_KBM_LSTICK_LEFT)
                 o = XBOX_KBM_LSTICK_SPIN_CCW;
             b[k].input = (unsigned short)input;
+            b[k].hold = hold;
+            b[k].flags = flags;
             b[k].output = o;
             k++;
         }
@@ -751,22 +1066,19 @@ static void apply_set(int set)
         k++;
     }
     if (set == CONTROLS_STORY) {
-        InterlockedExchange(&s_modern_keys[0],
-                            controls_parse_key(settings_get("story_context")));
-        InterlockedExchange(&s_modern_keys[1],
-                            controls_parse_key(settings_get("story_aim")));
-        InterlockedExchange(&s_modern_keys[2],
-                            controls_parse_key(settings_get("story_attack")));
-        InterlockedExchange(&s_bat_aim_key,
-                            controls_parse_key(settings_get("story_bat_aim")));
+        InterlockedExchange64(&s_modern_keys[0], keys_of("story_context"));
+        InterlockedExchange64(&s_modern_keys[1], keys_of("story_aim"));
+        InterlockedExchange64(&s_modern_keys[2], attack);
+        InterlockedExchange64(&s_bat_aim_key, keys_of("story_bat_aim"));
+        InterlockedExchange64(&s_cam_zoom_keys[0], keys_of("story_cam_zoom_in"));
+        InterlockedExchange64(&s_cam_zoom_keys[1], keys_of("story_cam_zoom_out"));
         InterlockedExchange(&s_sling_toggle,
                             !strcmp(settings_get("story_slingshot_aim"),
                                     "toggle"));
         InterlockedExchange(&s_modern, modern);
     }
     if (set == CONTROLS_MP) {
-        InterlockedExchange(&s_zoom_key,
-                            controls_parse_key(settings_get("mp_zoom")));
+        InterlockedExchange64(&s_zoom_key, keys_of("mp_zoom"));
         InterlockedExchange(&s_zoom_hold, zoom_hold_set());
     }
     if (p >= 0) {
@@ -796,7 +1108,7 @@ static void apply_set(int set)
         LONG bits[8] = { 0 };
         for (j = 0; j < k; j++)
             if ((b[j].output & ~XBOX_KBM_TOGGLE) == XBOX_KBM_START
-                && b[j].input < 256)
+                && !b[j].hold && b[j].input < 256)
                 bits[b[j].input >> 5] |= (LONG)(1u << (b[j].input & 31));
         for (j = 0; j < 8; j++)
             InterlockedExchange(&s_start_bits[set][j], bits[j]);
@@ -932,6 +1244,9 @@ void controls_apply(void)
     apply_set(CONTROLS_BAT_GROUND);
     apply_set(CONTROLS_BAT_AIR);
     apply_photo();
+    list_combos(CONTROLS_STORY);
+    list_combos(CONTROLS_MP);
+    list_combos(CONTROLS_PHOTO);
     xbox_KbmSetEnabled(strcmp(settings_get("keyboard_mouse"), "0") != 0);
     if (s_mode < 0)
         controls_set_mode(CONTROLS_STORY);

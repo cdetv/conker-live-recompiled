@@ -142,6 +142,7 @@
 #include "decensor.h"
 #include "precompile.h"
 #include "bug_report.h"
+#include "menu_mouse.h"
 
 extern "C" {
 void xbox_KbmSetActive(int on);
@@ -183,6 +184,8 @@ void conker_SetCutsceneVolume(float pct);
 void conker_SetCutsceneBlur(int mode);
 void conker_SetShadowRes(unsigned factor);
 void conker_SetShadowSoftness(float pct);
+void conker_SetFieldOfView(float deg);
+float conker_FovAcross(float deg);
 void conker_SetSmoothLightmaps(int on);
 void conker_SetFrameRate(int fps);
 void conker_SetDipFix(int on);
@@ -215,6 +218,7 @@ void conker_SetPooFix(int on);
 void xbox_SetMovieStretch(int on);
 void conker_SetCutscene43(int on);
 void conker_SetIdleDemo(int on);
+void conker_SetUnlockedCamera(int on);
 void conker_BulletToggle(void);
 void conker_InputDisplayState(unsigned short *buttons, unsigned char analog[8],
                               short sticks[4]);
@@ -382,7 +386,8 @@ extern "C" void overlay_pause_refused(void)
 /* No new picture for this long = Report Bug's key means the game froze. */
 #define FREEZE_MS 2000
 static volatile LONG64 s_last_present;  /* GetTickCount64 at the last hook call */
-static bool s_report_key_down;          /* the last press was taken by the hook */
+static int s_report_key_down;           /* the key whose last press the hook took
+                                         * (to-do 38: a row's keys or combos) */
 /* Key binds (to-do 157, --debug): the bound keys' codes for the window thread, made
  * again on the executor when they change; a press asks the executor to run the
  * key's command (s_bind_hit = its number + 1). */
@@ -440,6 +445,48 @@ static void report_key(void)
     }
 }
 
+/* Does this key message press a hotkey row's keys (to-do 38: up to three,
+ * combos)? A plain key or a combo on WM_KEYDOWN; on WM_SYSKEYDOWN with Alt
+ * down only an Alt combo (Alt+F4 still closes the window), without Alt a
+ * key Windows sends that way (F10). */
+static bool hot_press(unsigned m, uintptr_t w, intptr_t l, ControlKeys k)
+{
+    if (m == WM_KEYDOWN)
+        return controls_keys_pressed(CONTROLS_PHOTO, k, (int)w) != 0;
+    if (m == WM_SYSKEYDOWN)
+        return (HIWORD(l) & KF_ALTDOWN) ? controls_keys_alt_pressed(k, (int)w) != 0
+                                        : controls_keys_pressed(CONTROLS_PHOTO, k, (int)w) != 0;
+    return false;
+}
+
+/* Unlocked Camera's zoom (to-do 41): a wheel notch or key press on F3's
+ * "Camera zoom in / out" while single player's keys are on is a notch for
+ * the camera (recomp_manual.c). The message goes on to the game's keys, so
+ * a key bound to both does both. */
+extern "C" void conker_CameraZoomNotch(int notches);
+
+static void cam_zoom_input(unsigned m, uintptr_t w)
+{
+    ControlKeys zin, zout;
+    int input, n = 1;
+
+    if (!controls_cam_zoom(&zin, &zout))
+        return;
+    if (m == WM_MOUSEWHEEL) {
+        int d = GET_WHEEL_DELTA_WPARAM(w);
+        input = d > 0 ? 256 : 257;          /* XBOX_KBM_WHEEL_UP / _DOWN */
+        n = (d > 0 ? d : -d) / WHEEL_DELTA;
+        if (n < 1)
+            n = 1;
+    } else {
+        input = (int)w;
+    }
+    if (controls_keys_pressed(CONTROLS_STORY, zin, input))
+        conker_CameraZoomNotch(n);
+    if (controls_keys_pressed(CONTROLS_STORY, zout, input))
+        conker_CameraZoomNotch(-n);
+}
+
 static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
                        intptr_t *result)
 {
@@ -474,11 +521,10 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
      * so the small one of its own, with where the threads are in the log. */
     {
         ULONGLONG ago = GetTickCount64() - (ULONGLONG)s_last_present;
-        int rk = controls_report_key();
-        if ((m == WM_KEYDOWN || m == WM_SYSKEYDOWN) && rk > 0 && (int)w == rk
-            && !(HIWORD(l) & KF_ALTDOWN) && ago >= FREEZE_MS) {
+        ControlKeys rk = controls_hotkeys(PHOTO_REPORT);
+        if (hot_press(m, w, l, rk) && ago >= FREEZE_MS) {
             *result = 0;
-            s_report_key_down = true;
+            s_report_key_down = (int)w;
             if (!(l & (1L << 30)))
                 conker_freeze_report((unsigned)ago);
             return 1;
@@ -487,6 +533,22 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
     if (!s_gpu_seen)
         return 0;
     *result = 0;
+    /* Mouse in menus (to-do 40, menu_mouse.cpp): the pointer over the game's
+     * own menus. Keys are only looked at there (they hide the pointer). */
+    {
+        LRESULT r = 0;
+        if (m >= WM_MOUSEFIRST && m <= WM_MOUSELAST && m != WM_MOUSEWHEEL)
+            to_back_buffer(l, &x, &y);
+        if (menu_mouse_message((HWND)hwnd, m, w, l, x, y, &r)) {
+            *result = r;
+            return 1;
+        }
+    }
+    /* The profile name keyboard (to-do 40 step 5d): while it is up, the keys
+     * that type are its own (before every letter hotkey: P, Z ...), unless a
+     * menu of ours has the keys. */
+    if ((!s_want_open || console_free()) && menu_mouse_name_key((HWND)hwnd, m, w, l))
+        return 1;
     /* Either Ctrl held on the Options screen or the pause menu: the cheat codes
      * (cheats.c, SPEC 10.3), and the game gets none of it. */
     if ((m == WM_KEYDOWN || m == WM_KEYUP || m == WM_SYSKEYDOWN || m == WM_CHAR
@@ -549,18 +611,17 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
      * and with the report window up a key that types a character is the
      * description's. */
     {
-        int rk = controls_report_key();
+        ControlKeys rk = controls_hotkeys(PHOTO_REPORT);
         if ((m == WM_KEYUP || m == WM_SYSKEYUP) && s_report_key_down
-            && (int)w == rk) {
-            s_report_key_down = false;
+            && s_report_key_down == (int)w) {
+            s_report_key_down = 0;
             return 1;
         }
-        if ((m == WM_KEYDOWN || m == WM_SYSKEYDOWN) && rk > 0 && (int)w == rk
-            && !(HIWORD(l) & KF_ALTDOWN)
+        if (hot_press(m, w, l, rk)
             && !(s_want_open && s_capture_idx >= 0)
             && !((s_want_open == MENU_REPORT || menu_typing())
                  && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
-            s_report_key_down = true;
+            s_report_key_down = (int)w;
             if (!(l & (1L << 30)))
                 report_key();
             return 1;
@@ -569,7 +630,7 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
     /* One key (F8, F3's photo table; SPEC 10.3): the Debug menu with --debug,
      * the cheat menu in a normal game once unlocked. Not over Report Bug's
      * window, and where keys type a key that types is typing. */
-    if (m == WM_KEYDOWN && cheats_menu_ok() && (int)w == controls_menu_key()
+    if (cheats_menu_ok() && hot_press(m, w, l, controls_hotkeys(PHOTO_MENU))
         && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
         && !(menu_typing()
              && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
@@ -581,7 +642,7 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         return 1;
     }
     /* Noclip's key (--debug; F3's photo table, default Z). */
-    if (m == WM_KEYDOWN && settings_debug() && (int)w == controls_noclip_key()
+    if (settings_debug() && hot_press(m, w, l, controls_hotkeys(PHOTO_NOCLIP))
         && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
         && !(menu_typing()
              && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
@@ -591,7 +652,7 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
     }
     /* The mark key (to-do 168, --debug; F3's photo table, default F7): the
      * console's mark, run on the executor (overlay_frame). */
-    if (m == WM_KEYDOWN && settings_debug() && (int)w == controls_mark_key()
+    if (settings_debug() && hot_press(m, w, l, controls_hotkeys(PHOTO_MARK))
         && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
         && !(menu_typing()
              && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)) {
@@ -602,7 +663,7 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
     /* Bullet time's key (to-do 161; F3's photo table, default B since to-do 184,
      * F7 before): only while the cheat is on, else the key is the game's. Not in
      * photo mode, whose cutscene blur key is B too. */
-    if (m == WM_KEYDOWN && (int)w == controls_bullet_key() && !photo_active()
+    if (hot_press(m, w, l, controls_hotkeys(PHOTO_BULLET)) && !photo_active()
         && (cheats_active() & CHEAT_BIT(CHEAT_BULLET))
         && !(s_want_open && s_capture_idx >= 0) && s_want_open != MENU_REPORT
         && !menu_typing()) {
@@ -623,15 +684,16 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
     /* The pause key (P) and the photo mode key (F4), from F3's photo
      * table, unless a key is being set (the press is the answer) or Report
      * Bug's window is up or the console has the keys (they are letters to
-     * type there). Not WM_SYSKEYDOWN: Alt+F4 still closes the window. */
-    if (m == WM_KEYDOWN && !(s_want_open && s_capture_idx >= 0)
+     * type there). WM_SYSKEYDOWN with Alt only for an Alt combo (hot_press):
+     * Alt+F4 still closes the window. */
+    if (!(s_want_open && s_capture_idx >= 0)
         && s_want_open != MENU_REPORT
         && !(menu_typing()
              && MapVirtualKeyA((UINT)w, MAPVK_VK_TO_CHAR) != 0)
-        && ((int)w == controls_pause_key()
-            || (int)w == controls_photo_toggle_key())) {
+        && (hot_press(m, w, l, controls_hotkeys(PHOTO_PAUSE))
+            || hot_press(m, w, l, controls_hotkeys(PHOTO_TOGGLE)))) {
         if (!(l & (1L << 30))) {
-            if ((int)w == controls_pause_key())
+            if (hot_press(m, w, l, controls_hotkeys(PHOTO_PAUSE)))
                 want_pause(s_want_pause == 0);
             else
                 photo_request_toggle();
@@ -657,6 +719,8 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         photo_wheel(GET_WHEEL_DELTA_WPARAM(w));
         return 1;
     }
+    if ((m == WM_MOUSEWHEEL || m == WM_KEYDOWN) && !s_want_open && !photo_active())
+        cam_zoom_input(m, w);
     /* To-do 181: a menu of ours up with the keys the game's (a click back in
      * the game): a key that presses the game's Start (Esc) still reaches the
      * menu, which it closes, but not the game, which it paused. Held back until
@@ -766,6 +830,10 @@ static int s_capture_got = -1;  /* the input pressed for it, once pressed */
 static bool s_capture_hover;  /* the mouse was over a button last frame:
                                * a click there is for the button */
 static char s_capture_msg[96];  /* why the last key was not taken */
+static bool s_capture_cancel;   /* Esc pressed: the question closes, nothing set
+                                 * (user 2026-11-14: Esc can't be bound) */
+static int s_capture_first;     /* a key held while setting one: alone when let
+                                 * go, a combo's hold key when another follows */
 static int s_ask_reset = -1;  /* "Reset all ...?" is up for this set */
 static bool s_paused;         /* the pause key: the flip is held */
 static bool s_apu_held;       /* the sound is paused with it */
@@ -1337,13 +1405,22 @@ static void drain_events(bool *close)
     for (unsigned i = 0; i < n; i++) {
         const Event &e = ev[i];
         bool down = true;
-        /* Setting a key: the first key, mouse button or wheel notch is it.
-         * Keys go no further (Space or Enter would also press the
-         * question's button); the mouse does, so its buttons work. */
+        /* Setting a key (to-do 38): a key, mouse button or wheel notch, or a
+         * combo: hold one, press another. The first one is taken when it is
+         * let go with nothing pressed meanwhile; another pressed while it is
+         * held makes the combo; a wheel notch is taken at once (alone, or as
+         * a combo's second). Esc cancels (user 2026-11-14). Keys go no
+         * further (Space or Enter would also press the question's button);
+         * the mouse does, so its buttons work. */
         if (s_capture_idx >= 0 && s_capture_got < 0) {
-            int got = -1;
+            int got = -1, in = 0, up = 0, was_first = s_capture_first;
             if ((e.msg == WM_KEYDOWN || e.msg == WM_SYSKEYDOWN)
                 && !(e.l & (1L << 30))) {
+                if (e.w == VK_ESCAPE) {
+                    s_capture_cancel = true;
+                    s_capture_first = 0;
+                    continue;
+                }
                 if (e.w == VK_F9 || e.w == VK_F11)
                     snprintf(s_capture_msg, sizeof(s_capture_msg),
                              "F1-F3, F9 and F11 are the port's own keys");
@@ -1352,24 +1429,61 @@ static void drain_events(bool *close)
                              "That key cannot be used (key code 0x%02X)",
                              (unsigned)e.w);
                 else
-                    got = (int)e.w;
-            } else if (!s_capture_hover) {
+                    in = (int)e.w;
+            } else if (e.msg == WM_KEYUP || e.msg == WM_SYSKEYUP) {
+                in = (int)e.w;
+                up = 1;
+            } else if (!s_capture_hover || s_capture_first) {
                 switch (e.msg) {
-                case WM_LBUTTONDOWN: got = VK_LBUTTON; break;
-                case WM_RBUTTONDOWN: got = VK_RBUTTON; break;
-                case WM_MBUTTONDOWN: got = VK_MBUTTON; break;
+                case WM_LBUTTONDOWN: in = VK_LBUTTON; break;
+                case WM_RBUTTONDOWN: in = VK_RBUTTON; break;
+                case WM_MBUTTONDOWN: in = VK_MBUTTON; break;
                 case WM_XBUTTONDOWN:
-                    got = HIWORD(e.w) == XBUTTON2 ? VK_XBUTTON2 : VK_XBUTTON1;
+                    in = HIWORD(e.w) == XBUTTON2 ? VK_XBUTTON2 : VK_XBUTTON1;
+                    break;
+                case WM_LBUTTONUP: in = VK_LBUTTON; up = 1; break;
+                case WM_RBUTTONUP: in = VK_RBUTTON; up = 1; break;
+                case WM_MBUTTONUP: in = VK_MBUTTON; up = 1; break;
+                case WM_XBUTTONUP:
+                    in = HIWORD(e.w) == XBUTTON2 ? VK_XBUTTON2 : VK_XBUTTON1;
+                    up = 1;
                     break;
                 case WM_MOUSEWHEEL:
                     got = GET_WHEEL_DELTA_WPARAM(e.w) > 0 ? 256 : 257;
+                    if (s_capture_first)
+                        got = CONTROLS_COMBO(s_capture_first, got);
+                    s_capture_first = 0;
                     break;
                 }
+                /* A button pressed over the question's buttons is a click
+                 * on them, unless a key is held for a combo. */
+                if (!up && in && s_capture_hover && !s_capture_first)
+                    in = 0;
+            }
+            if (in && !up) {
+                if (!s_capture_first) {
+                    s_capture_first = in;     /* alone or the hold key: wait */
+                    s_capture_msg[0] = '\0';
+                } else if (in != s_capture_first) {
+                    got = CONTROLS_COMBO(s_capture_first, in);
+                    s_capture_first = 0;
+                }
+            } else if (in && up && in == s_capture_first) {
+                got = in;
+                s_capture_first = 0;
+            }
+            if (got >= 0 && !controls_bind_ok(got)) {
+                snprintf(s_capture_msg, sizeof(s_capture_msg),
+                         "Alt+Tab and Alt+F4 are Windows' own");
+                got = -1;
             }
             if (got >= 0) {
                 s_capture_got = got;
                 continue;           /* the press is the key, nothing else */
             }
+            if (in && !(up && in != was_first))
+                continue;           /* part of a key being set; another
+                                     * button's release is the menu's */
             if (e.msg == WM_KEYDOWN || e.msg == WM_SYSKEYDOWN
                 || e.msg == WM_KEYUP || e.msg == WM_SYSKEYUP
                 || e.msg == WM_CHAR)
@@ -1391,8 +1505,10 @@ static void drain_events(bool *close)
                 if (down && ctrl && e.w == 'C' && s_menu == MENU_CONSOLE)
                     s_console_copy = true;
             }
-            if (e.w == VK_ESCAPE && down && !s_popup_open && !s_item_active
-                && s_capture_idx < 0)
+            /* Not its repeats: an Esc held after cancelling "Set a key"
+             * would close the menu. */
+            if (e.w == VK_ESCAPE && down && !(e.l & (1L << 30)) && !s_popup_open
+                && !s_item_active && s_capture_idx < 0)
                 *close = true;
             /* Report Bug: Esc in the description leaves the box with the
              * text kept; ImGui never gets it (its Esc throws away what was
@@ -1407,8 +1523,8 @@ static void drain_events(bool *close)
             if (s_menu == MENU_CONSOLE && e.w == VK_ESCAPE)
                 break;
             /* The photo panel's own key closes it too (Tab: not ImGui's). */
-            if (s_menu == MENU_PHOTO && (int)e.w
-                    == controls_key(CONTROLS_PHOTO, PHOTO_PANEL)) {
+            if (s_menu == MENU_PHOTO && controls_keys_pressed(CONTROLS_PHOTO,
+                    controls_keys(CONTROLS_PHOTO, PHOTO_PANEL), (int)e.w)) {
                 if (down && !(e.l & (1L << 30)) && !s_item_active)
                     *close = true;
                 break;
@@ -1512,6 +1628,15 @@ static void pad_opens_menu(void)
     }
     retry_at = 0;
     WORD b = st.Gamepad.wButtons;
+    /* The controller in use: the menus' mouse pointer goes (to-do 40). */
+    {
+        static bool stick_was;
+        const bool stick = abs(st.Gamepad.sThumbLX) > 20000
+                           || abs(st.Gamepad.sThumbLY) > 20000;
+        if ((b & ~prev) || (stick && !stick_was))
+            menu_mouse_pad_used();
+        stick_was = stick;
+    }
     const bool none_up = !s_want_open || console_free();
     if (none_up && (b & combo) == combo && (prev & combo) != combo) {
         open_if_free(MENU_SETTINGS);
@@ -1753,6 +1878,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetFastLoads(on);
         if (!strcmp(key, "idle_demo") && !settings_env_override(key))
             conker_SetIdleDemo(on);
+        if (!strcmp(key, "unlocked_camera") && !settings_env_override(key))
+            conker_SetUnlockedCamera(on);
         if (!strcmp(key, "speedrun_cutscenes"))
             speedrun_set_cutscenes(on);
         /* Its key switches it whatever the environment said. */
@@ -2030,6 +2157,7 @@ static Slide s_slides[] = {
     { "mp_mouse_y", 100.0f, false },
     { "particle_density", 15.0f, false },
     { "shadow_softness", 50.0f, false },
+    { "field_of_view", 50.0f, false },
     { "rumble_strength1", 100.0f, false },
     { "rumble_strength2", 100.0f, false },
     { "rumble_strength3", 100.0f, false },
@@ -2117,6 +2245,12 @@ static void apply_slider(const char *key, bool saved)
             conker_SetShadowSoftness(slide_value(slide_for(key)));
         return;
     }
+    /* To-do 228: live while it moves, from the game's next frame. */
+    if (!strcmp(key, "field_of_view")) {
+        if (!settings_env_override(key))
+            conker_SetFieldOfView(slide_value(slide_for(key)));
+        return;
+    }
     /* Per slot (to-do 29): the live value while it moves. */
     if (!strncmp(key, "rumble_strength", 15)) {
         controls_apply_pad_feel(key[15] - '1', slide_value(slide_for(key)),
@@ -2170,6 +2304,8 @@ static void slider(const char *label, const char *key, float lo, float hi,
             strcpy_s(unit, sizeof(unit), " %");
         else if (u && !strncmp(u + 1, " dB", 3))
             strcpy_s(unit, sizeof(unit), " dB");
+        else if (u && !strncmp(u + 1, "\xC2\xB0", 2))     /* degrees */
+            strcpy_s(unit, sizeof(unit), "\xC2\xB0");
         fprintf(s_dump, ", \"min\": %g, \"max\": %g, \"neutral\": ", lo, hi);
         settings_json_string(s_dump, neutral);
         fprintf(s_dump, ", \"decimals\": %d, \"unit\": ", f ? atoi(f + 1) : 0);
@@ -2714,6 +2850,25 @@ static void fixes_tab(unsigned w, unsigned h, bool *close)
         ImGui::Unindent();
     }
 
+    /* To-dos 41, 227 (user 2026-11-15): on by default. */
+    section("Camera");
+    checkbox("Unlocked Camera", "unlocked_camera", true,
+             "Single player: tilt the camera from straight down on Conker to "
+             "looking up, zoom smoothly with the mouse wheel or D-pad up + "
+             "right stick, and reset it with the zoom button (right stick "
+             "click / V). Off: the original camera, where the zoom button "
+             "switches between near and far");
+    /* To-do 228 (user 2026-11-15): the game's own figure (top to bottom),
+     * and what it makes across the window's shape. */
+    {
+        char fmt[48];
+        float v = roundf(slide_value(slide_for("field_of_view")));
+        snprintf(fmt, sizeof(fmt), "%%.0f\xC2\xB0 (%.0f\xC2\xB0 across)",
+                 conker_FovAcross(v));
+        slider("Field of view", "field_of_view", 40.0f, 75.0f, "50", fmt,
+               "Back to the original (50\xC2\xB0)");
+    }
+
     line();
     checkbox("Pop-in Fix", "grass_full_detail", true,
              "Eliminates pop-in for elements such as grass, fur, and distant "
@@ -3002,7 +3157,7 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         bool paused = s_want_pause != 0;
         char label[64];
         snprintf(label, sizeof(label), "Pause the game (%s)",
-                 controls_key_label(controls_pause_key()));
+                 controls_keys_label(controls_hotkeys(PHOTO_PAUSE)));
         if (ImGui::Checkbox(label, &paused))
             want_pause(paused);
     }
@@ -3042,10 +3197,10 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     if (ImGui::Button("Report Bug..."))
         ask_report();
     {
-        int rk = controls_report_key();
-        if (rk > 0) {
-            char k[48];
-            snprintf(k, sizeof(k), "(%s)", controls_key_label(rk));
+        ControlKeys rk = controls_hotkeys(PHOTO_REPORT);
+        if (rk) {
+            char k[112];
+            snprintf(k, sizeof(k), "(%s)", controls_keys_label(rk));
             ImGui::SameLine();
             note(k);
         }
@@ -3127,7 +3282,7 @@ static void build_debug(unsigned w, unsigned h, bool *close)
 {
     char label[96];
     int page = conker_DebugPage();
-    int rk = controls_menu_key();
+    ControlKeys rk = controls_hotkeys(PHOTO_MENU);
 
     /* Right of the picture at first: Rare's pages print from the left. */
     place_window(MENU_DEBUG, "debug_window", w, h, 26.0f, 0.0f, true);
@@ -3283,7 +3438,7 @@ static void build_debug(unsigned w, unsigned h, bool *close)
 
         ImGui::BeginDisabled(no != NULL && !on);
         snprintf(label, sizeof(label), "Noclip (%s, RB + A)",
-                 controls_key_label(controls_noclip_key()));
+                 controls_keys_label(controls_hotkeys(PHOTO_NOCLIP)));
         if (ImGui::Checkbox(label, &on))
             conker_SetNoclip(on);
         ImGui::EndDisabled();
@@ -3309,7 +3464,7 @@ static void build_debug(unsigned w, unsigned h, bool *close)
         /* Freecam (to-do 33): photo mode's camera with the world running. */
         on = photo_freecam() != 0;
         snprintf(label, sizeof(label), "Freecam (swap: %s, Back + X)",
-                 controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_FREECAM_SWAP)));
+                 controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_FREECAM_SWAP)));
         if (ImGui::Checkbox(label, &on))
             photo_freecam_set(on);
         ImGui::SetItemTooltip("Photo mode's fly camera with the world running. Leave: "
@@ -3599,7 +3754,7 @@ static void build_debug(unsigned w, unsigned h, bool *close)
         *close = true;
     ImGui::SameLine();
     snprintf(label, sizeof(label), "(%s%sEsc, B or Start)",
-             rk > 0 ? controls_key_label(rk) : "", rk > 0 ? ", " : "");
+             rk ? controls_keys_label(rk) : "", rk ? ", " : "");
     note(label);
     s_item_active = ImGui::IsAnyItemActive();
     remember_window("debug_window", w, h);
@@ -3621,7 +3776,7 @@ static void build_cheats(unsigned w, unsigned h, bool *close)
     const ImGuiStyle &style = ImGui::GetStyle();
     const float px = ImGui::GetFontSize();
     const bool opening = s_focus;
-    int rk = controls_menu_key();
+    ControlKeys rk = controls_hotkeys(PHOTO_MENU);
     size_t len = strlen(code);
     bool enter = false, any = false;
     char label[96];
@@ -3724,8 +3879,8 @@ static void build_cheats(unsigned w, unsigned h, bool *close)
         *close = true;
     ImGui::SameLine();
     snprintf(label, sizeof(label), "(%s%sEsc, B or Start)",
-             rk > 0 && !settings_debug() ? controls_key_label(rk) : "",
-             rk > 0 && !settings_debug() ? ", " : "");
+             rk && !settings_debug() ? controls_keys_label(rk) : "",
+             rk && !settings_debug() ? ", " : "");
     note(label);
     s_item_active = ImGui::IsAnyItemActive();
     remember_window("cheats_window", w, h);
@@ -3968,18 +4123,79 @@ static void build_console(unsigned w, unsigned h)
 
 /* ---- the controls menu (F3) ------------------------------------------------ */
 
-/* An action's key was set: save, hand to the toolkit, log. */
-static void set_key(int set, int i, int input)
+/* An action's keys were set: save, hand to the toolkit, log. */
+static void set_key(int set, int i, ControlKeys keys)
 {
     const ControlAction *a = controls_action(set, i);
-    save(a->key, controls_key_name(input));
+    save(a->key, controls_keys_name(keys));
     controls_apply();
-    fprintf(stderr, "[OVERLAY] %s = %s\n", a->key, controls_key_name(input));
+    fprintf(stderr, "[OVERLAY] %s = %s\n", a->key, controls_keys_name(keys));
+}
+
+/* Do two rows share a key (a combo the same combo)? */
+static bool shares_key(ControlKeys a, ControlKeys b)
+{
+    for (int j = 0; j < CONTROLS_MAX_KEYS; j++)
+        if (controls_keys_has(b, controls_keys_get(a, j)))
+            return true;
+    return false;
+}
+
+/* A line for a key row's tooltip (orange), once each. */
+static void add_note(char *out, size_t size, const char *fmt, ...)
+{
+    char line[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    if (strstr(out, line))
+        return;
+    if (out[0])
+        strncat_s(out, size, "\n", _TRUNCATE);
+    strncat_s(out, size, line, _TRUNCATE);
+}
+
+/* What a combo does to another row's keys (to-do 38, SPEC 10.1), seen from
+ * either row: the hold key's own action happens too (Ctrl crouches on the
+ * way to Ctrl + E), and while the hold key is down the combo takes its
+ * second key from that key's own action (Shift + W: no walking forward
+ * while Shift is held). other_label: the other row. */
+static void combo_notes(char *out, size_t size, ControlKeys mine,
+                        ControlKeys other, const char *other_label)
+{
+    for (int j = 0; j < CONTROLS_MAX_KEYS; j++) {
+        int a = controls_keys_get(mine, j);
+        for (int q = 0; a && q < CONTROLS_MAX_KEYS; q++) {
+            int b = controls_keys_get(other, q);
+            if (!b)
+                break;
+            int ah = CONTROLS_HOLD(a), ai = CONTROLS_INPUT(a);
+            int bh = CONTROLS_HOLD(b), bi = CONTROLS_INPUT(b);
+            if (ah && !bh && bi == ah)
+                add_note(out, size, "%s is also %s: that happens too",
+                         controls_key_label(ah), other_label);
+            if (ah && !bh && bi == ai)
+                add_note(out, size, "While %s is held, %s is this, not %s",
+                         controls_key_label(ah), controls_key_label(ai),
+                         other_label);
+            if (!ah && bh && bh == ai)
+                add_note(out, size, "%s also starts %s (%s): this happens too",
+                         controls_key_label(ai), other_label,
+                         controls_bind_label(b));
+            if (!ah && bh && bi == ai)
+                add_note(out, size, "While %s is held, %s is %s, not this",
+                         controls_key_label(bh), controls_key_label(ai),
+                         other_label);
+        }
+    }
 }
 
 /* "Press a key" for the action being set: a modal over the menu. Its two
  * buttons are for the mouse (or the pad): every key is taken as the
- * answer. A click away from them is a mouse button to bind. */
+ * answer. A click away from them is a mouse button to bind. Up to three
+ * keys a row (to-do 38): a key the row has is taken off, another added; a
+ * fourth is refused and the question stays. */
 static void ask_key(void)
 {
     const char *id = "Set a key";
@@ -3993,18 +4209,39 @@ static void ask_key(void)
         return;
     s_popup_open = true;
     const ControlAction *a = controls_action(s_capture_set, s_capture_idx);
+    ControlKeys keys = controls_keys(s_capture_set, s_capture_idx);
     bool done = false;
     ImGui::Text("Press a key or a mouse button for:");
     ImGui::Text("    %s", a->label);
-    note("Clicking here (not on a button) sets that mouse button; Esc is a "
-         "key like any other.");
+    ImGui::Text("Keys now: %s", keys ? controls_keys_label(keys) : "none");
+    note("A key it doesn't have is added (up to 3), a key it has is taken "
+         "off. For a combo hold one key and press another. Clicking here "
+         "(not on a button) is that mouse button. Esc cancels.");
+    if (s_capture_first)
+        ImGui::Text("Holding %s: press another key for a combo, or let go",
+                    controls_key_label(s_capture_first));
+    if (s_capture_cancel) {
+        s_capture_cancel = false;
+        done = true;
+    }
+    if (s_capture_got >= 0 && !done) {
+        if (controls_keys_has(keys, s_capture_got)) {
+            set_key(s_capture_set, s_capture_idx,
+                    controls_keys_remove(keys, s_capture_got));
+            done = true;
+        } else if (controls_keys_count(keys) >= CONTROLS_MAX_KEYS) {
+            snprintf(s_capture_msg, sizeof(s_capture_msg),
+                     "Already 3 keys: press one to remove it first");
+            s_capture_got = -1;
+        } else {
+            set_key(s_capture_set, s_capture_idx,
+                    controls_keys_add(keys, s_capture_got));
+            done = true;
+        }
+    }
     if (s_capture_msg[0])
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s",
                            s_capture_msg);
-    if (s_capture_got >= 0) {
-        set_key(s_capture_set, s_capture_idx, s_capture_got);
-        done = true;
-    }
     if (ImGui::Button("No key")) {
         set_key(s_capture_set, s_capture_idx, 0);
         done = true;
@@ -4016,6 +4253,7 @@ static void ask_key(void)
     s_capture_hover = s_capture_hover || ImGui::IsItemHovered();
     if (done) {
         s_capture_idx = -1;
+        s_capture_first = 0;
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -4178,7 +4416,7 @@ static void dump_keys(int set)
  * clash, and the bat's Launch and Fly up are both B. */
 static void keys_table(int set)
 {
-    char id[64];
+    char id[160];
     int n = controls_count(set);
     float gap = ImGui::GetStyle().ItemInnerSpacing.x;
 
@@ -4203,13 +4441,15 @@ static void keys_table(int set)
             }
             if (!open)
                 continue;
-            int input = controls_key(set, i);
-            const char *also = NULL;
+            ControlKeys keys = controls_keys(set, i);
+            char also[512];
+            also[0] = '\0';
             /* Photo mode's "anywhere" keys (photo mode, pause, Report Bug,
-             * Debug menu) clash with all its rows. */
-            for (int j = 0; j < n && input > 0; j++)
+             * Debug menu) clash with all its rows. Any of the row's keys
+             * (to-do 38) on another row clashes, and so do a combo's side
+             * effects (combo_notes). */
+            for (int j = 0; j < n && keys; j++)
                 if (j != i && !row_hidden(set, j)
-                    && controls_key(set, j) == input
                     && (same_section(controls_action(set, j)->section,
                                      a->section)
                         || (set == CONTROLS_PHOTO
@@ -4220,8 +4460,13 @@ static void keys_table(int set)
                             && !(i == PHOTO_BULLET && j > PHOTO_ANYWHERE_LAST)
                             && !(j == PHOTO_BULLET && i > PHOTO_ANYWHERE_LAST)))
                     && (strcmp(controls_action(set, j)->button, a->button)
-                        || !strcmp(a->button, "none")))
-                    also = controls_action(set, j)->label;
+                        || !strcmp(a->button, "none"))) {
+                    ControlKeys other = controls_keys(set, j);
+                    const char *lj = controls_action(set, j)->label;
+                    if (shares_key(keys, other))
+                        add_note(also, sizeof(also), "Also used for: %s", lj);
+                    combo_notes(also, sizeof(also), keys, other, lj);
+                }
 
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
@@ -4247,9 +4492,9 @@ static void keys_table(int set)
             }
 
             ImGui::TableNextColumn();
-            snprintf(id, sizeof(id), "%s##%s", controls_key_label(input),
+            snprintf(id, sizeof(id), "%s##%s", controls_keys_label(keys),
                      a->key);
-            if (also)
+            if (also[0])
                 ImGui::PushStyleColor(ImGuiCol_Text,
                                       ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
             if (ImGui::Button(id, ImVec2(-FLT_MIN, 0.0f))) {
@@ -4257,23 +4502,26 @@ static void keys_table(int set)
                 s_capture_idx = i;
                 s_capture_got = -1;
                 s_capture_msg[0] = '\0';
+                s_capture_cancel = false;
+                s_capture_first = 0;
                 s_capture_hover = true;   /* the click that asked */
             }
-            if (also) {
+            if (also[0]) {
                 ImGui::PopStyleColor();
-                ImGui::SetItemTooltip("Also used for: %s", also);
+                ImGui::SetItemTooltip("%s", also);
             }
 
             ImGui::TableNextColumn();
-            if (strcmp(settings_get(a->key), settings_default(a->key))) {
-                char tip[96];
+            ControlKeys def;
+            if (controls_parse_keys(settings_default(a->key), &def) < 0)
+                def = 0;
+            if (keys != def) {
+                char tip[160];
                 snprintf(id, sizeof(id), "##reset_%s", a->key);
                 snprintf(tip, sizeof(tip), "Back to the default (%s)",
-                         controls_key_label(controls_parse_key(
-                             settings_default(a->key))));
+                         controls_keys_label(def));
                 if (reset_icon(id, tip))
-                    set_key(set, i, controls_parse_key(
-                                settings_default(a->key)));
+                    set_key(set, i, def);
             }
         }
         if (open)
@@ -4326,8 +4574,8 @@ static void controls_tab(int set)
     checkbox("Invert up and down", key, true);
 
     section("Keys");
-    info("Click a key to change it. In brackets: the controller button it "
-         "presses.");
+    info("Click an action's keys to add or remove one (up to 3). In brackets: "
+         "the controller button it presses.");
     keys_table(set);
     reset_button(set);
 }
@@ -4336,8 +4584,8 @@ static void controls_tab(int set)
  * button for the same thing. */
 static void photo_tab(void)
 {
-    info("Click a key to change it. In brackets: the controller button that "
-         "does the same.");
+    info("Click an action's keys to add or remove one (up to 3). In brackets: "
+         "the controller button that does the same.");
     keys_table(CONTROLS_PHOTO);
     reset_button(CONTROLS_PHOTO);
 }
@@ -4685,11 +4933,15 @@ static void menus_tab(void)
     };
     float w = 0.0f;
 
+    checkbox("Mouse in menus", "menu_mouse", true,
+             "The mouse in the game's menus: the pointer shows when the "
+             "mouse moves; on the main menu the arrows at the sides (or a "
+             "drag) turn, a click in the middle opens; right click goes "
+             "back, the wheel moves up and down.");
     info("Fixed keys, the same in every menu: the main menu, the "
-         "multiplayer menus and pause menu. The mouse "
-         "does nothing in menus. Esc goes back on the main menu and "
-         "the multiplayer menus, and closes the multiplayer pause "
-         "menu.");
+         "multiplayer menus and pause menu. Esc goes back on the main "
+         "menu and the multiplayer menus, and closes the multiplayer "
+         "pause menu.");
     for (int set : sets)
         for (int i = 0; i < controls_count(set); i++) {
             float x = ImGui::CalcTextSize(controls_action(set, i)->label).x;
@@ -5639,8 +5891,8 @@ static void build_photo(unsigned w, unsigned h, bool *close)
                               | ImGuiTableFlags_SizingStretchProp)) {
             for (int i = PHOTO_FORWARD; i < PHOTO_ROWS; i++) {
                 const ControlAction *a = controls_action(CONTROLS_PHOTO, i);
-                const char *k = controls_key_label(controls_key(CONTROLS_PHOTO,
-                                                                i));
+                ControlKeys ks = controls_keys(CONTROLS_PHOTO, i);
+                const char *k = ks ? controls_keys_label(ks) : "";
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 ImGui::TextWrapped("%s", a->label);
@@ -5982,17 +6234,17 @@ static void pause_label(unsigned h, bool photo)
         char msg[160];
         ImGui::Text("Photo mode   Photo: %s / A   Settings: %s / Start   "
                     "Leave: %s / Back + RB",
-                    controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_TAKE)),
-                    controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_PANEL)),
-                    controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_LEAVE)));
+                    controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_TAKE)),
+                    controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_PANEL)),
+                    controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_LEAVE)));
         if (photo_world_resumed())
             ImGui::Text("The world is running   Pause it: %s / Back + A",
-                        controls_key_label(controls_key(CONTROLS_PHOTO, PHOTO_RESUME)));
+                        controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_RESUME)));
         if (shot_message_now(msg, sizeof(msg)))
             ImGui::TextUnformatted(msg);
     } else
         ImGui::Text("Paused (%s to resume)",
-                    controls_key_label(controls_pause_key()));
+                    controls_keys_label(controls_hotkeys(PHOTO_PAUSE)));
     ImGui::End();
 }
 
@@ -6474,8 +6726,13 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     /* The console keeps the keys, though the pad is the game's, until a click
      * outside it: then the keys and the mouse are the game's, as with no menu. */
     const bool menu_keys = s_pad_menu || console_typing();
+    /* Mouse in menus (to-do 40): the game's own menus take the mouse; first,
+     * so its message reaches the window before the toolkit's keys-only one. */
+    const bool mm_draw = menu_mouse_frame(w, h, s_want_open != 0 || s_paused
+                                                || photo_active() || photo_frozen()
+                                                || precompile_on()) != 0;
     xbox_KbmSetActive(!s_paused && (!s_want_open || !menu_keys));
-    xbox_KbmSetKeysOnly(s_want_open != 0 && !console_free());
+    xbox_KbmSetKeysOnly((s_want_open != 0 && !console_free()) || menu_mouse_on());
     InterlockedExchange(&s_keys_to_game, s_want_open && s_open && !menu_keys);
     /* The photo first: the picture as it is, before any text of ours. */
     if (s_shot_want && InterlockedExchange(&s_shot_want, 0))
@@ -6517,7 +6774,8 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
                            || (sr_env && *sr_env == '1'))
                           && !photo_active() && !precompiling;
     if (!s_want_open && !s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
-        && cover <= 0.0f && !precompiling && !warped && !pad_shown && !sr_shown)
+        && cover <= 0.0f && !precompiling && !warped && !pad_shown && !sr_shown
+        && !mm_draw)
         return 0;
     if (!s_ready) {
         if (!init_imgui(dev, ctx, h)) {
@@ -6574,7 +6832,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         if (close) {
             close_menu();
             if (!s_paused && !s_fps && !photo_frozen() && ring <= 0.0f
-                && cover <= 0.0f && !warped)
+                && cover <= 0.0f && !warped && !mm_draw)
                 return 0;
             close = false;
         }
@@ -6602,6 +6860,8 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
             IM_COL32(0, 0, 0, (int)(cover * 255.0f)));
     if (ring > 0.0f)
         skip_ring(w, h, ring);
+    if (mm_draw)
+        menu_mouse_draw(w, h);
     if (precompiling) {
         precompile_pad_stop();
         precompile_screen(w, h);
@@ -6654,6 +6914,14 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     if (close)
         close_menu();
     return s_paused ? 1 : 0;
+}
+
+/* Right click on the main menu's boards (menu_mouse.cpp): the quit question,
+ * as Esc and B there. */
+void overlay_open_quit(void)
+{
+    if (InterlockedCompareExchange(&s_want_open, MENU_QUIT, MENU_NONE) == MENU_NONE)
+        fprintf(stderr, "[OVERLAY] right click on the main menu: quit question\n");
 }
 
 /* No menu of ours is up, the game isn't held and photo mode is off: the cheat

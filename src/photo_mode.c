@@ -518,8 +518,7 @@ static const char *not_here_why(void)
 
 static int held(int row)
 {
-    int k = controls_key(CONTROLS_PHOTO, row);
-    return k > 0 && xbox_KbmHeld((unsigned)k);
+    return controls_keys_held(CONTROLS_PHOTO, controls_keys(CONTROLS_PHOTO, row));
 }
 
 /* Noclip (recomp_manual.c): the fly controls with the game running; nothing while
@@ -560,11 +559,13 @@ int photo_fly_fast(void)
     return held(PHOTO_FAST) || (p.buttons & XINPUT_GAMEPAD_LEFT_THUMB);
 }
 
-/* Wheel notches since the last frame on a row's key, if it is the wheel. */
+/* Wheel notches since the last frame on a row's keys, if the wheel is one
+ * (alone, or with its combo's hold key down). */
 static int notches(int row, const int *wheel)
 {
-    int k = controls_key(CONTROLS_PHOTO, row);
-    return k == KBM_WHEEL_UP ? wheel[0] : k == KBM_WHEEL_DOWN ? wheel[1] : 0;
+    ControlKeys k = controls_keys(CONTROLS_PHOTO, row);
+    return (controls_keys_pressed(CONTROLS_PHOTO, k, KBM_WHEEL_UP) ? wheel[0] : 0)
+         + (controls_keys_pressed(CONTROLS_PHOTO, k, KBM_WHEEL_DOWN) ? wheel[1] : 0);
 }
 
 /* Fly, look and roll by the keys, the mouse and the pad; the one-press

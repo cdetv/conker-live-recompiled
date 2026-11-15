@@ -230,12 +230,34 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
 
     internal string ValueOf(string key) => values.GetValueOrDefault(key) ?? Default(key);
 
-    internal string KeyLabel(string name) =>
-        schema?.KeyLabels.GetValueOrDefault(name) ?? name;
+    /// <summary>A key list as F3 shows it: "Space / Shift + E", "-" for none.</summary>
+    internal string KeyLabel(string value)
+    {
+        List<string> keys = SettingsSchema.SplitKeys(value);
+        return keys.Count == 0
+            ? schema?.KeyLabels.GetValueOrDefault("none") ?? "-"
+            : string.Join(" / ", keys.Select(BindLabel));
+    }
+
+    /// <summary>One key as F3 shows it: "E", "Shift + E", "Shift + C (keep)".</summary>
+    internal string BindLabel(string bind)
+    {
+        var (hold, input, keep) = SettingsSchema.BindParts(bind);
+        string l = Name(input);
+        if (hold is not null)
+        {
+            l = $"{Name(hold)} + {l}";
+        }
+
+        return keep ? l + " (keep)" : l;
+    }
+
+    private string Name(string key) => schema?.KeyLabels.GetValueOrDefault(key) ?? key;
 
     internal void StartCapture(KeyItem item)
     {
         CaptureMessage = null;
+        Holding = null;
         Capturing = item;
     }
 
@@ -259,16 +281,29 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
     }
 
+    /// <summary>A key held while asking: alone when let go, a combo's hold key when another follows.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HoldingText))]
+    public partial string? Holding { get; set; }
+
+    public string? HoldingText => Holding is null ? null : $"Holding {Name(Holding)}: press another key for a combo, or let go";
+
     /// <summary>A key pressed while asking (the window sends every key): F3's rules for which are taken.</summary>
     public void TakeKey(Key key)
     {
-        if (KeyInput.IsGameOwn(key))
+        // Esc cancels, as in F3 (user 2026-11-14: Esc can't be bound).
+        if (key == Key.Escape)
+        {
+            Holding = null;
+            Capturing = null;
+        }
+        else if (KeyInput.IsGameOwn(key))
         {
             CaptureMessage = "F1-F3, F9 and F11 are the game's own keys";
         }
         else if (KeyInput.Name(key) is { } name)
         {
-            Take(name);
+            Down(name);
         }
         else
         {
@@ -276,36 +311,124 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
     }
 
-    /// <summary>A mouse button or wheel turn on the question (not on its buttons).</summary>
+    /// <summary>A key let go while asking.</summary>
+    public void TakeKeyUp(Key key)
+    {
+        if (KeyInput.Name(key) is { } name)
+        {
+            Up(name);
+        }
+    }
+
+    /// <summary>A mouse button pressed or let go on the question (not on its buttons).</summary>
     public void TakeMouse(MouseButton button)
     {
         if (KeyInput.Name(button) is { } name)
         {
-            Take(name);
+            Down(name);
         }
     }
 
+    public void TakeMouseUp(MouseButton button)
+    {
+        if (KeyInput.Name(button) is { } name)
+        {
+            Up(name);
+        }
+    }
+
+    /// <summary>A wheel notch is taken at once: alone, or as the second key of a combo.</summary>
     public void TakeWheel(double delta)
     {
         if (delta != 0)
         {
-            Take(delta > 0 ? "wheelup" : "wheeldown");
+            string wheel = delta > 0 ? "wheelup" : "wheeldown";
+            string? hold = Holding;
+            Holding = null;
+            Take(hold is null ? wheel : $"{hold}+{wheel}");
+        }
+    }
+
+    /// <summary>
+    /// F3's recording (overlay.cpp <c>drain_events</c>): the first key down waits; let go alone it
+    /// is that key; another pressed while it is held makes the combo.
+    /// </summary>
+    private void Down(string name)
+    {
+        if (Holding is null)
+        {
+            Holding = name;
+            CaptureMessage = null;
+        }
+        else if (name != Holding)
+        {
+            string combo = $"{Holding}+{name}";
+            Holding = null;
+            if (schema?.NormalizeBind(combo) is null)
+            {
+                CaptureMessage = "Alt+Tab and Alt+F4 are Windows' own";
+                return;
+            }
+
+            Take(combo);
+        }
+    }
+
+    private void Up(string name)
+    {
+        if (name == Holding)
+        {
+            Holding = null;
+            Take(name);
         }
     }
 
     [RelayCommand]
-    private void NoKey() => Take("none");
-
-    [RelayCommand]
-    private void CancelCapture() => Capturing = null;
-
-    private void Take(string name)
+    private void NoKey()
     {
         if (Capturing is { } item)
         {
+            Holding = null;
             Capturing = null;
-            SetKey(item, name);
+            SetKey(item, "none");
         }
+    }
+
+    [RelayCommand]
+    private void CancelCapture()
+    {
+        Holding = null;
+        Capturing = null;
+    }
+
+    /// <summary>
+    /// A key pressed for the row (to-do 38, F3's <c>ask_key</c>): one it has is taken off, another
+    /// added; a fourth is refused and the question stays.
+    /// </summary>
+    private void Take(string bind)
+    {
+        if (Capturing is not { } item)
+        {
+            return;
+        }
+
+        List<string> keys = SettingsSchema.SplitKeys(item.Value);
+        if (keys.RemoveAll(k => SettingsSchema.SameBind(k, bind)) > 0)
+        {
+            // taken off
+        }
+        else if (keys.Count >= SettingsSchema.MaxKeys)
+        {
+            CaptureMessage = "Already 3 keys: press one to remove it first";
+            return;
+        }
+        else
+        {
+            keys.Add(bind);
+        }
+
+        Capturing = null;
+        SetKey(item, keys.Count == 0 ? "none" : string.Join(", ", keys));
     }
 
     private string Default(string key) =>
@@ -328,13 +451,65 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
 
             var keys = tab.Items.OfType<KeyItem>().ToList();
 
+            // Any of a row's keys (to-do 38) on another row clashes, and so do a combo's side
+            // effects (CombosNotes; F3's combo_notes).
             foreach (KeyItem k in keys)
             {
-                k.ClashWith = !k.IsShown || k.Value == "none"
-                    ? null
-                    : keys.LastOrDefault(j => j != k && j.IsShown && j.Value == k.Value
-                                              && (j.Section == k.Section || j.ClashesAll || k.ClashesAll)
-                                              && j.Button != k.Button)?.Label;
+                List<string> mine = SettingsSchema.SplitKeys(k.Value);
+                var notes = new List<string>();
+                if (k.IsShown && mine.Count > 0)
+                {
+                    foreach (KeyItem j in keys.Where(j => j != k && j.IsShown
+                                                          && (j.Section == k.Section || j.ClashesAll || k.ClashesAll)
+                                                          && j.Button != k.Button))
+                    {
+                        List<string> other = SettingsSchema.SplitKeys(j.Value);
+                        if (mine.Any(a => other.Any(b => SettingsSchema.SameBind(a, b))))
+                        {
+                            notes.Add($"Also used for: {j.Label}");
+                        }
+
+                        ComboNotes(notes, mine, other, j.Label);
+                    }
+                }
+
+                k.Notes = notes.Count == 0 ? null : string.Join("\n", notes.Distinct());
+            }
+        }
+    }
+
+    /// <summary>
+    /// What a combo does to another row's keys (to-do 38), seen from either row: the hold key's
+    /// own action happens too, and while the hold key is down the combo takes its second key from
+    /// that key's own action.
+    /// </summary>
+    private void ComboNotes(List<string> notes, List<string> mine, List<string> other, string otherLabel)
+    {
+        foreach (string a in mine)
+        {
+            var (ah, ai, _) = SettingsSchema.BindParts(a);
+            foreach (string b in other)
+            {
+                var (bh, bi, _) = SettingsSchema.BindParts(b);
+                if (ah is not null && bh is null && bi == ah)
+                {
+                    notes.Add($"{Name(ah)} is also {otherLabel}: that happens too");
+                }
+
+                if (ah is not null && bh is null && bi == ai)
+                {
+                    notes.Add($"While {Name(ah)} is held, {Name(ai)} is this, not {otherLabel}");
+                }
+
+                if (ah is null && bh is not null && bh == ai)
+                {
+                    notes.Add($"{Name(ai)} also starts {otherLabel} ({BindLabel(b)}): this happens too");
+                }
+
+                if (ah is null && bh is not null && bi == ai)
+                {
+                    notes.Add($"While {Name(bh)} is held, {Name(ai)} is {otherLabel}, not this");
+                }
             }
         }
     }

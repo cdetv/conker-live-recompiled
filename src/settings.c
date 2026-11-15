@@ -193,6 +193,23 @@ static const Option s_options[] = {
       "tear) or vrr (G-Sync / FreeSync: for a monitor with it turned on, in\n"
       "full screen; the monitor waits for the game's frames). Applies at\n"
       "once." },
+    /* To-dos 41, 227 (user 2026-11-15): on by default, under Fixes. */
+    { "display", "unlocked_camera", OPT_BOOL, "1", "1", "RECOMP_UNLOCKED_CAMERA",
+      NULL,
+      "Single player: the camera tilts from straight down on Conker to\n"
+      "looking up from low down, zooms smoothly (mouse wheel, or D-pad up\n"
+      "held with the right stick's up / down), and the zoom button (right\n"
+      "stick click / V) puts it back behind Conker at the game's distance:\n"
+      "1 = on (default), 0 = off (the original: the zoom button switches\n"
+      "between the near and the far camera). Applies at once." },
+    /* To-do 228 (user 2026-11-15): under Fixes > Camera, 40-75, 50 = the
+     * original; weapon zooms keep their strength (recomp_manual.c). */
+    { "display", "field_of_view", OPT_NUM, "50", "50", "RECOMP_FOV", NULL,
+      "Field of view: how much of the world the camera shows, in degrees\n"
+      "from the top of the picture to the bottom, 40 to 75: 50 = the\n"
+      "original (default), higher = wider. Weapon views and their zoom\n"
+      "widen with it and keep their zoom; story cutscenes keep their own\n"
+      "view. Applies at once.", 40.0f, 75.0f },
     /* To-do 26 (2026-11-07). */
     { "display", "loading_screen", OPT_BOOL, "1", "1", "RECOMP_LOADSCREEN",
       NULL,
@@ -483,6 +500,12 @@ static const Option s_options[] = {
       "1 = on (default), 0 = off. F3 in the game changes the keys; the\n"
       "mouse looks around. In a window, click the picture to use the mouse\n"
       "(Alt+Tab, F2 or F3 let it go again)." },
+    /* To-do 40 (user 2026-11-14): menu_mouse.cpp. */
+    { "controls", "menu_mouse", OPT_BOOL, "1", "1", NULL, NULL,
+      "The mouse in the game's own menus, with keyboard_mouse = 1:\n"
+      "1 = on (default): the pointer shows when the mouse moves, clicks\n"
+      "choose, right click goes back, the wheel moves up and down;\n"
+      "0 = off, the mouse does nothing in menus. F3 > Menus." },
     { "controls", "keyboard_slot", OPT_CHOICE, "1", "1", NULL, "1 2 3 4",
       "Which player (controller port 1-4) the keyboard and mouse are, when\n"
       "keyboard_mouse = 1: 1 (default) to 4. F3 > Slots." },
@@ -560,8 +583,9 @@ static const Option s_options[] = {
       "aimed while story_aim is held, as the other weapons) or toggle\n"
       "(story_context turns it on and off, as Classic's weapon key)." },
     { "controls_story", "story_move_forward", OPT_KEY, "w", "w", NULL, NULL,
-      "One key per action; F3 says what each does (menus have fixed\n"
-      "keys: WASD/arrows, Space/E/Enter, Q/Backspace, Esc).\n"
+      "Up to three keys per action, a list: space, mouse4, shift+e (a\n"
+      "combo: hold shift, then press e). F3 says what each does (menus\n"
+      "have fixed keys: WASD/arrows, Space/E/Enter, Q/Backspace, Esc).\n"
       "Key names: a-z, 0-9, num0-num9, space, enter, backspace, tab, esc,\n"
       "shift, ctrl, alt, capslock, up, down, left, right, insert, delete,\n"
       "home, end, pageup, pagedown, f4-f8, f10, f12, semicolon, equals,\n"
@@ -582,6 +606,11 @@ static const Option s_options[] = {
     { "controls_story", "story_reload", OPT_KEY, "r", "r", NULL, NULL, NULL },
     { "controls_story", "story_head_cam", OPT_KEY, "c", "c", NULL, NULL, NULL },
     { "controls_story", "story_zoom", OPT_KEY, "v", "v", NULL, NULL, NULL },
+    { "controls_story", "story_cam_zoom_in", OPT_KEY, "wheelup", "wheelup", NULL, NULL,
+      "Unlocked Camera (F2 Fixes): zoom the camera in and out. On the controller\n"
+      "D-pad up held with the right stick up / down." },
+    { "controls_story", "story_cam_zoom_out", OPT_KEY, "wheeldown", "wheeldown", NULL,
+      NULL, NULL },
     { "controls_story", "story_pause", OPT_KEY, "esc", "esc", NULL, NULL, NULL },
     { "controls_story", "story_back_button", OPT_KEY, "none", "none", NULL, NULL, NULL },
     { "controls_story", "story_dpad_up", OPT_KEY, "up", "up", NULL, NULL, NULL },
@@ -616,8 +645,9 @@ static const Option s_options[] = {
     { "controls_multiplayer", "mp_invert_y", OPT_BOOL, "0", "0", NULL, NULL,
       "1 = moving the mouse forward looks down (default 0)." },
     { "controls_multiplayer", "mp_move_forward", OPT_KEY, "w", "w", NULL, NULL,
-      "One key per action; F3 says what each does (menus have fixed\n"
-      "keys: WASD/arrows, Space/E/Enter, Q/Backspace, Esc).\n"
+      "Up to three keys per action, a list: space, mouse4, shift+e (a\n"
+      "combo: hold shift, then press e). F3 says what each does (menus\n"
+      "have fixed keys: WASD/arrows, Space/E/Enter, Q/Backspace, Esc).\n"
       "Key names: a-z, 0-9, num0-num9, space, enter, backspace, tab, esc,\n"
       "shift, ctrl, alt, capslock, up, down, left, right, insert, delete,\n"
       "home, end, pageup, pagedown, f4-f8, f10, f12, semicolon, equals,\n"
@@ -939,14 +969,15 @@ static int normalize(const Option *o, const char *value, char *out,
         return 1;
     }
     case OPT_KEY: {
-        int input = controls_parse_key(value);
-        if (input < 0) {
+        /* Up to three keys, a list (to-do 38): "space, mouse4". */
+        ControlKeys keys;
+        if (controls_parse_keys(value, &keys) < 0) {
             fprintf(stderr, "[SETTINGS] %s: %s = %s ignored: not a key name "
                     "(see the comment in [controls_story])\n", where, o->key,
                     value);
             return 0;
         }
-        strcpy_s(out, MAX_PATH, controls_key_name(input));
+        strcpy_s(out, MAX_PATH, controls_keys_name(keys));
         return 1;
     }
     case OPT_PATH:

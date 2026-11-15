@@ -119,6 +119,7 @@ set(GAME_SOURCES
     src/dev_logs.c
     src/speedrun.c
     src/overlay.cpp
+    src/menu_mouse.cpp
     # Add game-specific sources here, e.g.:
     # src/asset_loader.c
     # src/custom_renderer.c

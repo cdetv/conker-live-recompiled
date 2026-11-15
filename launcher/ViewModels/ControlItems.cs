@@ -109,25 +109,29 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 
     public string AutomationName => $"{Label} key";
 
-    /// <summary>The key's settings.ini name.</summary>
+    /// <summary>The keys' settings.ini value: up to three names, "space, mouse4" (to-do 38).</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(KeyLabel), nameof(IsChanged), nameof(ResetTip))]
+    [NotifyPropertyChangedFor(nameof(KeyLabel), nameof(KeysNow), nameof(IsChanged), nameof(ResetTip))]
     public partial string Value { get; set; } = defaultKey;
 
     public string KeyLabel => owner.KeyLabel(Value);
+
+    /// <summary>"Press a key"'s line with the keys it has now.</summary>
+    public string KeysNow => $"Keys now: {(Value == "none" ? "none" : owner.KeyLabel(Value))}";
 
     public bool IsChanged => !Value.Equals(defaultKey, StringComparison.OrdinalIgnoreCase);
 
     public string ResetTip => $"Back to the default ({owner.KeyLabel(defaultKey)})";
 
-    /// <summary>Another row's label using the same key for another button, if any.</summary>
+    /// <summary>What the row's keys do to other rows' (a shared key, a combo's side effects), or null.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsClash), nameof(ClashTip))]
-    public partial string? ClashWith { get; set; }
+    public partial string? Notes { get; set; }
 
-    public bool IsClash => ClashWith is not null;
+    public bool IsClash => Notes is not null;
 
-    public string? ClashTip => ClashWith is null ? null : $"Also used for: {ClashWith}";
+    /// <summary>Why it is orange, a line each: "Also used for: Jump", a combo's side effects (to-do 38).</summary>
+    public string? ClashTip => Notes;
 
     public override void Show(string value) => Value = value;
 

@@ -44,7 +44,9 @@ public sealed partial class MainWindow : Window, IFilePicker
         // "Press a key" (Controls tab): every key goes to the question first, before focus
         // navigation or a button can take Tab, Space or the arrows.
         AddHandler(KeyDownEvent, OnKeyDownFirst, RoutingStrategies.Tunnel);
+        AddHandler(KeyUpEvent, OnKeyUpFirst, RoutingStrategies.Tunnel);
         CaptureLayer.PointerPressed += OnCapturePointer;
+        CaptureLayer.PointerReleased += OnCapturePointerUp;
         CaptureLayer.PointerWheelChanged += OnCaptureWheel;
         CaptureLayer.PropertyChanged += (_, e) =>
         {
@@ -289,6 +291,25 @@ public sealed partial class MainWindow : Window, IFilePicker
             FileTypeFilter = [new FilePickerFileType(filterName) { Patterns = patterns }, FilePickerFileTypes.All],
         });
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+    }
+
+    /// <summary>"Press a key": a key let go (to-do 38: the first key alone, or not a combo after all).</summary>
+    private void OnKeyUpFirst(object? sender, KeyEventArgs e)
+    {
+        if (ControlsVm is { IsCapturing: true } controls)
+        {
+            e.Handled = true;
+            controls.TakeKeyUp(e.Key);
+        }
+    }
+
+    private void OnCapturePointerUp(object? sender, PointerReleasedEventArgs e)
+    {
+        if (ControlsVm is { IsCapturing: true } controls)
+        {
+            e.Handled = true;
+            controls.TakeMouseUp(e.InitialPressMouseButton);
+        }
     }
 
     private void OnKeyDownFirst(object? sender, KeyEventArgs e)

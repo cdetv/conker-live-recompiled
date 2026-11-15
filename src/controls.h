@@ -72,8 +72,53 @@ typedef struct {
 
 int controls_count(int set);
 const ControlAction *controls_action(int set, int i);
-/* Action i's key now (an input as below, 0 = none). */
+/* Action i's first key now (an input as below, 0 = none): the fixed sets'
+ * one key; a player set's row may have more (controls_keys). */
 int controls_key(int set, int i);
+
+/* An action's keys (to-do 38, SPEC 10.1): up to CONTROLS_MAX_KEYS, packed
+ * into one value any thread may copy: 20 bits a key, first to last with no
+ * gaps; 0 = none. One key (a "bind"): its input in the low 9 bits, a
+ * combo's hold key (down first: Shift in Shift + E) in the next 9, and
+ * CONTROLS_KEEP for a held combo (once on, the input alone keeps it on). */
+#define CONTROLS_MAX_KEYS 3
+#define CONTROLS_INPUT(b)         ((b) & 0x1FF)
+#define CONTROLS_HOLD(b)          (((b) >> 9) & 0x1FF)
+#define CONTROLS_KEEP             (1 << 18)
+#define CONTROLS_COMBO(hold, in)  (((hold) << 9) | (in))
+typedef long long ControlKeys;
+ControlKeys controls_keys(int set, int i);
+int controls_keys_count(ControlKeys k);
+/* Key j whole (0 past the last). */
+int controls_keys_get(ControlKeys k, int j);
+/* Is this key one of them (a combo the same combo; held or not)? */
+int controls_keys_has(ControlKeys k, int bind);
+/* Is any of them held now, by the combo rules (a combo: its hold key down
+ * first; a plain key: not taken by a combo of set's table that is on)? */
+int controls_keys_held(int set, ControlKeys k);
+/* Does a key-down of input press one of them (the window's hotkeys): a
+ * plain key not taken by a combo of set's table, or a combo whose hold
+ * key is down? */
+int controls_keys_pressed(int set, ControlKeys k, int input);
+/* Is one of them Alt + input? With Alt down Windows sends WM_SYSKEYDOWN,
+ * which the hotkeys otherwise leave alone (Alt+F4 closes the window). */
+int controls_keys_alt_pressed(ControlKeys k, int input);
+/* bind added last (unchanged when already there or full) / taken out. */
+ControlKeys controls_keys_add(ControlKeys k, int bind);
+ControlKeys controls_keys_remove(ControlKeys k, int bind);
+/* Can this be a key: not two of the same, not the wheel as a hold key, not
+ * Alt+Tab or Alt+F4 (Windows'), keep only on a combo. */
+int controls_bind_ok(int bind);
+/* A settings.ini value ("space, mouse4, shift+e"; one name; "none" or "" =
+ * none) to keys: 0 when every one is a key (repeats dropped, past the
+ * third ignored), -1 when one is not. A held combo: "shift+c keep". */
+int controls_parse_keys(const char *value, ControlKeys *out);
+/* Keys as settings.ini writes them ("space, shift+e", "none") and as the
+ * menus show them ("Space / Shift + E", "-"); one key as the menus show it.
+ * A few static buffers in turn. */
+const char *controls_keys_name(ControlKeys k);
+const char *controls_keys_label(ControlKeys k);
+const char *controls_bind_label(int bind);
 /* Row i of a set's whole table, single player's rows of both schemes (for
  * --dump-settings and resetting a set); NULL past the end. *scheme: 0 for
  * both schemes, else the one it belongs to (CONTROLS_CLASSIC, _MODERN). */
@@ -115,17 +160,11 @@ int controls_pad_of_port(int port);
  * has none. */
 int controls_pad_name(int pad, char *out, int size);
 
-/* The photo mode key (PHOTO_TOGGLE), the pause key (PHOTO_PAUSE), the
- * Report Bug key (PHOTO_REPORT) and the Debug / cheat menu key (PHOTO_MENU),
- * for the window's message hook: copies made by controls_apply, so any thread
- * may read them. */
-int controls_photo_toggle_key(void);
-int controls_pause_key(void);
-int controls_report_key(void);
-int controls_menu_key(void);
-int controls_noclip_key(void);
-int controls_bullet_key(void);
-int controls_mark_key(void);
+/* The keys of the photo table's rows that work everywhere (PHOTO_TOGGLE to
+ * PHOTO_ANYWHERE_LAST: photo mode, pause, Report Bug, the Debug / cheat menu,
+ * noclip, bullet time, mark), for the window's message hook: copies made by
+ * controls_apply, so any thread may read them; 0 for another row. */
+ControlKeys controls_hotkeys(int row);
 /* Is this Windows key one the set in use presses Start with (the game's
  * pause: Esc, story_pause / mp_pause)? For the window's message hook, which
  * keeps it from the game while a menu of ours is up (to-do 181). */
@@ -139,19 +178,22 @@ void controls_set_mode(int set);
 void controls_mouse(int set, float *sx, float *sy, int *invert);
 int controls_mode(void);
 /* Single player's Modern scheme (story_scheme): 1 when chosen, with its
- * context, aim and attack keys (inputs as above); the game thread drives
- * those from the game's state (recomp_manual.c). */
-int controls_modern(int *context, int *aim, int *attack);
+ * context, aim and attack keys; the game thread drives those from the
+ * game's state (recomp_manual.c). Any pointer may be NULL. */
+int controls_modern(ControlKeys *context, ControlKeys *aim, ControlKeys *attack);
 /* Modern's slingshot (story_slingshot_aim = toggle): 1 when the context key
  * turns a slingshot pad's slingshot on and off instead of the aim key. */
 int controls_sling_toggle(void);
 /* Multiplayer's zoom held (mp_zoom_mode = hold): 1 when chosen, with the
- * zoom key; the game thread zooms by the game's state (recomp_manual.c). */
-int controls_zoom_hold(int *zoom);
-/* The bat's aim key (story_bat_aim) in *aim; returns 1 for Modern (aim
+ * zoom keys; the game thread zooms by the game's state (recomp_manual.c). */
+int controls_zoom_hold(ControlKeys *zoom);
+/* The bat's aim keys (story_bat_aim) in *aim; returns 1 for Modern (aim
  * while held), 0 for Classic (each press toggles). The game thread taps the
  * left trigger by the game's aim state (recomp_manual.c). */
-int controls_bat_aim(int *aim);
+int controls_bat_aim(ControlKeys *aim);
+/* Unlocked Camera's zoom keys (story_cam_zoom_in / _out); returns 1 while
+ * single player's on-foot keys are on. For the window thread (overlay.cpp). */
+int controls_cam_zoom(ControlKeys *in, ControlKeys *out);
 
 #ifdef __cplusplus
 }
