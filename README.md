@@ -74,7 +74,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 |---|---|---|
 | Quality preset | — | **Low, Medium, High or Ultra** sets the main picture options in one go; a weaker PC starts on Low |
 | Resolution | 640×480 | Any resolution and shape (16:9, 21:9, 4:3, ...); by default your monitor's size, up to 1440p (or native, e.g. 4K) |
-| Render scale | — | 0.5x–4x (10x in debug mode): supersampling above 1x, FSR 1 upscaling below |
+| Render scale | — | 0.5x–4x (10x in debug mode): supersampling above 1x, FSR 1 upscaling below; **Automatic resolution** lowers it by itself when your graphics card can't keep up |
 | Frame rate | 30 fps | **30, 60, 90 or 120 fps** with the game running at its correct speed (30 fps as the original) |
 | VSync | — | On, off, or G-Sync / FreeSync (VRR) |
 | Display mode | — | Windowed (its size and place remembered), borderless or exclusive full screen at your monitor's refresh rate |
@@ -184,19 +184,27 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   swimming, flying as the bat and in vehicles. Every gameplay key can be
   changed (F3 menu or the launcher's Controls tab), with up to three keys per
   action and two-key combos such as Shift + E.
+- **Controller buttons** can be changed too: every single-player action gets
+  the button you choose, with Classic and Modern each keeping their own set
+  (F3 menu or the launcher's Controls tab).
 - **Mouse in menus**: point and click in the game's own menus, from the main
   menu (drag the room around by hand) and the pause screen to every
   multiplayer menu.
 - Two single-player layouts: **Classic** (the controller one-to-one) and
   **Modern** (hold the right mouse button to aim, a separate action key).
-- **PlayStation 4 and 5 controllers** (DualShock 4, DualSense) work directly,
-  no extra programs. Xbox controllers of course too.
-- **Rumble** on Xbox and PlayStation controllers, as on the Xbox, with
-  rumble strength and stick dead zone set per controller.
+- **PlayStation 4 and 5 controllers** (DualShock 4, DualSense) and **Switch
+  controllers** (Pro Controller, a pair of Joy-Cons) work directly, no extra
+  programs. Xbox controllers of course too.
+- **Gyro aiming** with PlayStation and Switch controllers: turn the
+  controller to aim.
+- **Rumble** as on the Xbox, and **Controller Options** for each controller:
+  rumble strength, stick dead zone, camera speeds and gyro aiming.
 - **Slots**: choose which controller, or the keyboard, is which player.
 - Multiplayer keyboard and mouse controls, with a zoom key.
 - **Back + Start** opens a small menu on the controller: settings, controls,
-  photo mode and Report Bug.
+  photo mode, Report Bug and controller options.
+- **Chords**: the controller's button pairs for these extras (Back + Start,
+  Back + LB, Back + RB...) can be changed in F3 > Slots > Chords.
 - The [launcher](#the-launcher) works fully with a controller too.
 
 <p align="center">
@@ -378,18 +386,20 @@ A few glitches the Xbox version has too are fixed:
 - A graphics card with DirectX 11
 - Your own copy of *Conker: Live & Reloaded* (Xbox; PAL or USA)
 - About 6 GB of free space
-- Optional: an Xbox or PlayStation controller (keyboard and mouse work too)
+- Optional: an Xbox, PlayStation or Switch controller (keyboard and mouse work too)
 
 Windows "N" editions need Microsoft's Media Feature Pack for the game's movies.
 
 ## Keys in the game
+
+The controller's button pairs are the defaults: F3 > Slots > Chords changes them.
 
 | Key | Controller | |
 |---|---|---|
 | F2 | Back + LB | Settings menu |
 | F3 | | Controls menu |
 | F4 | Back + RB | Photo mode |
-| | Back + Start | Menu: settings, controls, photo mode, Report Bug |
+| | Back + Start | Menu: settings, controls, photo mode, Report Bug, controller options |
 | F8 | | Cheat menu, once unlocked (Debug menu in [debug mode](#debug-mode)) |
 | `~` | | Console ([debug mode](#debug-mode) only) |
 | F10 | Report Bug... button in the settings menu | Report a bug |
@@ -410,7 +420,6 @@ Ideas for future updates, in no particular order. Plans can change.
 - Linux / Steam Deck support
 - Frame rates above 120 fps
 - Accurate audio DSP emulation + expanded sound profiles
-- Gyro aiming
 - HD-friendly GUI / expanded button prompts
 - Improved water and fluids
 - Achievements
@@ -482,13 +491,16 @@ minutes.
 - **nastys, Vaani and Theconker64**: [the decensor patch](https://github.com/nastys/conker-live-and-reloaded-decensor).
 - **[giacomozama/live-and-recompiled](https://github.com/giacomozama/live-and-recompiled)**:
   another Conker recompilation whose change log pointed us at frame-rate bugs
-  (barn roof, swimming height, Harbour cannons).
+  (barn roof, swimming height, Harbour cannons) and at the fixes in 0.3.3 (the
+  censor box, Creaky Crate and Heist dive at high frame rates, the squirrel
+  soldiers' tails, fur, the English throne-room bubbles and BrontoThroat's
+  music).
 - **[codepdbh/xboxrecomp-conker](https://github.com/codepdbh/xboxrecomp-conker)**,
   the *[Conker Xbox 60fps + Widescreen patch](https://www.moddb.com/mods/conker-live-reloaded-wip-60fps-patch)
   by picardsfish*, **[XboxDev/ghidra-xbe](https://github.com/XboxDev/ghidra-xbe)**
   and **[Ghidra](https://github.com/nationalsecurityagency/ghidra)**: knowledge
   and tools along the way.
-- Dear ImGui, SDL3, AMD FidelityFX CAS and FSR 1, NVIDIA FXAA, SMAA, .NET,
+- Dear ImGui, SDL3, GamepadMotionHelpers, AMD FidelityFX CAS and FSR 1, NVIDIA FXAA, SMAA, .NET,
   Avalonia, CommunityToolkit.Mvvm and SharpCompress.
 
 Full licences: [`LICENSE.txt`](LICENSE.txt) (this project, MIT) and

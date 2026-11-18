@@ -123,7 +123,7 @@
     <!-- A key row: the action (and the controller button it presses), its key, a reset icon when changed. -->
     <DataTemplate DataType="vm:KeyItem">
       <Border Classes="row" IsVisible="{Binding IsShown}">
-      <Grid ColumnDefinitions="*,160,36" ColumnSpacing="6" Margin="0,1">
+      <Grid ColumnDefinitions="*,160,36,Auto,Auto" ColumnSpacing="6" Margin="0,1">
         <WrapPanel VerticalAlignment="Center">
           <TextBlock Text="{Binding Label}" TextWrapping="Wrap" Margin="0,0,6,0" />
           <TextBlock Text="{Binding ButtonText}" Foreground="{StaticResource DimTextBrush}"
@@ -134,8 +134,43 @@
                 Classes.clash="{Binding IsClash}" ToolTip.Tip="{Binding ClashTip}" />
         <Button Grid.Column="2" Content="↺" Command="{Binding ResetKeyCommand}" IsVisible="{Binding IsChanged}"
                 ToolTip.Tip="{Binding ResetTip}" AutomationProperties.Name="{Binding ResetTip}" VerticalAlignment="Center" />
+        <!-- Single player's Controller column (to-do 39): the action's button for the scheme shown,
+             or the controller's own fixed one, greyed. -->
+        <Button Grid.Column="3" Width="160" Content="{Binding PadLabel}" Command="{Binding CapturePadCommand}"
+                IsVisible="{Binding HasPad}" HorizontalContentAlignment="Center"
+                AutomationProperties.Name="{Binding PadName}"
+                ToolTip.Tip="Click, then press a button on a controller (or pick one)" />
+        <TextBlock Grid.Column="3" Width="160" Text="{Binding PadFixed}" IsVisible="{Binding ShowPadFixed}"
+                   Foreground="{StaticResource DimTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center"
+                   ToolTip.Tip="The controller's own: not rebindable" />
+        <Panel Grid.Column="4" Width="36" IsVisible="{Binding ShowPad}">
+          <Button Content="↺" Command="{Binding ResetPadCommand}" IsVisible="{Binding PadChanged}"
+                  ToolTip.Tip="{Binding PadResetTip}" AutomationProperties.Name="{Binding PadResetTip}" VerticalAlignment="Center" />
+        </Panel>
       </Grid>
       </Border>
+    </DataTemplate>
+    <DataTemplate DataType="vm:KeyHeaderItem">
+      <Border Classes="row">
+      <Grid ColumnDefinitions="*,160,36,Auto,Auto" ColumnSpacing="6" Margin="0,4,0,0">
+        <TextBlock Text="Action" Foreground="{StaticResource DimTextBrush}" />
+        <TextBlock Grid.Column="1" Text="Keys" HorizontalAlignment="Center" Foreground="{StaticResource DimTextBrush}" />
+        <TextBlock Grid.Column="3" Width="160" Text="Controller" TextAlignment="Center" Foreground="{StaticResource DimTextBrush}" />
+        <Panel Grid.Column="4" Width="36" />
+      </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate DataType="vm:ResetPadItem">
+      <StackPanel Margin="0,4,0,4" Spacing="6">
+        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="#FFE0A040"
+                   IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <Button Content="{Binding Label}" Command="{Binding AskCommand}" IsVisible="{Binding !IsAsking}" />
+        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsAsking}">
+          <TextBlock Text="{Binding Question}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
+          <Button Content="Yes" Command="{Binding ConfirmCommand}" />
+          <Button Classes="safe" Content="No" Command="{Binding CancelCommand}" />
+        </StackPanel>
+      </StackPanel>
     </DataTemplate>
     <DataTemplate DataType="vm:FixedItem">
       <Grid ColumnDefinitions="200,*" ColumnSpacing="8" Margin="0,2">
@@ -155,7 +190,7 @@
     </DataTemplate>
     <DataTemplate DataType="vm:SlotsItem">
       <StackPanel Spacing="4" Margin="0,6">
-        <Grid ColumnDefinitions="70,*,90" ColumnSpacing="8">
+        <Grid ColumnDefinitions="70,*,90,90" ColumnSpacing="8">
           <TextBlock Text="Slot" Foreground="{StaticResource DimTextBrush}" />
           <TextBlock Grid.Column="1" Text="Controller" Foreground="{StaticResource DimTextBrush}" />
           <TextBlock Grid.Column="2" Text="Keyboard" Foreground="{StaticResource DimTextBrush}" />
@@ -164,7 +199,7 @@
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:SlotRow">
               <Border Classes="row">
-              <Grid ColumnDefinitions="70,*,90" ColumnSpacing="8" Margin="0,2">
+              <Grid ColumnDefinitions="70,*,90,90" ColumnSpacing="8" Margin="0,2">
                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
                 <ComboBox Grid.Column="1" ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}"
                           AutomationProperties.Name="{Binding Name}" HorizontalAlignment="Stretch">
@@ -176,6 +211,10 @@
                 </ComboBox>
                 <CheckBox Classes="box" Grid.Column="2" IsChecked="{Binding KeyboardOn}" ToolTip.Tip="{Binding KeyboardTip}"
                           AutomationProperties.Name="{Binding KeyboardName}" HorizontalAlignment="Center" />
+                <!-- F3's per-slot Options window (rumble, sticks, gyro; user 2026-11-15). -->
+                <Button Grid.Column="3" Content="Options" Command="{Binding OpenOptionsCommand}" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center" AutomationProperties.Name="{Binding OptionsName}"
+                        ToolTip.Tip="Rumble, sticks and gyro aiming for this slot's controller" />
               </Grid>
               </Border>
             </DataTemplate>
@@ -184,6 +223,11 @@
         <Button Content="Look for controllers again" Margin="0,4,0,0"
                 Command="{Binding $parent[TabControl].((vm:ControlsViewModel)DataContext).RefreshPadsCommand}" />
       </StackPanel>
+    </DataTemplate>
+    <!-- F3 Slots' Chords button (to-do 39): one for every controller. -->
+    <DataTemplate DataType="vm:ChordsItem">
+      <Button Content="Chords" Command="{Binding OpenCommand}" Margin="0,6" AutomationProperties.Name="Chords"
+              ToolTip.Tip="Two buttons held together for the menus, photo mode and cheats (every controller)" />
     </DataTemplate>
   </Window.DataTemplates>
   <Panel>
@@ -595,6 +639,152 @@
           </StackPanel>
         </Border>
       </Panel>
+    </Border>
+
+    <!-- Controls tab, Slots: a slot's Options (F3's per-slot window: rumble, sticks, gyro;
+         user 2026-11-15). The rows are the same items F3 describes, drawn by the templates above. -->
+    <Border x:Name="SlotOptionsOverlay" Background="#B0000000" DataContext="{Binding Controls}" x:DataType="vm:ControlsViewModel"
+            IsVisible="{Binding OptionsRow, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="560" MaxHeight="640" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="section" Text="{Binding OptionsRow.OptionsTitle, FallbackValue=''}" FontSize="22" />
+          <TextBlock DockPanel.Dock="Top" Text="{Binding OptionsRow.ControllerText, FallbackValue=''}" Foreground="{StaticResource DimTextBrush}"
+                     TextWrapping="Wrap" Margin="0,2,0,8" />
+          <Button DockPanel.Dock="Bottom" Classes="secondary safe" Content="Close" Command="{Binding CloseOptionsCommand}"
+                  AutomationProperties.Name="Close slot options" HorizontalAlignment="Right" Margin="0,12,0,0" />
+          <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding OptionsRow.Items, FallbackValue={x:Null}}" Margin="0,0,14,0" />
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </Border>
+
+    <!-- Controls tab, Slots: Chords (F3's chords_window; to-do 39, the user's plan 2026-11-17): every
+         function a chord drives, by group, its chord from a list or pressed on a controller. -->
+    <Border x:Name="ChordsOverlay" Background="#B0000000" DataContext="{Binding Controls}" x:DataType="vm:ControlsViewModel"
+            IsVisible="{Binding ChordsOpen}">
+      <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="680" MaxHeight="680" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="section" Text="Controller chords" FontSize="22" />
+          <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,2,0,8" FontSize="13" Foreground="{StaticResource DimTextBrush}"
+                     Text="Two buttons held together for our own extras, on slot 1's controller; one set for every controller, apart from its normal controls. Button names are an Xbox controller's: on a PlayStation controller Back = Share / Create, Start = Options, LB / RB = L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle." />
+          <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,12,0,0">
+            <TextBlock Text="{Binding ChordsMessage}" TextWrapping="Wrap" Foreground="#FFE0A040"
+                       IsVisible="{Binding ChordsMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding AskResetChords}">
+              <TextBlock Text="Put every chord back to its default?" VerticalAlignment="Center" />
+              <Button Content="Yes" Command="{Binding ConfirmResetChordsCommand}" />
+              <Button Content="No" Command="{Binding CancelResetChordsCommand}" />
+            </StackPanel>
+            <DockPanel>
+              <Button DockPanel.Dock="Left" Content="Reset all chords" Command="{Binding ResetChordsCommand}"
+                      IsVisible="{Binding !AskResetChords}" />
+              <Button Classes="secondary safe" Content="Close" Command="{Binding CloseChordsCommand}"
+                      AutomationProperties.Name="Close chords" HorizontalAlignment="Right" />
+            </DockPanel>
+          </StackPanel>
+          <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding ChordGroups}" Margin="0,0,14,0">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ChordGroupView">
+                  <StackPanel Spacing="4" Margin="0,6,0,4">
+                    <TextBlock Classes="section" Text="{Binding Name}" />
+                    <TextBlock Text="{Binding Tip}" TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}" />
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ChordRow">
+                          <Border Classes="row">
+                            <Grid ColumnDefinitions="*,220,80,36" ColumnSpacing="8" Margin="0,2">
+                              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" ToolTip.Tip="{Binding Tip}">
+                                <TextBlock Text="{Binding Label}" />
+                                <TextBlock Text="(required)" Foreground="{StaticResource DimTextBrush}" IsVisible="{Binding Required}" />
+                              </StackPanel>
+                              <ComboBox Grid.Column="1" ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}"
+                                        AutomationProperties.Name="{Binding Name}" HorizontalAlignment="Stretch" MaxDropDownHeight="420">
+                                <ComboBox.Styles>
+                                  <Style Selector="ComboBoxItem" x:DataType="vm:ChordOption">
+                                    <Setter Property="IsEnabled" Value="{Binding IsFree}" />
+                                  </Style>
+                                </ComboBox.Styles>
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ChordOption">
+                                    <TextBlock Text="{Binding Display}" />
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <Button Grid.Column="2" Content="Press" Command="{Binding PressCommand}" HorizontalAlignment="Stretch"
+                                      HorizontalContentAlignment="Center" AutomationProperties.Name="{Binding PressName}"
+                                      ToolTip.Tip="Set it by holding the chord on a controller" />
+                              <Button Grid.Column="3" Content="&#x21BA;" Command="{Binding ResetCommand}" IsVisible="{Binding !IsDefault}"
+                                      AutomationProperties.Name="{Binding ResetName}" ToolTip.Tip="{Binding ResetTip}" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </Border>
+
+    <!-- Chords: "Press the chord" for one function. The controller's buttons are its (PadNavigator
+         hands them over); B alone or Esc cancels. -->
+    <Border x:Name="ChordCaptureLayer" Background="#B0000000" DataContext="{Binding Controls}" x:DataType="vm:ControlsViewModel"
+            IsVisible="{Binding IsChordCapturing}">
+      <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Spacing="10">
+          <TextBlock Text="On a controller, hold two buttons together for:" />
+          <TextBlock Classes="section" Text="{Binding ChordCapturing.Label, FallbackValue=''}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ChordCapturing.ChordText, StringFormat='Chord now: {0}', FallbackValue=''}" TextWrapping="Wrap" />
+          <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}"
+                     Text="Hold one button and press the other: Back or RB with another button, a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both sticks clicked. B alone, Esc or Cancel: no change." />
+          <TextBlock Text="{Binding ChordCaptureMessage}" TextWrapping="Wrap" Foreground="#FFE0A040"
+                     IsVisible="{Binding ChordCaptureMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+            <Button Content="No chord" Command="{Binding NoChordCommand}" Focusable="False"
+                    IsVisible="{Binding !ChordCapturing.Required, FallbackValue=False}" />
+            <Button Classes="safe" Content="Cancel" Command="{Binding CancelChordCaptureCommand}" Focusable="False" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Border>
+
+    <!-- Controls tab: "Press a button" for a single player row's controller button (to-do 39). The
+         controller's buttons are its (PadNavigator hands them over); Back, Esc or Cancel: no change. -->
+    <Border x:Name="PadCaptureLayer" Background="#B0000000" DataContext="{Binding Controls}" x:DataType="vm:ControlsViewModel"
+            IsVisible="{Binding IsPadCapturing}">
+      <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Spacing="10">
+          <TextBlock Text="On a controller, press the button for:" />
+          <TextBlock Classes="section" Text="{Binding PadCaptureTitle}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding PadNowText}" TextWrapping="Wrap" />
+          <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}"
+                     Text="A button another action uses at the same moment swaps with this one. Back, Esc or Cancel: no change. Back and the D-pad can't be bound. Button names are an Xbox controller's (PlayStation: A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options)." />
+          <TextBlock Text="{Binding PadCaptureMessage}" TextWrapping="Wrap" Foreground="#FFE0A040"
+                     IsVisible="{Binding PadCaptureMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          <ComboBox ItemsSource="{Binding PadOptions}" SelectedItem="{Binding PadSelected}" HorizontalAlignment="Stretch"
+                    AutomationProperties.Name="Controller button" MaxDropDownHeight="420">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:PadOption">
+                <TextBlock Text="{Binding Display}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+            <Button Content="No button" Command="{Binding NoPadButtonCommand}" Focusable="False"
+                    IsVisible="{Binding PadNoneAllowed}" />
+            <Button Classes="safe" Content="Cancel" Command="{Binding CancelPadCaptureCommand}" Focusable="False" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
     </Border>
 
     <!-- Controls tab: "Press a key" for a key row, as F3 asks. Every key is the answer (the

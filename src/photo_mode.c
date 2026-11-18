@@ -71,6 +71,7 @@
 #include <windows.h>
 #include <xinput.h>
 #include <math.h>
+#include <share.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -80,6 +81,7 @@
 #include "photo_mode.h"
 #include "controls.h"
 #include "settings.h"
+#include "chords.h"
 
 /* The toolkit's (xbox_kbm.h, xinput_device.c); not included: their Xbox
  * pad types clash with xinput.h. */
@@ -416,8 +418,35 @@ static int read_pad(Pad *p)
 {
     XINPUT_STATE st;
     int slot = xbox_InputHostPadOfPort(0);
+    /* RECOMP_MENU_PAD=<file> (tests, nobody at the pad; as the menus',
+     * overlay.cpp): the file's hex XInput buttons are slot 1's buttons here
+     * too (0220 = Back + RB, the photo mode chord), the sticks at rest. */
+    static const char *test_file;
+    static int test_looked;
 
     memset(p, 0, sizeof(*p));
+    if (!test_looked) {
+        test_file = getenv("RECOMP_MENU_PAD");
+        test_looked = 1;
+    }
+    if (test_file) {
+        /* The buttons in hex, then optionally the triggers 0-255
+         * ("1000" = A; "0000 0 255" = RT fully down). */
+        FILE *f = _fsopen(test_file, "r", _SH_DENYNO);
+        unsigned b = 0, lt = 0, rt = 0;
+        if (f) {
+            int n = fscanf_s(f, "%x %u %u", &b, &lt, &rt);
+            if (n < 1)
+                b = 0;
+            if (n < 3)
+                lt = rt = 0;
+            fclose(f);
+        }
+        p->buttons = (WORD)b;
+        p->lt = trigger((BYTE)(lt > 255u ? 255u : lt));
+        p->rt = trigger((BYTE)(rt > 255u ? 255u : rt));
+        return 1;
+    }
     if (slot < 0 || xbox_InputHostPadRead((DWORD)slot, &st) != ERROR_SUCCESS)
         return 0;
     p->buttons = st.Gamepad.wButtons;
@@ -522,12 +551,24 @@ static int held(int row)
 }
 
 /* Noclip (recomp_manual.c): the fly controls with the game running; nothing while
- * a menu has the pad or the keys. Speed in units a second. */
+ * a menu has the pad or the keys. Speed in units a second. The controller flies
+ * up with A and down with B or RT (user 2026-11-17: LT is the game's head-cam,
+ * so it no longer flies; pad_filter keeps A, B and RT from the game). A button
+ * a chord of the game's reader holds does nothing here until let go (RB + A
+ * turned noclip on: he doesn't rise). */
 int overlay_fly_input_free(void);
+unsigned conker_GameChordUsed(void);
+
+static WORD fly_buttons(const Pad *p)
+{
+    return (WORD)(p->buttons & ~conker_GameChordUsed());
+}
 
 void photo_fly_input(float *fwd, float *side, float *vert, float *speed)
 {
     Pad p;
+    WORD b;
+    float up, down;
     /* Photo mode's speed setting; s_opt holds it only once photo mode has been on. */
     float pct = (float)atof(settings_get("photo_speed"));
     float s = FLY_SPEED * (pct > 0.0f ? pct : 100.0f) * 0.01f;
@@ -538,12 +579,15 @@ void photo_fly_input(float *fwd, float *side, float *vert, float *speed)
         return;
     }
     read_pad(&p);
+    b = fly_buttons(&p);
+    up = (b & XINPUT_GAMEPAD_A) ? 1.0f : 0.0f;
+    down = (b & XINPUT_GAMEPAD_B) ? 1.0f : p.rt;
     *fwd = (float)(held(PHOTO_FORWARD) - held(PHOTO_BACK)) + p.ly;
     *side = (float)(held(PHOTO_RIGHT) - held(PHOTO_LEFT)) + p.lx;
-    *vert = (float)(held(PHOTO_UP) - held(PHOTO_DOWN)) + p.rt - p.lt;
-    if (held(PHOTO_SLOW) || (p.buttons & XINPUT_GAMEPAD_RIGHT_THUMB))
+    *vert = (float)(held(PHOTO_UP) - held(PHOTO_DOWN)) + up - down;
+    if (held(PHOTO_SLOW) || (b & XINPUT_GAMEPAD_RIGHT_THUMB))
         s *= SLOW_TIMES;
-    if (held(PHOTO_FAST) || (p.buttons & XINPUT_GAMEPAD_LEFT_THUMB))
+    if (held(PHOTO_FAST) || (b & XINPUT_GAMEPAD_LEFT_THUMB))
         s *= FAST_TIMES;
     *speed = s;
 }
@@ -556,7 +600,7 @@ int photo_fly_fast(void)
     if (!overlay_fly_input_free())
         return 0;
     read_pad(&p);
-    return held(PHOTO_FAST) || (p.buttons & XINPUT_GAMEPAD_LEFT_THUMB);
+    return held(PHOTO_FAST) || (fly_buttons(&p) & XINPUT_GAMEPAD_LEFT_THUMB);
 }
 
 /* Wheel notches since the last frame on a row's keys, if the wheel is one
@@ -569,14 +613,17 @@ static int notches(int row, const int *wheel)
 }
 
 /* Fly, look and roll by the keys, the mouse and the pad; the one-press
- * actions on the press. */
-static void steer(const Pad *p, WORD pressed)
+ * actions on the press. used: the pad's buttons a chord has (chords.c),
+ * which do nothing else here until let go; fired: the chords made now. */
+static void steer(const Pad *p, WORD pressed, unsigned used, unsigned fired)
 {
     static int was[PHOTO_ROWS];
     static int back_alone;       /* Back down, nothing with it since */
     static int step_was;
     static LARGE_INTEGER step_since;
-    int now[PHOTO_ROWS] = { 0 }, i, inv, wheel[2], zoom, step, back_down;
+    int now[PHOTO_ROWS] = { 0 }, i, inv, wheel[2], zoom, step;
+    const WORD pb = (WORD)(p->buttons & ~used);   /* the pad's own, held */
+    const WORD pr = (WORD)(pressed & ~used);      /* and pressed now */
     LARGE_INTEGER t, f;
     float dt, fwd, side, vert, speed, sy, cy, sp, cp, sx_m, sy_m, look;
     long dx = 0, dy = 0;
@@ -600,7 +647,7 @@ static void steer(const Pad *p, WORD pressed)
         }
     /* Back from a menu (F2, F3, the photo panel): keys held through it and
      * the mouse moved over it do nothing. */
-    step = now[PHOTO_STEP] || (p->buttons & XINPUT_GAMEPAD_DPAD_RIGHT);
+    step = now[PHOTO_STEP] || (pb & XINPUT_GAMEPAD_DPAD_RIGHT);
     if (s_after_menu) {
         s_after_menu = 0;
         memcpy(was, now, sizeof(was));
@@ -611,16 +658,13 @@ static void steer(const Pad *p, WORD pressed)
         return;
     }
 
-    /* Back alone resets on letting go; with RB (White) it was the toggle,
-     * with LB (Black) the F2 menu (overlay.cpp), with A the resume. Back +
-     * Start does nothing here: it is kept for a controller menu (user
-     * 2026-11-08). */
-    back_down = (p->buttons & XINPUT_GAMEPAD_BACK) != 0;
+    /* Back alone resets on letting go: with any other button down while it
+     * is held it may be a chord (Back + RB the toggle, + LB F2, + Start the
+     * Recomp Menu, + A the resume by default; user 2026-11-17: no reset
+     * until Back is let go, and none after a chord). */
     if (pressed & XINPUT_GAMEPAD_BACK)
         back_alone = 1;
-    if (p->buttons & (XINPUT_GAMEPAD_RIGHT_SHOULDER
-                      | XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_START
-                      | XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_X))
+    if (p->buttons & (WORD)~XINPUT_GAMEPAD_BACK)
         back_alone = 0;
     if (!(p->buttons & XINPUT_GAMEPAD_BACK) && back_alone) {
         back_alone = 0;
@@ -640,28 +684,26 @@ static void steer(const Pad *p, WORD pressed)
     }
     if (now[PHOTO_RESET] && !was[PHOTO_RESET])
         reset_camera();
-    if ((now[PHOTO_TAKE] && !was[PHOTO_TAKE])
-        || ((pressed & XINPUT_GAMEPAD_A) && !back_down))
+    if ((now[PHOTO_TAKE] && !was[PHOTO_TAKE]) || (pr & XINPUT_GAMEPAD_A))
         overlay_photo_shot();
     if ((now[PHOTO_CUT_BLUR] && !was[PHOTO_CUT_BLUR])
-        || (pressed & XINPUT_GAMEPAD_B))
+        || (pr & XINPUT_GAMEPAD_B))
         photo_toggle_cut_blur();
     if (!s_freecam && ((now[PHOTO_RESUME] && !was[PHOTO_RESUME])
-                       || ((pressed & XINPUT_GAMEPAD_A) && back_down)))
+                       || (fired & CHORD_FN_BIT(CHORD_PHOTO_PAUSE))))
         InterlockedExchange(&s_resumed, !s_resumed);
     if (!s_freecam && ((now[PHOTO_PANEL] && !was[PHOTO_PANEL])
-                       || ((pressed & XINPUT_GAMEPAD_START) && !back_down))) {
+                       || (pr & XINPUT_GAMEPAD_START))) {
         memcpy(was, now, sizeof(was));
         step_was = step;
         overlay_photo_panel();
         return;
     }
-    if ((now[PHOTO_HUD] && !was[PHOTO_HUD]) || (pressed & XINPUT_GAMEPAD_Y)) {
+    if ((now[PHOTO_HUD] && !was[PHOTO_HUD]) || (pr & XINPUT_GAMEPAD_Y)) {
         s_opt.hud = !s_opt.hud;
         fprintf(stderr, "[PHOTO] HUD %s\n", s_opt.hud ? "shown" : "hidden");
     }
-    if ((now[PHOTO_CONKER] && !was[PHOTO_CONKER])
-        || ((pressed & XINPUT_GAMEPAD_X) && !(s_freecam && back_down))) {
+    if ((now[PHOTO_CONKER] && !was[PHOTO_CONKER]) || (pr & XINPUT_GAMEPAD_X)) {
         s_opt.hide_conker = !s_opt.hide_conker;
         fprintf(stderr, "[PHOTO] Conker %s\n", s_opt.hide_conker ? "hidden" : "shown");
     }
@@ -677,8 +719,8 @@ static void steer(const Pad *p, WORD pressed)
     memcpy(was, now, sizeof(was));
 
     /* Zoom: held keys and the D-pad smoothly, wheel notches a step each. */
-    zoom = (now[PHOTO_ZOOM_IN] || (p->buttons & XINPUT_GAMEPAD_DPAD_UP))
-        - (now[PHOTO_ZOOM_OUT] || (p->buttons & XINPUT_GAMEPAD_DPAD_DOWN));
+    zoom = (now[PHOTO_ZOOM_IN] || (pb & XINPUT_GAMEPAD_DPAD_UP))
+        - (now[PHOTO_ZOOM_OUT] || (pb & XINPUT_GAMEPAD_DPAD_DOWN));
     s_opt.fov *= expf(-(float)zoom * ZOOM_RATE * dt);
     s_opt.fov *= powf(WHEEL_TIMES, (float)(notches(PHOTO_ZOOM_IN, wheel)
                                        - notches(PHOTO_ZOOM_OUT, wheel)));
@@ -692,9 +734,9 @@ static void steer(const Pad *p, WORD pressed)
     side = (float)(now[PHOTO_RIGHT] - now[PHOTO_LEFT]) + p->lx;
     vert = (float)(now[PHOTO_UP] - now[PHOTO_DOWN]) + p->rt - p->lt;
     speed = FLY_SPEED * s_opt.speed * 0.01f;
-    if (now[PHOTO_SLOW] || (p->buttons & XINPUT_GAMEPAD_RIGHT_THUMB))
+    if (now[PHOTO_SLOW] || (pb & XINPUT_GAMEPAD_RIGHT_THUMB))
         speed *= SLOW_TIMES;
-    if (now[PHOTO_FAST] || (p->buttons & XINPUT_GAMEPAD_LEFT_THUMB))
+    if (now[PHOTO_FAST] || (pb & XINPUT_GAMEPAD_LEFT_THUMB))
         speed *= FAST_TIMES;
     sy = sinf(s_yaw);
     cy = cosf(s_yaw);
@@ -719,13 +761,12 @@ static void steer(const Pad *p, WORD pressed)
         s_pitch = 89.0f * DEG;
     if (s_pitch < -89.0f * DEG)
         s_pitch = -89.0f * DEG;
-    /* RB is the toggle's while Back is down, LB the F2 menu's. */
+    /* LB / RB in a chord (Back + RB the toggle, Back + LB F2) roll until
+     * the chord is made, then not until let go. */
     s_opt.roll += ((float)(now[PHOTO_ROLL_LEFT]
-                       || ((p->buttons & XINPUT_GAMEPAD_LEFT_SHOULDER)
-                           && !(p->buttons & XINPUT_GAMEPAD_BACK)))
+                       || (pb & XINPUT_GAMEPAD_LEFT_SHOULDER))
                - (float)(now[PHOTO_ROLL_RIGHT]
-                         || ((p->buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER)
-                             && !(p->buttons & XINPUT_GAMEPAD_BACK))))
+                         || (pb & XINPUT_GAMEPAD_RIGHT_SHOULDER)))
               * ROLL_SPEED * dt * DEG;
     if (s_opt.roll > 180.0f * DEG)          /* the panel shows -180..180 */
         s_opt.roll -= 360.0f * DEG;
@@ -748,8 +789,10 @@ void photo_frame_begin(void)
 {
     static WORD prev;
     static int file_was = -1;
+    static ChordState chord;
     Pad p;
-    WORD pressed, combo = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_RIGHT_SHOULDER;
+    WORD pressed;
+    unsigned fired;
     int want, file = debug_poll();
     int menu = overlay_menu_open();
     unsigned age;
@@ -760,9 +803,16 @@ void photo_frame_begin(void)
     read_pad(&p);
     pressed = (WORD)(p.buttons & ~prev);
     prev = p.buttons;
+    /* The chords (chords.c): photo mode's in photo mode (and freecam), the
+     * Cheats / Debug ones in gameplay; under a menu (the pad is the menu's)
+     * they only keep track. Photo mode on / off: Back + RB by default. */
+    fired = chords_step(&chord, p.buttons,
+                        s_frozen ? CHORD_CTX_PHOTO : CHORD_CTX_GAME);
+    if (menu)
+        fired = 0;
 
     want = InterlockedExchange(&s_toggle, 0)
-        || (!menu && (p.buttons & combo) == combo && (pressed & combo));
+        || (fired & CHORD_FN_BIT(CHORD_PHOTO));
     if (file >= 0 && file != file_was) {
         if (file != (int)s_frozen)
             want = 1;
@@ -802,13 +852,19 @@ void photo_frame_begin(void)
     } else if (s_frozen && s_pause) {
         leave();
     }
-    /* Freecam (to-do 33). */
+    /* Freecam (to-do 33); on from gameplay by its chord too (Free Camera,
+     * Back + X by default, --debug; user 2026-11-17). Its swap: the key, or
+     * the Freecam swap chord (Back + X by default) once in freecam. */
     {
         static int swap_was;
         LONG ask = InterlockedExchange(&s_fc_ask, 0);
-        int swap = held(PHOTO_FREECAM_SWAP)
-                   || (p.buttons & (XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_X))
-                      == (XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_X);
+        int key = held(PHOTO_FREECAM_SWAP);
+        int swap = (key && !swap_was)
+                   || (fired & CHORD_FN_BIT(CHORD_FREECAM_SWAP));
+
+        swap_was = key;
+        if (!ask && !s_frozen && (fired & CHORD_FN_BIT(CHORD_FREECAM)))
+            ask = 1;
 
         if (ask == 1 && !s_frozen) {
             if (can_enter()) {
@@ -829,13 +885,12 @@ void photo_frame_begin(void)
             leave();
             fprintf(stderr, "[FREECAM] off: the game paused\n");
         }
-        if (s_freecam && swap && !swap_was && !menu) {
+        if (s_freecam && swap && !menu) {
             InterlockedExchange(&s_fc_game, !s_fc_game);
             xbox_InputSetBlocked(s_fc_game ? overlay_pad_menu() : 1);
             fprintf(stderr, "[FREECAM] the pad and keys: %s\n",
                     s_fc_game ? "Conker" : "the camera");
         }
-        swap_was = swap;
     }
     if (!s_frozen)
         return;
@@ -850,7 +905,7 @@ void photo_frame_begin(void)
         focus_on_conker();
     s_step_held = 0;                    /* steer says so again */
     if (!menu && s_have_base && !s_fc_game) {
-        steer(&p, pressed);
+        steer(&p, pressed, chord.used, fired);
     } else {
         QueryPerformanceCounter(&s_last);
         if (menu)

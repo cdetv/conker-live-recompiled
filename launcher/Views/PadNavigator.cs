@@ -119,6 +119,19 @@ public sealed class PadNavigator
     // A let go on a slider: when it moved while A was held, holding A was the way (adjusting ends).
     private void OnReleased(PadPressEventArgs e)
     {
+        // "Press the chord" (F3 Slots > Chords): every button is the question's.
+        if (vm.Controls.IsChordCapturing)
+        {
+            vm.Controls.TakeChordRelease(e.Button);
+            return;
+        }
+
+        // "Press a button" (a single player row's controller button): the press answered.
+        if (vm.Controls.IsPadCapturing)
+        {
+            return;
+        }
+
         if (e.Button != PadButton.A || aDownOn is not { } s)
         {
             return;
@@ -135,6 +148,29 @@ public sealed class PadNavigator
     private void Handle(PadPressEventArgs e)
     {
         PadButton b = e.Button;
+        // "Press the chord" (F3 Slots > Chords): every button is the question's, Back too (no quit);
+        // B pressed and let go alone cancels.
+        if (vm.Controls.IsChordCapturing)
+        {
+            if (!e.IsRepeat)
+            {
+                vm.Controls.TakeChordPress(b);
+            }
+
+            return;
+        }
+
+        // "Press a button" (to-do 39): every button is the question's, Back too (it cancels, no quit).
+        if (vm.Controls.IsPadCapturing)
+        {
+            if (!e.IsRepeat)
+            {
+                vm.Controls.TakePadPress(b);
+            }
+
+            return;
+        }
+
         // B while a slider is adjusting: stop adjusting (keeps the value), nothing else.
         if (b == PadButton.B && adjusting is not null && Focused == adjusting)
         {
@@ -820,7 +856,7 @@ public sealed class PadNavigator
 
     /// <summary>The pop-up on top, if one shows (the key question is handled before this).</summary>
     private Control? TopOverlay() =>
-        new Control[] { window.UserFilesOverlay, window.BrowserOverlay, window.ReportOverlay, window.HistoryOverlay, window.UpdateOverlay, window.WelcomeOverlay }
+        new Control[] { window.PadCaptureLayer, window.ChordCaptureLayer, window.ChordsOverlay, window.SlotOptionsOverlay, window.UserFilesOverlay, window.BrowserOverlay, window.ReportOverlay, window.HistoryOverlay, window.UpdateOverlay, window.WelcomeOverlay }
             .FirstOrDefault(o => o.IsEffectivelyVisible);
 
     private void Enter(Control overlay)

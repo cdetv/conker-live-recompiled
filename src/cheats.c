@@ -43,8 +43,9 @@ static const Cheat s_cheats[CHEAT_COUNT] = {
       "what was earned.", "mpunlocks", 0x6931E29F83B0DACAull },
     { "Glass Squirrel", "One hit and Conker dies (a life lost, as any death). "
       "God mode wins when both are on.", "glass", 0x1FFDFA46D98A9796ull },
-    { "Bullet time", "B (F3 > Photo mode) or both sticks clicked at once switch slow "
-      "motion on and off; the sound stays at normal speed.", "bullettime",
+    { "Bullet time", "B (F3 > Photo mode) or its controller chord (both sticks clicked "
+      "unless changed in F3 > Slots > Chords) switch slow motion on and off; the sound "
+      "stays at normal speed.", "bullettime",
       0x538C0F4EB77B41A2ull },
     { "Moon Jump", "Jumps go about three times as high and float down; falls don't "
       "hurt while it is on.", "moonjump", 0xAD6E19426195FCCFull },

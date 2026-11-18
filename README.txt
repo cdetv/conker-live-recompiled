@@ -21,8 +21,8 @@ WHAT YOU NEED
   disc's files. It may be packed in a .zip, .7z or .rar.
 - About 6 GB of free space (more while unpacking an archive).
 - A controller is optional: Xbox controllers, PlayStation 4 and 5
-  controllers (DualShock 4, DualSense; no extra programs needed), or
-  keyboard and mouse.
+  controllers (DualShock 4, DualSense), Switch controllers (Pro Controller,
+  a pair of Joy-Cons; no extra programs needed), or keyboard and mouse.
 
 
 GETTING STARTED
@@ -59,7 +59,7 @@ IN THE GAME
   F3            Controls menu (keys, mouse, controllers per player)
   F4            Photo mode (on a controller: Back + RB; Esc leaves)
   Back + Start  On a controller: a menu with settings, controls, photo
-                mode and Report Bug
+                mode, Report Bug and controller options
   F8            The cheat menu, once you've unlocked it
   F10           Report a bug: makes a .zip to attach to a GitHub issue (on a
                 controller: the Report Bug... button in the F2 menu)

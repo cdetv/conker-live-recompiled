@@ -34,6 +34,15 @@ static const struct {
     { "shot30", "RECOMP_SHOT30_LOG", "[SHOT30] projectile age at lifetime out", 1 },
     { "cflash", "RECOMP_CUTSCENE_FLASH_LOG", "[CFLASH] cutscene muzzle flashes", 1 },
     { "lightmap", "RECOMP_LIGHTMAP_LOG", "[LIGHTMAP] light map textures per level", 1 },
+    { "ucam", "RECOMP_UCAM_LOG", "[UCAM] Unlocked Camera every 2 s: wanted / used pitch, "
+      "limits, preset, zoom, stick; why it isn't in charge; 2 = [UCAMF] every frame's zoom "
+      "input and the distance step's zoom", 2 },
+    { "air", "RECOMP_AIR_LOG", "[AIRSTEP] the story player's air steps every frame: game "
+      "frame, sub-steps, height, speed, place", 1 },
+    { "autores", "RECOMP_AUTORES_LOG", "[AUTORES] Automatic resolution every half second: "
+      "GPU, game and graphics ms a frame, the frame's budget, the scale, what it waits for", 1 },
+    { "padbinds", "RECOMP_PADBINDS_LOG", "[PADBINDS] slot 1's controller in single player: "
+      "the buttons pressed and what the game gets (controller binds), per change", 1 },
 };
 
 static volatile LONG s_level[DLOG_COUNT];

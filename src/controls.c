@@ -25,6 +25,8 @@
 
 #include "controls.h"
 #include "settings.h"
+#include "chords.h"
+#include "pad_binds.h"
 
 /* ---- key names ------------------------------------------------------------ */
 
@@ -420,13 +422,17 @@ static void list_combos(int set)
 
 /* where: the only place a swimming or bat action works (SWIM_SURFACE,
  * SWIM_UNDER, BAT_GROUND, BAT_AIR); 0 for the rest. scheme: a single player
- * action of one scheme only (CLASSIC, MODERN); 0 for both. */
+ * action of one scheme only (CLASSIC, MODERN); 0 for both. pad: its
+ * controller bind (pad_binds.h PADB_* + 1; to-do 39), 0 = none (the sticks,
+ * Back, the D-pad, the Unlocked Camera's zoom: the controller's own). */
 typedef struct {
     ControlAction a;
     unsigned short out[2];
     unsigned char where;
     unsigned char scheme;
+    unsigned char pad;
 } Action;
+#define PAD(x) (PADB_##x + 1)
 
 #define SWIM_SURFACE 1
 #define SWIM_UNDER   2
@@ -445,31 +451,35 @@ typedef struct {
  * action; holding the aim key takes the weapon out (B) and letting go puts
  * it away; Attack fires only while aiming. Those three follow the game's
  * state, so recomp_manual.c drives them (controls_modern), not the
- * profile. The controller follows Modern too (user 2026-10-30;
- * recomp_manual.c pad_filter), so a row's button is the Modern one there:
- * LT aims, LB is the head-cam, RT and LT also swim underwater. */
+ * profile. The controller has its own binds per scheme (pad: to-do 39,
+ * pad_binds.c; the user's defaults 2026-11-17), shown in the menus in place
+ * of a row's fixed button. */
 static const Action s_story[] = {
     { { "story_move_forward", "Move forward", "Left stick up" }, { LST(UP) } },
     { { "story_move_back", "Move back", "Left stick down" }, { LST(DOWN) } },
     { { "story_move_left", "Move left", "Left stick left" }, { LST(LEFT) } },
     { { "story_move_right", "Move right", "Left stick right" }, { LST(RIGHT) } },
     { { "story_walk", "Walk (hold)", "Left stick half way" }, { XBOX_KBM_WALK } },
-    { { "story_jump", "Jump", "A" }, { XBOX_KBM_A } },
-    { { "story_crouch", "Crouch", "Right trigger" }, { XBOX_KBM_RT } },
+    { { "story_jump", "Jump", "A" }, { XBOX_KBM_A }, 0, 0, PAD(JUMP) },
+    { { "story_crouch", "Crouch (hold)", "Right trigger" }, { XBOX_KBM_RT }, 0, 0,
+      PAD(CROUCH) },
     { { "story_weapon", "Weapon out / away, context action", "B" },
-      { XBOX_KBM_B }, 0, CLASSIC },
+      { XBOX_KBM_B }, 0, CLASSIC, PAD(CONTEXT) },
     { { "story_context", "Context action (on a B pad)", "B" },
-      { XBOX_KBM_B }, 0, MODERN },
-    { { "story_aim", "Aim: weapon out while held", "Left trigger" },
-      { XBOX_KBM_B }, 0, MODERN },
-    { { "story_attack", "Attack", "Right trigger" }, { XBOX_KBM_RT } },
-    { { "story_reload", "Reload", "X" }, { XBOX_KBM_X } },
-    { { "story_head_cam", "Head-cam (tap on, tap off)", "Left trigger" },
-      { XBOX_KBM_LT | XBOX_KBM_TOGGLE }, 0, CLASSIC },
-    { { "story_head_cam", "Head-cam (tap on, tap off)", "LB" },
-      { XBOX_KBM_LT | XBOX_KBM_TOGGLE }, 0, MODERN },
+      { XBOX_KBM_B }, 0, MODERN, PAD(CONTEXT) },
+    { { "story_aim", "Aim weapon (hold)", "Left trigger" },
+      { XBOX_KBM_B }, 0, MODERN, PAD(AIM) },
+    { { "story_attack", "Attack (while aiming)", "Right trigger" }, { XBOX_KBM_RT },
+      0, 0, PAD(ATTACK) },
+    { { "story_reload", "Reload", "X" }, { XBOX_KBM_X }, 0, 0, PAD(RELOAD) },
+    /* The head-cam held or toggled (user 2026-11-17: both, on the keyboard
+     * and the controller; the game's own left trigger is held). */
+    { { "story_head_cam_hold", "Head-cam (hold)", "Left trigger" },
+      { XBOX_KBM_LT }, 0, 0, PAD(HEADCAM_HOLD) },
+    { { "story_head_cam", "Head-cam (toggle)", "LB" },
+      { XBOX_KBM_LT | XBOX_KBM_TOGGLE }, 0, 0, PAD(HEADCAM_TOGGLE) },
     { { "story_zoom", "Zoom (Unlocked Camera: reset camera)", "Right stick click" },
-      { XBOX_KBM_RTHUMB } },
+      { XBOX_KBM_RTHUMB }, 0, 0, PAD(ZOOM) },
     /* Unlocked Camera's zoom (to-do 41, user 2026-11-15): no button of the
      * game's; the window hook passes its presses to the camera
      * (controls_cam_zoom, conker_CameraZoomNotch). */
@@ -477,7 +487,7 @@ static const Action s_story[] = {
         "D-pad up + right stick up" }, { 0 } },
     { { "story_cam_zoom_out", "Camera zoom out (Unlocked Camera)",
         "D-pad up + right stick down" }, { 0 } },
-    { { "story_pause", "Pause", "Start" }, { XBOX_KBM_START } },
+    { { "story_pause", "Pause", "Start" }, { XBOX_KBM_START }, 0, 0, PAD(PAUSE) },
     { { "story_back_button", "Back button", "Back" }, { XBOX_KBM_BACK } },
     { { "story_dpad_up", "D-pad up", "D-pad up" }, { XBOX_KBM_DPAD_UP } },
     { { "story_dpad_down", "D-pad down", "D-pad down" }, { XBOX_KBM_DPAD_DOWN } },
@@ -490,32 +500,37 @@ static const Action s_story[] = {
     { { "story_look_right", "Look right (keys)", "Right stick right" },
       { RST(RIGHT) } },
     /* Swimming (user 2026-10-26): Space up and Ctrl down underwater, as
-     * jump and crouch on land; apply_set says how they take over. */
+     * jump and crouch on land; apply_set says how they take over. The game's
+     * own buttons: B dives, B swims up, A down. */
     { { "story_dive", "Dive Under", "B", SWIMMING },
-      { XBOX_KBM_B }, SWIM_SURFACE },
+      { XBOX_KBM_B }, SWIM_SURFACE, 0, PAD(DIVE) },
     { { "story_swim_up", "Swim up", "B", SWIMMING },
-      { XBOX_KBM_B }, SWIM_UNDER, CLASSIC },
-    { { "story_swim_up", "Swim up", "B / Right trigger", SWIMMING },
-      { XBOX_KBM_B }, SWIM_UNDER, MODERN },
+      { XBOX_KBM_B }, SWIM_UNDER, 0, PAD(SWIM_UP) },
     { { "story_swim_down", "Swim down", "A", SWIMMING },
-      { XBOX_KBM_A }, SWIM_UNDER, CLASSIC },
-    { { "story_swim_down", "Swim down", "A / Left trigger", SWIMMING },
-      { XBOX_KBM_A }, SWIM_UNDER, MODERN },
+      { XBOX_KBM_A }, SWIM_UNDER, 0, PAD(SWIM_DOWN) },
     /* The bat (Count Batula, user 2026-10-28): B launches from the ground;
      * in the air B flies up, A down, the right trigger poops and the left
      * trigger toggles the aiming view. Aim is driven by recomp_manual.c
      * (controls_bat_aim): a tap of the left trigger, never a hold, since
-     * the flight code stops the bat while it is held. */
+     * the flight code stops the bat while it is held. Two aim rows (user
+     * 2026-11-17): a toggle and a hold; story_bat_aim is the scheme's own
+     * (Classic toggles, Modern holds), story_bat_aim_alt the other. */
     { { "story_bat_launch", "Launch (on the ground)", "B", BAT },
-      { XBOX_KBM_B }, BAT_GROUND },
-    { { "story_bat_up", "Fly up", "B", BAT }, { XBOX_KBM_B }, BAT_AIR },
-    { { "story_bat_down", "Fly down", "A", BAT }, { XBOX_KBM_A }, BAT_AIR },
+      { XBOX_KBM_B }, BAT_GROUND, 0, PAD(BAT_LAUNCH) },
+    { { "story_bat_up", "Fly up", "B", BAT }, { XBOX_KBM_B }, BAT_AIR, 0,
+      PAD(BAT_UP) },
+    { { "story_bat_down", "Fly down", "A", BAT }, { XBOX_KBM_A }, BAT_AIR, 0,
+      PAD(BAT_DOWN) },
     { { "story_bat_poop", "Poop", "Right trigger", BAT },
-      { XBOX_KBM_RT }, BAT_AIR },
-    { { "story_bat_aim", "Aim (tap on, tap off)", "Left trigger", BAT },
-      { XBOX_KBM_LT }, BAT_AIR, CLASSIC },
-    { { "story_bat_aim", "Aim (hold)", "Left trigger", BAT },
-      { XBOX_KBM_LT }, BAT_AIR, MODERN },
+      { XBOX_KBM_RT }, BAT_AIR, 0, PAD(BAT_POOP) },
+    { { "story_bat_aim", "Aim (toggle)", "Left trigger", BAT },
+      { XBOX_KBM_LT }, BAT_AIR, CLASSIC, PAD(BAT_AIM_TOGGLE) },
+    { { "story_bat_aim_alt", "Aim (hold)", "Left trigger held", BAT },
+      { XBOX_KBM_LT }, BAT_AIR, CLASSIC, PAD(BAT_AIM_HOLD) },
+    { { "story_bat_aim_alt", "Aim (toggle)", "Left trigger", BAT },
+      { XBOX_KBM_LT }, BAT_AIR, MODERN, PAD(BAT_AIM_TOGGLE) },
+    { { "story_bat_aim", "Aim (hold)", "Left trigger held", BAT },
+      { XBOX_KBM_LT }, BAT_AIR, MODERN, PAD(BAT_AIM_HOLD) },
 };
 
 /* Multiplayer, the game's "Emily" layout. Interact and reload are both A
@@ -778,6 +793,40 @@ const ControlAction *controls_action(int set, int i)
     return r ? &r->a : NULL;
 }
 
+/* The controller button shown for a row: the photo table's chord rows
+ * (photo mode, its leave, noclip, bullet time, pause / resume, the freecam
+ * swap) show the chord set in F3 > Slots > Chords (chords.c). */
+const char *controls_button(int set, int i)
+{
+    const ControlAction *a = controls_action(set, i);
+    int pa = controls_pad_action(set, i);
+    if (pa >= 0)
+        return pad_binds_button_label(pad_binds_get(pa, modern_set()));
+    if (set == CONTROLS_PHOTO) {
+        int fn = i == PHOTO_TOGGLE || i == PHOTO_LEAVE ? CHORD_PHOTO
+               : i == PHOTO_NOCLIP ? CHORD_NOCLIP
+               : i == PHOTO_BULLET ? CHORD_BULLET
+               : i == PHOTO_RESUME ? CHORD_PHOTO_PAUSE
+               : i == PHOTO_FREECAM_SWAP ? CHORD_FREECAM_SWAP : -1;
+        if (fn >= 0)
+            return chords_fn_chord_label(fn);
+    }
+    return a ? a->button : "";
+}
+
+int controls_pad_action(int set, int i)
+{
+    const Action *r = set == CONTROLS_STORY ? row(set, i) : NULL;
+    return r && r->pad ? r->pad - 1 : -1;
+}
+
+int controls_table_pad(int set, int i)
+{
+    int n;
+    const Action *t = set_table(set, &n);
+    return set == CONTROLS_STORY && i >= 0 && i < n && t[i].pad ? t[i].pad - 1 : -1;
+}
+
 const ControlAction *controls_table_row(int set, int i, int *scheme)
 {
     int n;
@@ -876,19 +925,22 @@ static volatile LONG s_modern;
 static volatile LONG64 s_modern_keys[3];
 static volatile LONG s_zoom_hold;
 static volatile LONG64 s_zoom_key;
-static volatile LONG64 s_bat_aim_key;
+static volatile LONG64 s_bat_aim_key[2];   /* toggle, hold */
 static volatile LONG s_sling_toggle;
 static volatile LONG64 s_cam_zoom_keys[2];
 
-/* Unlocked Camera's zoom keys, while single player's on-foot keys are on
- * (the window thread asks at each key / wheel message). */
+/* Unlocked Camera's zoom keys, while single player's on-foot keys are on,
+ * or its swimming keys (the same rows; to-do 256, user's report 2026-11-16:
+ * the wheel did nothing in the water) (the window thread asks at each key /
+ * wheel message). */
 int controls_cam_zoom(ControlKeys *in, ControlKeys *out)
 {
     LONG set = s_mode;
     *in = (ControlKeys)s_cam_zoom_keys[0];
     *out = (ControlKeys)s_cam_zoom_keys[1];
     return set == CONTROLS_STORY || set == CONTROLS_BEE_GUN
-        || set == CONTROLS_VAULT_SUIT;
+        || set == CONTROLS_VAULT_SUIT || set == CONTROLS_SWIM_SURFACE
+        || set == CONTROLS_SWIM_UNDER;
 }
 
 int controls_sling_toggle(void)
@@ -896,9 +948,10 @@ int controls_sling_toggle(void)
     return (int)s_sling_toggle;
 }
 
-int controls_bat_aim(ControlKeys *aim)
+int controls_bat_aim(ControlKeys *toggle, ControlKeys *hold)
 {
-    *aim = (ControlKeys)s_bat_aim_key;
+    *toggle = (ControlKeys)s_bat_aim_key[0];
+    *hold = (ControlKeys)s_bat_aim_key[1];
     return (int)s_modern;
 }
 
@@ -982,7 +1035,8 @@ static void apply_set(int set)
             continue;
         if (a->where != 0 && a->where != where)
             continue;
-        if (!strcmp(a->a.key, "story_bat_aim"))
+        if (!strcmp(a->a.key, "story_bat_aim")
+            || !strcmp(a->a.key, "story_bat_aim_alt"))
             continue;
         /* Modern on foot: the context key, aiming and Attack follow the
          * game's state (controls_modern; recomp_manual.c). Elsewhere the
@@ -1069,7 +1123,9 @@ static void apply_set(int set)
         InterlockedExchange64(&s_modern_keys[0], keys_of("story_context"));
         InterlockedExchange64(&s_modern_keys[1], keys_of("story_aim"));
         InterlockedExchange64(&s_modern_keys[2], attack);
-        InterlockedExchange64(&s_bat_aim_key, keys_of("story_bat_aim"));
+        /* Classic: story_bat_aim toggles, _alt holds; Modern the other way. */
+        InterlockedExchange64(&s_bat_aim_key[modern ? 1 : 0], keys_of("story_bat_aim"));
+        InterlockedExchange64(&s_bat_aim_key[modern ? 0 : 1], keys_of("story_bat_aim_alt"));
         InterlockedExchange64(&s_cam_zoom_keys[0], keys_of("story_cam_zoom_in"));
         InterlockedExchange64(&s_cam_zoom_keys[1], keys_of("story_cam_zoom_out"));
         InterlockedExchange(&s_sling_toggle,
@@ -1140,9 +1196,22 @@ int  xbox_InputHostPadOfPort(unsigned long port);
 void xbox_SetRumbleStrength(int port, int percent);
 void xbox_SetStickDeadZone(int port, float title_left, float title_right,
                            float wanted);
+int  xbox_InputGyroRate(unsigned long port, float *yaw, float *pitch);
+void xbox_InputGyroCalibrate(unsigned long port);
+void xbox_InputGyroSetAuto(int on);
+
+int controls_gyro_rate(int port, float *yaw, float *pitch)
+{
+    return xbox_InputGyroRate((unsigned long)port, yaw, pitch);
+}
+
+void controls_gyro_calibrate(int port)
+{
+    xbox_InputGyroCalibrate((unsigned long)port);
+}
 
 /* "1"-"4": Windows' (XInput) controller 1-4 = host pad 0-3; "ps1"-"ps4":
- * PlayStation controller 1-4 = host pad 4-7. */
+ * PlayStation / Switch controller 1-4 (SDL) = host pad 4-7. */
 static int port_source(const char *v)
 {
     if (!strcmp(v, "any"))
@@ -1226,9 +1295,70 @@ void controls_apply_pad_feel(int port, float strength, float dead_zone)
     }
 }
 
+/* Gyro aiming per slot (to-do 35, F3 > Slots > Options; user 2026-11-15):
+ * copied when applied, read every frame by gyro_look (game thread).
+ * [port][0 single player, 1 multiplayer]; speeds as factors (1 = the aim
+ * turns as far as the controller does). */
+static volatile LONG  s_gyro_on[4][2];
+static volatile float s_gyro_speed[4][2];
+static volatile LONG  s_gyro_inv[4];
+/* The right stick's camera speed per slot, single player (slot 1's
+ * story_camera_speed1) and multiplayer (mp_camera_speedN) apart (user
+ * 2026-11-15), factors; copied with the gyro's. */
+static volatile float s_cam_speed[4][2] = {
+    { 1.0f, 1.0f }, { 1.0f, 1.0f }, { 1.0f, 1.0f }, { 1.0f, 1.0f },
+};
+
+float controls_camera_speed(int port, int mp)
+{
+    return port >= 0 && port < 4 ? s_cam_speed[port][mp ? 1 : 0] : 1.0f;
+}
+
+int controls_gyro(int port, int mp, float *sx, float *sy, int *invert)
+{
+    if (port < 0 || port > 3)
+        return 0;
+    *sx = s_gyro_speed[port][0];
+    *sy = s_gyro_speed[port][1];
+    *invert = (int)s_gyro_inv[port];
+    return (int)s_gyro_on[port][mp ? 1 : 0];
+}
+
+void controls_apply_gyro(void)
+{
+    static const char *const keys[] = {
+        "gyro_story", "gyro_mp", "gyro_speed_x", "gyro_speed_y",
+        "gyro_invert_y",
+    };
+    char key[32];
+    float v[5];
+    int p, i;
+    for (p = 0; p < 4; p++) {
+        for (i = 0; i < 5; i++) {
+            snprintf(key, sizeof(key), "%s%d", keys[i], p + 1);
+            v[i] = (float)atof(settings_get(key));
+        }
+        InterlockedExchange(&s_gyro_on[p][0], v[0] != 0.0f);
+        InterlockedExchange(&s_gyro_on[p][1], v[1] != 0.0f);
+        s_gyro_speed[p][0] = v[2] / 100.0f;
+        s_gyro_speed[p][1] = v[3] / 100.0f;
+        InterlockedExchange(&s_gyro_inv[p], v[4] != 0.0f);
+        /* Single player is slot 1's alone: story_camera_speed1 only. */
+        v[0] = p ? 100.0f : (float)atof(settings_get("story_camera_speed1"));
+        s_cam_speed[p][0] = v[0] > 0.0f ? v[0] / 100.0f : 1.0f;
+        snprintf(key, sizeof(key), "mp_camera_speed%d", p + 1);
+        v[0] = (float)atof(settings_get(key));
+        s_cam_speed[p][1] = v[0] > 0.0f ? v[0] / 100.0f : 1.0f;
+    }
+    xbox_InputGyroSetAuto(strcmp(settings_get("gyro_auto_calibrate"), "0") != 0);
+}
+
 void controls_apply(void)
 {
+    chords_apply();
+    pad_binds_apply();
     apply_ports();
+    controls_apply_gyro();
     apply_set(CONTROLS_STORY);
     apply_set(CONTROLS_MP);
     apply_set(CONTROLS_MENU);

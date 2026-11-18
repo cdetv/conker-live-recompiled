@@ -1060,7 +1060,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     setvbuf(stderr, NULL, _IONBF, 0);
 
     if (__argc == 2 && strcmp(__argv[1], "--dump-settings") == 0) {
+        extern void chords_apply(void);
         settings_use_defaults(".");
+        chords_apply();         /* the photo rows' buttons name the chords */
         overlay_dump_settings(stdout);
         return 0;
     }

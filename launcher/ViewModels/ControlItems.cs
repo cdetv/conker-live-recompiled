@@ -98,7 +98,10 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 {
     private readonly string defaultKey = defaultKey;
 
-    public string? ButtonText { get; } = entry.ButtonShown && entry.Button is { Length: > 0 } b ? $"({b})" : null;
+    /// <summary>The controller button in brackets; single player's rows have the Controller column instead.</summary>
+    public string? ButtonText { get; } =
+        entry.ButtonShown && entry.Key?.StartsWith("story_", StringComparison.Ordinal) != true
+        && entry.Button is { Length: > 0 } b ? $"({b})" : null;
 
     public string Button { get; } = entry.Button ?? "";
 
@@ -140,6 +143,102 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 
     [RelayCommand]
     private void ResetKey() => owner.SetKey(this, defaultKey);
+
+    // ---- the Controller column (to-do 39; single player's rows) --------------------------------
+
+    /// <summary>Single player's rows have a Controller column: the action's button, or the controller's own.</summary>
+    public bool ShowPad { get; } = entry.Key?.StartsWith("story_", StringComparison.Ordinal) == true;
+
+    /// <summary>The controller bind's action ("jump"); null for a row the controller has fixed (the sticks, Back, the D-pad).</summary>
+    public string? PadAction { get; } = entry.Pad;
+
+    public bool HasPad => PadAction is not null;
+
+    public bool ShowPadFixed => ShowPad && PadAction is null;
+
+    /// <summary>The controller's own button for a fixed row ("Left stick up").</summary>
+    public string PadFixed { get; } = entry.Button ?? "";
+
+    public string PadName => $"{Label} controller button";
+
+    /// <summary>The bind's settings.ini value for the scheme shown ("a", "rt", "none").</summary>
+    public string PadValue { get; private set; } = "none";
+
+    public string PadLabel => owner.PadButtonLabel(PadValue);
+
+    public bool PadChanged => HasPad && !PadValue.Equals(owner.PadDefault(this), StringComparison.OrdinalIgnoreCase);
+
+    public string PadResetTip => $"Back to the default ({owner.PadButtonLabel(owner.PadDefault(this))})";
+
+    /// <summary>Shows the bind's value (also after the scheme changed: the default may be another).</summary>
+    internal void RefreshPad(string value)
+    {
+        PadValue = value;
+        OnPropertyChanged(nameof(PadValue));
+        OnPropertyChanged(nameof(PadLabel));
+        OnPropertyChanged(nameof(PadChanged));
+        OnPropertyChanged(nameof(PadResetTip));
+    }
+
+    [RelayCommand]
+    private void CapturePad() => owner.StartPadCapture(this);
+
+    [RelayCommand]
+    private void ResetPad() => owner.SetPadBind(this, owner.PadDefault(this));
+}
+
+/// <summary>The column names above single player's key tables: Action, Keys, Controller (F3's header row).</summary>
+public sealed class KeyHeaderItem(MenuEntry entry) : SettingItem(entry)
+{
+    public override void Show(string value)
+    {
+    }
+}
+
+/// <summary>A controller button in the "press a button" pop-up's list; one another action has at that moment says whose.</summary>
+public sealed class PadOption(string name, string label, string? takenBy)
+{
+    public string Name { get; } = name;
+
+    public string Label { get; } = label;
+
+    public string Display { get; } = takenBy is null ? label : $"{label}  ({takenBy}'s)";
+}
+
+/// <summary>"Reset the controller buttons": asks first, then puts the scheme shown's binds back (to-do 39).</summary>
+public sealed partial class ResetPadItem(ControlsViewModel owner, MenuEntry entry) : SettingItem(entry)
+{
+    public IReadOnlyList<string> Keys { get; } = entry.Keys ?? [];
+
+    public string Question => owner.PadResetQuestion;
+
+    [ObservableProperty]
+    public partial bool IsAsking { get; set; }
+
+    /// <summary>The last controller button change's swap, or why it was refused (shown above the button).</summary>
+    [ObservableProperty]
+    public partial string? Message { get; set; }
+
+    public override void Show(string value)
+    {
+    }
+
+    [RelayCommand]
+    private void Ask()
+    {
+        OnPropertyChanged(nameof(Question));
+        IsAsking = true;
+    }
+
+    [RelayCommand]
+    private void Cancel() => IsAsking = false;
+
+    [RelayCommand]
+    private void Confirm()
+    {
+        IsAsking = false;
+        owner.ResetPadBinds(Keys);
+    }
 }
 
 /// <summary>"Reset all ... controls": asks first, then puts its keys and mouse options back.</summary>
@@ -170,7 +269,10 @@ public sealed partial class ResetItem(ControlsViewModel owner, MenuEntry entry) 
     }
 }
 
-/// <summary>One player of the Slots tab: which controller it is and whether the keyboard and mouse are.</summary>
+/// <summary>
+/// One player of the Slots tab: which controller it is, whether the keyboard and mouse are, and
+/// its Options (F3's per-slot window: rumble, sticks, gyro; user 2026-11-15).
+/// </summary>
 public sealed partial class SlotRow(SlotsItem owner, int index) : ObservableObject
 {
     private bool showing;
@@ -178,6 +280,19 @@ public sealed partial class SlotRow(SlotsItem owner, int index) : ObservableObje
     public int Index { get; } = index;
 
     public string Name => $"Slot {Index + 1}";
+
+    /// <summary>The entries of this slot's Options window, in F3's order.</summary>
+    public ObservableCollection<SettingItem> Items { get; } = [];
+
+    public string OptionsTitle => $"Slot {Index + 1} controller";
+
+    public string OptionsName => $"Options for slot {Index + 1}";
+
+    /// <summary>The controller picked for the slot, as the list names it.</summary>
+    public string ControllerText => Selected?.Name ?? "";
+
+    [RelayCommand]
+    private void OpenOptions() => owner.OpenOptions(this);
 
     public ObservableCollection<ChoiceOption> Options { get; } = [];
 
@@ -208,6 +323,7 @@ public sealed partial class SlotRow(SlotsItem owner, int index) : ObservableObje
 
     partial void OnSelectedChanged(ChoiceOption? value)
     {
+        OnPropertyChanged(nameof(ControllerText));
         if (!showing && value is not null)
         {
             owner.Picked(this, value.Value);
@@ -290,6 +406,8 @@ public sealed class SlotsItem : SettingItem
         owner.Changed(SlotKey(row.Index), value);
     }
 
+    internal void OpenOptions(SlotRow row) => owner.OptionsRow = row;
+
     internal void KeyboardPicked(SlotRow row, bool on)
     {
         if (on)
@@ -310,6 +428,124 @@ public sealed class SlotsItem : SettingItem
         "none" => "No input",
         "any" => "Any controller",
         _ => pads.FirstOrDefault(p => p.Value == value)?.Name
-             ?? (value.StartsWith("ps", StringComparison.Ordinal) ? $"PlayStation controller {value[2..]}" : $"Controller {value}"),
+             ?? (value.StartsWith("ps", StringComparison.Ordinal) ? $"PlayStation / Switch controller {value[2..]}" : $"Controller {value}"),
     };
 }
+
+/// <summary>F3 Slots' Chords button (to-do 39): opens the Controls tab's Chords pop-up.</summary>
+public sealed partial class ChordsItem(ControlsViewModel owner, MenuEntry entry) : SettingItem(entry)
+{
+    public override void Show(string value)
+    {
+    }
+
+    [RelayCommand]
+    private void Open() => owner.OpenChords();
+}
+
+/// <summary>A group of the Chords pop-up (Universal, Photo Mode, Cheats / Debug) with its rows.</summary>
+public sealed class ChordGroupView(string name, string tip)
+{
+    public string Name { get; } = name;
+
+    public string Tip { get; } = tip;
+
+    public ObservableCollection<ChordRow> Rows { get; } = [];
+}
+
+/// <summary>A chord in a row's list; one another function has and may not share is greyed, with its name.</summary>
+public sealed partial class ChordOption(string name, string label) : ObservableObject
+{
+    public string Name { get; } = name;
+
+    public string Label { get; } = label;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsFree), nameof(Display))]
+    public partial string? TakenBy { get; set; }
+
+    public bool IsFree => TakenBy is null;
+
+    public string Display => TakenBy is null ? Label : $"{Label}  ({TakenBy})";
+}
+
+/// <summary>
+/// One function of the Chords pop-up (F3's <c>chord_row</c>): its chord from a list, Press (hold
+/// the chord on a controller), and back to the default.
+/// </summary>
+public sealed partial class ChordRow : ObservableObject
+{
+    private readonly ControlsViewModel owner;
+    private bool showing;
+
+    public ChordRow(ControlsViewModel owner, ChordFunction function, IReadOnlyList<ChordChoice> chords, string defaultValue)
+    {
+        this.owner = owner;
+        Function = function;
+        Default = defaultValue;
+        if (!function.Required)
+        {
+            Options.Add(new ChordOption("none", "None"));
+        }
+
+        foreach (ChordChoice c in chords)
+        {
+            Options.Add(new ChordOption(c.Name, c.Label));
+        }
+    }
+
+    public ChordFunction Function { get; }
+
+    public string Key => Function.Key;
+
+    public string Label => Function.Label;
+
+    public string Tip => Function.Tip;
+
+    public bool Required => Function.Required;
+
+    public string Default { get; }
+
+    public string Name => $"{Label} chord";
+
+    public string PressName => $"Press the chord for {Label}";
+
+    public string ResetName => $"{Label}: back to the default";
+
+    public ObservableCollection<ChordOption> Options { get; } = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDefault), nameof(ChordText))]
+    public partial ChordOption? Selected { get; set; }
+
+    public bool IsDefault => Selected?.Name == Default;
+
+    /// <summary>What it has now, as the Press question shows it.</summary>
+    public string ChordText => Selected is { Name: not "none" } s ? s.Label : "none";
+
+    public string ResetTip => $"Back to the default ({owner.ChordLabel(Default)})";
+
+    partial void OnSelectedChanged(ChordOption? value)
+    {
+        if (!showing && value is not null)
+        {
+            owner.SetChord(this, value.Name);
+        }
+    }
+
+    /// <summary>Shows a settings.ini value (not one the list has: the default).</summary>
+    internal void Show(string value)
+    {
+        showing = true;
+        Selected = Options.FirstOrDefault(o => o.Name.Equals(value, StringComparison.OrdinalIgnoreCase))
+                   ?? Options.FirstOrDefault(o => o.Name == Default);
+        showing = false;
+    }
+
+    [RelayCommand]
+    private void Press() => owner.StartChordCapture(this);
+
+    [RelayCommand]
+    private void Reset() => owner.SetChord(this, Default);
+}
+

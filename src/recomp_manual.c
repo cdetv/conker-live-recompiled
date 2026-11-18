@@ -40,6 +40,8 @@
 #include "save_names.h"
 #include "precompile.h"
 #include "cheats.h"
+#include "chords.h"
+#include "pad_binds.h"
 #include "warp.h"
 #include "edit_save.h"
 #include "debug_tools.h"
@@ -481,6 +483,9 @@ void sub_0053D700_enter(void)
 
 static volatile float g_fov = -1.0f;
 static volatile float s_fov_aspect;     /* play camera's shape, across / tall */
+/* Per viewport, for the model-detail pick below (to-do 257): the view across
+ * the game asked for and the one we wrote (+0x260); 0 = left as the game set it. */
+static float s_fov_lod_x0[4], s_fov_lod_x1[4];
 
 void conker_SetFieldOfView(float deg)
 {
@@ -526,6 +531,8 @@ static void fov_apply(void)
     if (MEM32(g_esp) != 0x000428FEu)        /* cam_fov_update's call only */
         return;
     vp = MEM32(0x0084A13Cu) + g_edx * 0x2B0u;
+    if (g_edx < 4u)
+        s_fov_lod_x1[g_edx] = 0.0f;
     base = MEMF(vp + 0x25Cu);
     if (!(base > 1.0f && base < 170.0f))
         return;
@@ -540,7 +547,11 @@ static void fov_apply(void)
         return;
     k = tanf(want * FOV_DEG) / tanf(base * FOV_DEG);
     ny = atanf(k * tanf(y * FOV_DEG)) / FOV_DEG;
+    if (g_edx < 4u)
+        s_fov_lod_x0[g_edx] = x;
     x *= ny / y;
+    if (g_edx < 4u)
+        s_fov_lod_x1[g_edx] = x;
     MEMF(vp + 0x260u) = x;
     MEMF(vp + 0x264u) = ny;
     MEMF(vp + 0x20Cu) /= k;
@@ -559,6 +570,89 @@ void sub_000645C0_enter(void)
     s_widen_applied = widen;
     if (widen != 1.0f)
         g_xmm1.f[0] *= widen;
+}
+
+/* ── Field of view and the character model-detail pick (to-do 257) ────────
+ *
+ * 0x0007F1E0 (cdecl: character index, viewport index as a short) picks a
+ * character's model detail 0 / 1 / 2 (+0x3A8): its camera distance x
+ * tan(view across +0x260) / tan(base across +0x258) (full angles, clamped
+ * to 0..[0x0064935C], degrees to radians [0x00648E18]) against a pair of
+ * distances: [char+0x514] if set (only this function reads it), else story
+ * 500 / 730, multiplayer or level 0x48 1000 / 5300. The slider above widens
+ * +0x260, so models went simpler sooner: Conker on the It's War beach became
+ * his crude stand-in (LOD 2) from setting 55 (research r4, seen in 0.3.2).
+ * Those constants are shared with other code (500.0 and 1000.0 with 10+
+ * functions, 5300 with 0x001A7770), so instead the pair is scaled for the
+ * call by tan(across we wrote) / tan(across the game asked for): only the
+ * slider's part is undone, a zoom (SMG, sniper) keeps its effect. The scaled
+ * pair sits on the guest stack well below the call's frame (the function
+ * reads it before it calls anything) and +0x514 points at it during the
+ * call, the old value back after. A viewport whose +0x260 is no longer ours
+ * (another camera set it) is left alone. RECOMP_FOV_LOD_FIX=0 = original. */
+extern void sub_0007F1E0_gen(void);
+
+static int fov_lod_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_FOV_LOD_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+static float fov_lod_tan(float across)     /* as the pick: clamped, full angle */
+{
+    float hi = MEMF(0x0064935Cu);
+    if (!(across > 0.0f))
+        across = 0.0f;
+    if (across > hi)
+        across = hi;
+    return tanf(across * MEMF(0x00648E18u));
+}
+
+void sub_0007F1E0(void)
+{
+    int vi = (int16_t)MEM16(g_esp + 8u);
+    uint32_t ci = MEM32(g_esp + 4u), chr, vp, old, pair;
+    float x1, t0, f, a, b;
+    static float logged_fov = -1.0f;
+
+    if (!fov_lod_on() || vi < 0 || vi > 3 || !((x1 = s_fov_lod_x1[vi]) > 0.0f)) {
+        sub_0007F1E0_gen();
+        return;
+    }
+    vp = MEM32(0x0084A13Cu) + (uint32_t)vi * 0x2B0u;
+    t0 = fov_lod_tan(s_fov_lod_x0[vi]);
+    f = t0 > 0.0f ? fov_lod_tan(x1) / t0 : 1.0f;
+    if (MEMF(vp + 0x260u) != x1 || !(f > 1.0001f || f < 0.9999f) || !(f < 1000.0f)) {
+        sub_0007F1E0_gen();
+        return;
+    }
+    chr = MEM32(0x0084A5F8u) + ci * 0x6D0u;
+    old = MEM32(chr + 0x514u);
+    if (old) {
+        a = MEMF(old);
+        b = MEMF(old + 4u);
+    } else if (MEM8(0x007819D5u) || MEM32(0x007FA1F8u) == 0x48u) {
+        a = MEMF(0x0059D944u);              /* multiplayer: 1000 / 5300 */
+        b = MEMF(0x00649D84u);
+    } else {
+        a = MEMF(0x005A0060u);              /* story: 500 / 730 */
+        b = MEMF(0x00649D80u);
+    }
+    if (logged_fov != g_fov) {
+        logged_fov = g_fov;
+        fprintf(stderr, "[FOV] model detail kept at the original distances "
+                "(field of view %.0f: x%.2f here)\n", g_fov, f);
+    }
+    pair = (g_esp - 0x400u) & ~7u;
+    MEMF(pair) = a * f;
+    MEMF(pair + 4u) = b * f;
+    MEM32(chr + 0x514u) = pair;
+    sub_0007F1E0_gen();
+    MEM32(chr + 0x514u) = old;
 }
 
 /* Photo mode freezes the world update, so the call above stops and a
@@ -686,6 +780,128 @@ void sub_003FB030_enter(void)
 static int audio_log_on(void)
 {
     return dev_log(DLOG_AUDIO);
+}
+
+/* ── A bullet effect's stale sound slot (to-do 119) ────────────────────────
+ *
+ * Two bullet-effect makers (0x000BEB70, 0x000BF3B0) start the bullet's
+ * fly-by sound with sfx_play 0x00022D90 and keep its emitter's slot number
+ * (CAudioSoundEmitterContainer_Add 0x0002E4F0's return) at effect +0xF8.
+ * The effect's clean-up 0x000BEB00 (its +0xC0, run by the effect free
+ * 0x0013D1C0) removes that slot (RemoveEmitter 0x0002E660). When the fly-by
+ * ended first, the container had already removed the emitter itself and
+ * given the slot to the next sound, so the clean-up cut that sound off:
+ * Conker's "This isn't fun anymore" (conwareact1) at the It's War boat jump,
+ * 3 runs in 8 at 120 fps (research r4). A bug of the original game.
+ *
+ * We note which effect owns each slot of the container the clean-up uses
+ * ([[[0x00847024]+0x40]+4], 0x80 slots): every Add there clears the slot's
+ * owner, and an Add made by sfx_play for one of the two makers (return
+ * 0x000BF39D / 0x000BF9C9; sfx_play's [esp+0x10] = effect + 0x60, the
+ * sound's position) sets it to that effect. The clean-up removes the slot
+ * only while its owner is still the effect; otherwise +0xF8 = -1 first (the
+ * makers' own "no sound" value) and the other sound plays on.
+ * RECOMP_STALE_EMITTER_FIX=0 = original; [EMITTER] lines with log audio. */
+#define EMIT_SLOTS 0x80u
+static uint32_t s_emit_owner[EMIT_SLOTS];  /* effect owning the slot, 0 = another sound */
+static uint32_t s_emit_pending;            /* effect of the sfx_play under way, 0 = none */
+static unsigned s_emit_kept, s_emit_other;
+
+static int stale_emitter_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_STALE_EMITTER_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+static uint32_t emit_container(void)
+{
+    uint32_t m = MEM32(0x00847024u);
+    if (!m || !(m = MEM32(m + 0x40u)))
+        return 0;
+    return MEM32(m + 4u);
+}
+
+void sub_00022D90_enter(void)
+{
+    uint32_t ret = MEM32(g_esp);
+    s_emit_pending = (ret == 0x000BF39Du || ret == 0x000BF9C9u)
+                   ? MEM32(g_esp + 0x10u) - 0x60u : 0u;
+}
+
+extern void sub_0002E4F0_gen(void);
+/* stdcall (container, emitter); returns the slot */
+void sub_0002E4F0(void)
+{
+    uint32_t cont = MEM32(g_esp + 4u);
+    uint32_t own = MEM32(g_esp) == 0x00022F7Cu ? s_emit_pending : 0u;
+
+    s_emit_pending = 0;
+    sub_0002E4F0_gen();
+    if (g_eax >= EMIT_SLOTS)
+        return;
+    if (cont == emit_container())
+        s_emit_owner[g_eax] = own;
+    else if (own && s_emit_other++ < 3)
+        fprintf(stderr, "[EMITTER] bullet sound added to another container %08X "
+                "(slot %u; expected %08X)\n", cont, g_eax, emit_container());
+}
+
+/* cdecl (effect) */
+void sub_000BEB00_enter(void)
+{
+    uint32_t fx = MEM32(g_esp + 4u), slot;
+
+    if (!fx || !stale_emitter_on())
+        return;
+    slot = MEM32(fx + 0xF8u);
+    if (slot >= EMIT_SLOTS)                 /* -1: no sound */
+        return;
+    if (s_emit_owner[slot] == fx) {
+        s_emit_owner[slot] = 0;
+        return;
+    }
+    MEM32(fx + 0xF8u) = 0xFFFFFFFFu;
+    s_emit_kept++;
+    if (audio_log_on()) {
+        uint32_t c = emit_container(), em = c ? MEM32(MEM32(c) + slot * 4u) : 0;
+        fprintf(stderr, "[EMITTER] frame %u: stale slot %u kept (effect %08X; slot now "
+                "emitter %08X, owner %08X; %u kept so far)\n", MEM32(0x007F9F60u), slot,
+                fx, em, s_emit_owner[slot], s_emit_kept);
+    }
+}
+
+/* ── A zero step in hundredths (to-do 123, the crash check) ───────────────
+ *
+ * The character loop 0x002D3370 sets the 16-bit word [0x007FDD28] = (int)
+ * (time scale char+0x11C x frame step x 100), and 0x002DA300 (characters in
+ * movement modes 9 and 12) divides by it. Above 30 fps it gets small (25 at
+ * 120, 12 at 240, 3 uncapped), so a time scale under ~0.33 would make it 0
+ * at uncapped: an integer divide by zero, a crash. None was seen (research
+ * r4: every mode 9 / 12 character at 1.0 in a 43-map soak; The Vertex's
+ * bullet time slows only modes 1 / 2, which never divide), so this is only a
+ * guard: a 0 word is made 1 before the divide. RECOMP_STEP_GUARD=0 = original. */
+void sub_002DA300_enter(void)
+{
+    static int on = -1;
+    static unsigned told;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_STEP_GUARD");
+        on = !(e && *e == '0');
+    }
+    if (!on || MEM16(0x007FDD28u) != 0)
+        return;
+    MEM16(0x007FDD28u) = 1;
+    if (told < 5) {
+        told++;
+        fprintf(stderr, "[STEP] zero step word made 1 before the divide (character %08X, "
+                "type %u, time scale %.3f)\n", g_ecx, MEM32(g_ecx + 0x68u),
+                MEMF(g_ecx + 0x11Cu));
+    }
 }
 
 /* XACT cue watch: the barn pit music (AD_CUE_windy_wires_inter, an
@@ -1899,6 +2115,39 @@ void sub_00400B80_enter(void)
  * The first fix made the stop immediate instead; a sweep then crashed once in DirectSound
  * right after two such stops (a stream's read landing late, maybe), so the game's own
  * way is kept. RECOMP_LOAD_PRIMED_FIX=0 = original. */
+/* To-do 254, a load that never ended after the cutscene viewer: a music tune stopped in a
+ * load (CMusicTune_StopTune `0x000212C0`: state 3, then CAudioCue_Stop) came back to
+ * "playing" with no stop pending on its cue, and the load waited for its sound bank for
+ * ever (seen twice 2026-11-16: AD_SEQ_ambi_throne_room, state 1, cue playing). The tune
+ * update `0x00020DF0` sets state 1 on any "primed" notification, and CAudioCue_Update's
+ * primed case plays a cue that has no stop flags, so a stop the cue lost (asked before it
+ * had its sound bank cue: CAudioCue_Stop then does nothing) or a "primed" landing after
+ * the stop ended both end so. The tunes stopped in a load are noted here (calls from
+ * StopTune, return `0x0002136B`) and fl_restop stops again any that is playing with no
+ * stop pending; once a load has waited 5 s it stops any tune that plays with no stop pending
+ * (one the unload never stopped: the natural hang). RECOMP_LOAD_RESTOP=0 = off. RECOMP_TEST_LOSE_STOP=<part of a cue name>:
+ * the first such stop of that cue in a load is left out (makes the hang on purpose). */
+static uint32_t s_fl_stopped[8];
+static int s_fl_nstopped;
+static int s_fl_restopping;             /* fl_stop_tune's own call: the test leaves it alone */
+
+static int fl_lose_stop_test(uint32_t cue)
+{
+    static const char *want = (const char *)-1;
+    static int done;
+    char nm[64];
+
+    if (want == (const char *)-1)
+        want = getenv("RECOMP_TEST_LOSE_STOP");
+    if (!want || !*want || done || s_fl_restopping || !xact_va_ok(cue) || !MEM32(cue + 0x28u))
+        return 0;
+    if (!strstr(audio_log_str(MEM32(cue + 0x28u), nm, sizeof nm), want))
+        return 0;
+    done = 1;
+    fprintf(stderr, "[LOAD] test: the stop of %s left out (RECOMP_TEST_LOSE_STOP)\n", nm);
+    return 1;
+}
+
 extern void sub_00019AA0_gen(void);
 void sub_00019AA0(void)
 {
@@ -1911,6 +2160,17 @@ void sub_00019AA0(void)
         const char *e = getenv("RECOMP_LOAD_PRIMED_FIX");
         on = !(e && *e == '0');
     }
+    if (s_fl_window && MEM32(g_esp) == 0x0002136Bu && xact_va_ok(g_edi)) {
+        int i;
+        for (i = 0; i < s_fl_nstopped && s_fl_stopped[i] != g_edi; i++)
+            ;
+        if (i == s_fl_nstopped && s_fl_nstopped < 8)
+            s_fl_stopped[s_fl_nstopped++] = g_edi;
+        if (fl_lose_stop_test(cue)) {
+            g_esp += 4;                 /* ret: the stop is lost */
+            return;
+        }
+    }
     sub_00019AA0_gen();
     if (on && never && MEM8(cue + 5u) && MEMF(cue + 0x168u) > 0.1f) {
         char nm[64];
@@ -1922,18 +2182,143 @@ void sub_00019AA0(void)
     }
 }
 
+static double s_fl_closed_at;
+
 static void fl_open(void)
 {
     if (s_fl_window++)
         return;
     s_fl_t0 = skip_ms();
     s_fl_report = s_fl_t0 + 5000.0;
+    /* To-do 254: the tunes noted by the level unload count in the load that follows it
+     * (a separate window right after); after 3 s with no window it is another load. */
+    if (s_fl_t0 - s_fl_closed_at > 3000.0)
+        s_fl_nstopped = 0;
 }
 
 static void fl_close(void)
 {
     if (s_fl_window > 0)
         s_fl_window--;
+    if (!s_fl_window)
+        s_fl_closed_at = skip_ms();
+}
+
+/* To-do 254 (above sub_00019AA0): a music tune that plays (state 1) while its cue has no stop
+ * pending (not stopping, no stop-when-primed, not stopped) during a load is stopped the game's
+ * way (CMusicTune_StopTune), in two cases:
+ *  - at once, a tune StopTune stopped in this load (or the unload just before it) that plays
+ *    again: its stop didn't stick (forced test: RECOMP_TEST_LOSE_STOP);
+ *  - any such tune once the load has waited 5 s (then each second): one the unload never
+ *    stopped, started after it (the natural hang of 2026-11-16, sweep sw2: the throne
+ *    ambience in the playing list, no stop on record). A load runs under 1.5 s with Fast
+ *    Load and ~3.5 s without, and a level's own music starts after its load, so only a stuck
+ *    load gets here.
+ * A noted tune counts only while it is in the music manager's lists (playing +4, stopping
+ * +0x18); one that is gone, or state 0, is forgotten. From the audio update and the loading
+ * step, each frame of a load. RECOMP_LOAD_RESTOP=0 = off, =2 = the 5 s case only (test). */
+extern void sub_000212C0(void);         /* CMusicTune_StopTune, edi = tune */
+
+static int fl_tune_in_lists(uint32_t mus, uint32_t t)
+{
+    static const uint8_t lists[2] = { 0x04, 0x18 };
+    uint32_t head, node;
+    int l, n;
+
+    for (l = 0; l < 2; l++) {
+        head = MEM32(mus + lists[l]);
+        if (!xact_va_ok(head))
+            continue;
+        for (node = MEM32(head + 0xCu), n = 0; xact_va_ok(node) && node != head && n < 32;
+             node = MEM32(node + 0xCu), n++)
+            if (MEM32(node) == t)
+                return 1;
+    }
+    return 0;
+}
+
+/* The tune plays (state 1), or counts as stopped (3) while its cue has no stop pending: the
+ * cue is not stopping, has no stop-when-primed and is not stopped (a stop it lost leaves state
+ * 3 with the cue playing on; StopTune ignores a tune in state 3). */
+static int fl_tune_loose(uint32_t t)
+{
+    uint32_t c = MEM32(t + 0x10u), st = MEM32(t + 0x14u);
+
+    return (st == 1u || st == 3u) && xact_va_ok(c) && MEM32(c + 0x10u) && !MEM8(c + 5u)
+           && !MEM8(c + 6u) && MEM32(c + 0xE4u) != 1u;
+}
+
+static void fl_stop_tune(uint32_t t, const char *why)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp, c = MEM32(t + 0x10u);
+    char cn[64] = "a cue";
+
+    if (MEM32(c + 0x28u))
+        audio_log_str(MEM32(c + 0x28u), cn, sizeof cn);
+    fprintf(stderr, "[LOAD] %s %s (tune state %u, notification %u, playing %u, %.1f s into the"
+            " load): stopped again (to-do 254)\n", cn, why, MEM32(t + 0x14u), MEM32(c + 0xE4u),
+            MEM8(c + 4u), (skip_ms() - s_fl_t0) / 1000.0);
+    MEM32(t + 0x14u) = 1u;              /* StopTune acts on a playing tune only */
+    g_edi = t;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;                   /* return address, popped by the callee */
+    s_fl_restopping = 1;
+    sub_000212C0();
+    s_fl_restopping = 0;
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+}
+
+static void fl_restop(void)
+{
+    static int on = -1;
+    static double next_stuck;
+    uint32_t mgr, mus;
+    double now;
+    int i;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_LOAD_RESTOP");
+        on = e && *e == '0' ? 0 : e && *e == '2' ? 2 : 1;
+    }
+    if (!on || !s_fl_window)
+        return;
+    mgr = MEM32(0x00847024u);
+    mus = xact_va_ok(mgr) ? MEM32(mgr + 0x3Cu) : 0;
+    if (!xact_va_ok(mus))
+        return;
+    for (i = 0; i < s_fl_nstopped; i++) {
+        uint32_t t = s_fl_stopped[i];
+
+        if (!fl_tune_in_lists(mus, t) || MEM32(t + 0x14u) == 0u) {
+            s_fl_stopped[i--] = s_fl_stopped[--s_fl_nstopped];
+            continue;
+        }
+        if (on == 1 && fl_tune_loose(t))
+            fl_stop_tune(t, "was stopped in this load but plays again");
+    }
+    now = skip_ms();
+    if (now - s_fl_t0 < 5000.0)
+        return;
+    if (next_stuck < s_fl_t0 + 5000.0)
+        next_stuck = s_fl_t0 + 5000.0;  /* a new load */
+    if (now < next_stuck)
+        return;
+    next_stuck = now + 1000.0;
+    for (i = 0; i < 2; i++) {
+        uint32_t head = MEM32(mus + (i ? 0x18u : 0x04u)), node;
+        int n;
+
+        if (!xact_va_ok(head))
+            continue;
+        for (node = MEM32(head + 0xCu), n = 0; xact_va_ok(node) && node != head && n < 32;
+             node = MEM32(node + 0xCu), n++) {
+            uint32_t t = MEM32(node);
+            if (xact_va_ok(t) && fl_tune_loose(t))
+                fl_stop_tune(t, "still plays in a load that has waited 5 s");
+        }
+    }
 }
 
 /* What keeps a music bank registered (to-do 110): 0x00035860 won't unregister one
@@ -2047,6 +2432,7 @@ void sub_002AD3B0(void)
     int force = (g_ebx & 0xFFu) != 0;
 
     fl_wait_report();
+    fl_restop();
     if (!s_ld.active || mode == LS_OFF) {
         if (!s_ld.active) {             /* not seen so far */
             static unsigned n;
@@ -2593,6 +2979,7 @@ void sub_00017CF0(void)
     level_music_wait_for_banks();
     audio_update_logs();
     fl_wait_report();
+    fl_restop();
     if (on < 0) {
         const char *e = getenv("RECOMP_AUDIO_TICK_FIX");
         on = !(e && *e == '0');
@@ -3453,7 +3840,16 @@ void sub_002D9FD0(void)
  * due with the carry, then the real step goes back. Only on the air path
  * (the on-ground test the function starts with is false and the kind is not
  * 0xC / 0x22: that path uses the step as a float) and below step 1.
- * RECOMP_AIR_FIX=0 = original. */
+ * The count a console frame is the console's (2026-11-16, to-do 226; idea
+ * from giacomozama, GPL, ideas only): n30 = (int)(time scale x 10), the
+ * time scale = step / frame step [0x007FA24C] (0x002D37CA: the character's
+ * +0x11C x the frame step), spread over this frame's share of a console
+ * frame with the carry. A time scale whose tenths are not whole loses the
+ * fraction on the console every console frame: the Heist's slow-motion dive
+ * (time scale 0.19999695, 0x3E4CCC00) takes 1 sub-step a console frame, not
+ * 2, and carrying every fraction made him fall twice as fast as the console
+ * above 30 fps (before the carry: none at all at 60, he hung in the air).
+ * RECOMP_AIR_FIX=0 = original, =2 = every fraction carried (0.2.0-0.3.2). */
 static struct {
     int on, seen;
     float carry[256];
@@ -3468,6 +3864,8 @@ extern void sub_002EBAD0_gen(void);
  * where he is after each air frame (+0x3B8): no fall damage while it is on. */
 #define MOON_GRAVITY 0.34f
 static void air_update(void);
+static void air_update_body(void);
+static int s_air_n = -1;                /* sub-steps given this call, -1 = the game's */
 
 void sub_002EBAD0(void)
 {
@@ -3488,7 +3886,35 @@ void sub_002EBAD0(void)
     MEMF(c + 0x3B8u) = MEMF(c + 0x7Cu);     /* his fall starts here */
 }
 
+/* RECOMP_AIR_LOG=1 (console log air on): an [AIRSTEP] line a call for the
+ * story player while he is in the air and the call he lands on: the game's
+ * frame [0x007F9F60] and frame step, the time scale, sub-steps (ours, or -1
+ * when the game's own count ran), height, speed, gravity, place and the
+ * Heist's slow-motion flag [0x0084A680] (to-do 226, the jump pads). */
 static void air_update(void)
+{
+    static int was_air;
+    uint32_t c = g_esi;
+    float s = MEMF(0x007FDB8Cu), f = MEMF(0x007FA24Cu);
+    int ground;
+
+    s_air_n = -1;
+    air_update_body();
+    if (!dev_log(DLOG_AIR) || c != MEM32(0x0084A5F8u) || !xact_va_ok(c))
+        return;
+    ground = MEMF(c + 0xDCu) <= 0.1f && MEMF(c + 0xD0u) <= 0.0f;
+    if (ground && !was_air)
+        return;
+    was_air = !ground;
+    fprintf(stderr, "[AIRSTEP] t=%ld f%u fstep %.4f scale %.4f n %d %s y %.2f speed %.3f "
+            "grav %.2f above %.2f pos %.1f %.1f slowmo %u fwd %.2f hit %u\n", attach_ms(),
+            MEM32(0x007F9F60u), f, f > 0.0f ? s / f : 0.0f, s_air_n, ground ? "LAND" : "air",
+            MEMF(c + 0x7Cu), MEMF(c + 0xD0u), MEMF(c + 0xD4u), MEMF(c + 0xDCu), MEMF(c + 0x78u),
+            MEMF(c + 0x80u), MEM32(0x0084A680u), MEMF(c + 0x110u),
+            xact_va_ok(MEM32(c + 0x568u)) ? MEM8(MEM32(c + 0x568u) + 0x5A9u) : 0xFFu);
+}
+
+static void air_update_body(void)
 {
     uint32_t c = g_esi, kind;
     float s = MEMF(0x007FDB8Cu), x;
@@ -3496,9 +3922,10 @@ static void air_update(void)
 
     if (s_air.on < 0) {
         const char *e = getenv("RECOMP_AIR_FIX");
-        s_air.on = !(e && *e == '0');
+        s_air.on = e && *e == '0' ? 0 : e && *e == '2' ? 2 : 1;
     }
-    if (!s_air.on || !xact_va_ok(c) || !(MEMF(0x007FA24Cu) < 0.999f) || !(s > 0.0f)) {
+    if (!s_air.on || !xact_va_ok(c) || !(MEMF(0x007FA24Cu) < 0.999f)
+        || !(MEMF(0x007FA24Cu) > 0.0f) || !(s > 0.0f)) {
         sub_002EBAD0_gen();
         return;
     }
@@ -3512,17 +3939,33 @@ static void air_update(void)
     if (MEM32(0x007F9F60u) - s_air.fc[id] > 1u)
         s_air.carry[id] = 0.0f;          /* a new jump or fall */
     s_air.fc[id] = MEM32(0x007F9F60u);
-    x = s * 10.0f + s_air.carry[id];
-    n = (int)(x + 1e-4f);
-    s_air.carry[id] = x - (float)n;
-    if (s_air.carry[id] < 0.0f)
-        s_air.carry[id] = 0.0f;
+    if (s_air.on == 2) {
+        x = s * 10.0f + s_air.carry[id];
+        n = (int)(x + 1e-4f);
+        s_air.carry[id] = x - (float)n;
+        if (s_air.carry[id] < 0.0f)
+            s_air.carry[id] = 0.0f;
+    } else {
+        /* Rounded up, the rest owed (a carry of 0 or below): a frame
+         * that leaves the ground must move, or the take-off is lost (a
+         * slow-motion jump with 0 sub-steps on its first frame at 60 never
+         * left the ground, as the original). */
+        float f = MEMF(0x007FA24Cu);
+        int n30 = (int)(s / f * 10.0f + 1e-5f);
+        x = (float)n30 * f + s_air.carry[id];
+        n = (int)ceilf(x - 1e-4f);
+        if (n < 0)
+            n = 0;
+        s_air.carry[id] = x - (float)n;
+    }
     MEMF(0x007FDB8Cu) = ((float)n + 0.5f) / 10.0f;
+    s_air_n = n;
     sub_002EBAD0_gen();
     MEMF(0x007FDB8Cu) = s;
     if (!s_air.seen && id == 1) {
         s_air.seen = 1;
-        fprintf(stderr, "[AIR] fall sub-steps carried between frames: on (step %.3f, %d this frame)\n",
+        fprintf(stderr, "[AIR] fall sub-steps carried between frames: on (%s; step %.3f, %d this "
+                "frame)\n", s_air.on == 2 ? "every fraction" : "the console's count a console frame",
                 MEMF(0x007FA24Cu), n);
     }
 }
@@ -4561,10 +5004,287 @@ void sub_00091D20_enter(void)
         MEM32(solver + 0xC0u) = s_p30.fc - 1u;
 }
 
+/* A joint's turn against its parent (both skin matrices), split into the
+ * twist about line d (model space) and the swing of the rest, in degrees. */
+static void sq_turn(const float *mj, const float *mp, const float *d, float *swing, float *twist)
+{
+    float inv[16], rel[16], r[3][3], w, x, y, z, len, dl, vd;
+    int i, k;
+    if (!m4_inv(inv, mp)) {
+        *swing = *twist = 0.0f;
+        return;
+    }
+    m4_mul(rel, mj, inv);
+    for (i = 0; i < 3; i++) {          /* rows normalised (scale), column form */
+        len = sqrtf(rel[i * 4] * rel[i * 4] + rel[i * 4 + 1] * rel[i * 4 + 1]
+                    + rel[i * 4 + 2] * rel[i * 4 + 2]);
+        if (len < 1e-6f)
+            len = 1.0f;
+        for (k = 0; k < 3; k++)
+            r[k][i] = rel[i * 4 + k] / len;
+    }
+    w = sqrtf(fmaxf(0.0f, 1.0f + r[0][0] + r[1][1] + r[2][2])) * 0.5f;
+    x = copysignf(sqrtf(fmaxf(0.0f, 1.0f + r[0][0] - r[1][1] - r[2][2])) * 0.5f, r[2][1] - r[1][2]);
+    y = copysignf(sqrtf(fmaxf(0.0f, 1.0f - r[0][0] + r[1][1] - r[2][2])) * 0.5f, r[0][2] - r[2][0]);
+    z = copysignf(sqrtf(fmaxf(0.0f, 1.0f - r[0][0] - r[1][1] + r[2][2])) * 0.5f, r[1][0] - r[0][1]);
+    dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    vd = dl > 1e-6f ? (x * d[0] + y * d[1] + z * d[2]) / dl : 0.0f;
+    *twist = fabsf(2.0f * atan2f(vd, w) * 57.29578f);
+    if (*twist > 180.0f)
+        *twist = 360.0f - *twist;
+    *swing = 2.0f * acosf(fminf(1.0f, sqrtf(w * w + vd * vd))) * 57.29578f;
+}
+
+/* CombatSquirrel tails (kind 0x58; to-do 226, the Bunker Padlock squirrel).
+ * The tail sim 0x0008F2B0 rebuilds each of the five tail bones of this kind
+ * (0x00090A22..0x00090A97) as R1 x R2: R1 = a turn about X by the joint's rest
+ * angle (table 0x006A7F8C: 185 140 102 110 135 degrees), taking the segment's
+ * rest line (0, sin a, cos a) onto +Z; R2 = 0x0008ED50, the shortest swing
+ * from world +Z onto the sim's segment direction (axis (dy, -dx, 0), angle
+ * -acos(dz)). The swing has no twist reference but the world's Z: a segment
+ * pointing near world -Z (a squirrel facing +Z: his tail base points back)
+ * swings by ~180 degrees about an axis that flips with every wobble, so
+ * neighbouring pieces twist up to 175 degrees against each other and the tail
+ * wrings into a thin stalk and thrashes (the original does it too). The idle
+ * squirrel's random flicks also pull the curl out flat. The animation's own
+ * tail keys are smooth (bends up to 47 degrees, twist under 34, under 3 a
+ * frame). So each bone is rebuilt here from the animation's bone (the snapshot
+ * right before the sim; the animation rewrites them every frame), swung the
+ * shortest way from the animated segment direction onto a mix of it and the
+ * sim's (RECOMP_SQUIRREL_TAIL_SIM percent of the sim's, default 35): the
+ * animators' curl and twist with some of the sim's sway. Joint positions hang
+ * from the sim's tail base along the new directions, with the sim's segment
+ * lengths. It runs inside the call p30_call makes, so Physics at 30 Hz keeps
+ * and smooths these bones. RECOMP_SQUIRREL_TAIL_FIX=0 = original. */
+static int sqtail_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_SQUIRREL_TAIL_FIX");
+        on = !(e && *e == '0');
+    }
+    return on;
+}
+
+static void v3_norm(float *v)
+{
+    float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (l > 1e-12f) {
+        v[0] /= l;
+        v[1] /= l;
+        v[2] /= l;
+    }
+}
+
+/* row vector times the 3x3 part of a 4x4 (row-major, D3D order) */
+static void v3_mul(float *o, const float *v, const float *m)
+{
+    float t[3];
+    int k;
+    for (k = 0; k < 3; k++)
+        t[k] = v[0] * m[k] + v[1] * m[4 + k] + v[2] * m[8 + k];
+    memcpy(o, t, sizeof t);
+}
+
+/* The 3x3 rotation of a skin matrix: rows normalised and made square
+ * (Gram-Schmidt), as rows f[0..2]. */
+static void sq_frame(float f[3][3], const float *m)
+{
+    float d;
+    int k;
+    for (k = 0; k < 3; k++) {
+        f[0][k] = m[k];
+        f[1][k] = m[4 + k];
+    }
+    v3_norm(f[0]);
+    d = f[1][0] * f[0][0] + f[1][1] * f[0][1] + f[1][2] * f[0][2];
+    for (k = 0; k < 3; k++)
+        f[1][k] -= d * f[0][k];
+    v3_norm(f[1]);
+    f[2][0] = f[0][1] * f[1][2] - f[0][2] * f[1][1];
+    f[2][1] = f[0][2] * f[1][0] - f[0][0] * f[1][2];
+    f[2][2] = f[0][0] * f[1][1] - f[0][1] * f[1][0];
+    if (f[2][0] * m[8] + f[2][1] * m[9] + f[2][2] * m[10] < 0.0f)
+        for (k = 0; k < 3; k++)        /* keep a mirrored frame mirrored */
+            f[2][k] = -f[2][k];
+}
+
+/* f = f x (the shortest turn taking unit r onto unit d), row-vector form. */
+static void sq_swing(float f[3][3], const float *r, const float *d)
+{
+    float a[3], s, c, k1, R[3][3], o[3][3];
+    int i, j;
+    a[0] = r[1] * d[2] - r[2] * d[1];
+    a[1] = r[2] * d[0] - r[0] * d[2];
+    a[2] = r[0] * d[1] - r[1] * d[0];
+    c = r[0] * d[0] + r[1] * d[1] + r[2] * d[2];
+    s = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (s < 1e-6f) {
+        if (c > 0.0f)
+            return;                    /* already there */
+        /* opposite: half a turn about any line square to r */
+        a[0] = fabsf(r[0]) < 0.9f ? 0.0f : -r[1];
+        a[1] = fabsf(r[0]) < 0.9f ? -r[2] : r[0];
+        a[2] = fabsf(r[0]) < 0.9f ? r[1] : 0.0f;
+        s = 0.0f;
+        c = -1.0f;
+    }
+    v3_norm(a);
+    k1 = 1.0f - c;
+    /* column-form Rodrigues R (v' = R v); row form v' = v R^T, so the row
+     * matrix is R^T: element [i][j] of the row matrix = R[j][i]. */
+    R[0][0] = c + a[0] * a[0] * k1;
+    R[0][1] = a[0] * a[1] * k1 - a[2] * s;
+    R[0][2] = a[0] * a[2] * k1 + a[1] * s;
+    R[1][0] = a[1] * a[0] * k1 + a[2] * s;
+    R[1][1] = c + a[1] * a[1] * k1;
+    R[1][2] = a[1] * a[2] * k1 - a[0] * s;
+    R[2][0] = a[2] * a[0] * k1 - a[1] * s;
+    R[2][1] = a[2] * a[1] * k1 + a[0] * s;
+    R[2][2] = c + a[2] * a[2] * k1;
+    for (i = 0; i < 3; i++)            /* o = f x R^T */
+        for (j = 0; j < 3; j++)
+            o[i][j] = f[i][0] * R[j][0] + f[i][1] * R[j][1] + f[i][2] * R[j][2];
+    memcpy(f, o, sizeof o);
+}
+
+static float s_sq_before[P30_MAXJ][16];
+
+/* The sim's share of each tail segment's direction, 0..1 (the rest is the
+ * animation's). RECOMP_SQUIRREL_TAIL_SIM=<percent>. */
+static float sqtail_share(void)
+{
+    static float k = -1.0f;
+    if (k < 0.0f) {
+        const char *e = getenv("RECOMP_SQUIRREL_TAIL_SIM");
+        k = e && *e ? (float)atof(e) / 100.0f : 0.35f;
+        if (k < 0.0f || k > 1.0f)
+            k = 0.35f;
+    }
+    return k;
+}
+
+static void m4_point(float *o, const float *v, const float *m)
+{
+    v3_mul(o, v, m);
+    o[0] += m[12];
+    o[1] += m[13];
+    o[2] += m[14];
+}
+
+/* After the sim's call for character idx (kind 0x58): rebuild its tail bones. */
+static void sqtail_fix(uint32_t idx)
+{
+    uint32_t c = MEM32(0x0084A5F8u) + idx * 0x6D0u, bones, model, joints, st;
+    int n, i, k, tj[5], par;
+    float f[3][3], adir[3], sdir[3], dir[3], bind[5][3], pos[5][3], len[5], scl[3], t[3];
+    float share = sqtail_share();
+    if (idx >= P30_CHARS || MEM32(c + 0x68u) != 0x58u)
+        return;
+    n = p30_char(c, &bones, &model, &joints);
+    st = MEM32(c + 0x568u) ? MEM32(MEM32(c + 0x568u) + 0x200u) : MEM32(c + 0x650u);
+    if (!n || !joints || !xact_va_ok(st))
+        return;
+    for (i = 0; i < 5; i++) {          /* the five tail joints, each the next's parent */
+        tj[i] = (int)MEM32(st + 0x90u + 4u * (uint32_t)i);
+        if (tj[i] <= 0 || tj[i] >= n || !memcmp(p30_bone(bones, tj[i]), s_sq_before[tj[i]], 64))
+            return;                    /* not this frame's sim output */
+        par = (int)MEM16(joints + (uint32_t)tj[i] * 0x24u + 0x18u);
+        if (i && par != tj[i - 1])
+            return;
+        for (k = 0; k < 3; k++)
+            bind[i][k] = MEMF(joints + (uint32_t)tj[i] * 0x24u + 0xCu + 4u * (uint32_t)k);
+        m4_point(pos[i], bind[i], p30_bone(bones, tj[i]));   /* where the sim put it */
+    }
+    for (i = 0; i < 4; i++)
+        len[i] = sqrtf((pos[i + 1][0] - pos[i][0]) * (pos[i + 1][0] - pos[i][0])
+                       + (pos[i + 1][1] - pos[i][1]) * (pos[i + 1][1] - pos[i][1])
+                       + (pos[i + 1][2] - pos[i][2]) * (pos[i + 1][2] - pos[i][2]));
+    for (i = 0; i < 5; i++) {
+        float *m = p30_bone(bones, tj[i]);
+        float a = MEMF(0x006A7F8Cu + 4u * (uint32_t)i) * 0.017453292f;
+        float line[3] = { 0.0f, sinf(a), cosf(a) };
+        if (i > 0) {                   /* hang on the segment before, as now aimed */
+            for (k = 0; k < 3; k++)
+                pos[i][k] = pos[i - 1][k] + dir[k] * len[i - 1];
+        }
+        v3_mul(sdir, line, m);         /* the sim's direction */
+        v3_norm(sdir);
+        sq_frame(f, s_sq_before[tj[i]]);   /* the animation's bone */
+        for (k = 0; k < 3; k++)        /* and its direction */
+            adir[k] = line[0] * f[0][k] + line[1] * f[1][k] + line[2] * f[2][k];
+        v3_norm(adir);
+        for (k = 0; k < 3; k++)
+            dir[k] = adir[k] + (sdir[k] - adir[k]) * share;
+        if (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2] < 1e-4f)
+            memcpy(dir, adir, sizeof dir);  /* opposite and half each: no direction */
+        v3_norm(dir);
+        for (k = 0; k < 3; k++)
+            scl[k] = sqrtf(m[4 * k] * m[4 * k] + m[4 * k + 1] * m[4 * k + 1]
+                           + m[4 * k + 2] * m[4 * k + 2]);
+        sq_swing(f, adir, dir);        /* the animation's twist, swung onto dir */
+        for (k = 0; k < 3; k++) {
+            m[4 * k] = f[k][0] * scl[k];
+            m[4 * k + 1] = f[k][1] * scl[k];
+            m[4 * k + 2] = f[k][2] * scl[k];
+        }
+        v3_mul(t, bind[i], m);
+        for (k = 0; k < 3; k++)
+            m[12 + k] = pos[i][k] - t[k];
+    }
+}
+
 extern void sub_0008F2B0_gen(void);
+static void sub_0008F2B0_fixed(void)
+{
+    uint32_t idx = MEM32(g_esp + 4u), c, bones, model, joints;
+    int n = 0;
+    if (idx < P30_CHARS) {
+        c = MEM32(0x0084A5F8u) + idx * 0x6D0u;
+        if (MEM32(c + 0x68u) == 0x58u && (n = p30_char(c, &bones, &model, &joints)) != 0)
+            memcpy(s_sq_before, p30_bone(bones, 0), (size_t)n * 64u);
+    }
+    sub_0008F2B0_gen();
+    if (n)
+        sqtail_fix(idx);
+}
+
+/* Log (log phys30 2): every CombatSquirrel tail as drawn, each frame: the
+ * worst twist and swing of a tail piece against its parent. 60+ degrees of
+ * twist = a wrung tail (the original reaches 175). _work\bp226\sumtail.py. */
+static void sqtail_log(uint32_t idx)
+{
+    uint32_t c = MEM32(0x0084A5F8u) + idx * 0x6D0u, bones, model, joints, st;
+    float mt = 0.0f, ms = 0.0f, sw, tw;
+    int n, i, j, p;
+    if (MEM32(c + 0x68u) != 0x58u || !(n = p30_char(c, &bones, &model, &joints)) || !joints)
+        return;
+    st = MEM32(c + 0x568u) ? MEM32(MEM32(c + 0x568u) + 0x200u) : MEM32(c + 0x650u);
+    if (!xact_va_ok(st))
+        return;
+    for (i = 0; i < 5; i++) {
+        float a = MEMF(0x006A7F8Cu + 4u * (uint32_t)i) * 0.017453292f;
+        float line[3] = { 0.0f, sinf(a), cosf(a) };
+        j = (int)MEM32(st + 0x90u + 4u * (uint32_t)i);
+        if (j <= 0 || j >= n)
+            return;
+        p = (int)MEM16(joints + (uint32_t)j * 0x24u + 0x18u);
+        if (p >= n)
+            return;
+        sq_turn(p30_bone(bones, j), p30_bone(bones, p), line, &sw, &tw);
+        mt = fmaxf(mt, tw);
+        ms = fmaxf(ms, sw);
+    }
+    fprintf(stderr, "[SQTAIL] t=%ld f%u char %u twist %.0f swing %.0f fix %s\n", attach_ms(),
+            MEM32(0x007F9F60u), idx, mt, ms, sqtail_on() ? "on" : "off");
+}
+
 void sub_0008F2B0(void)
 {
-    p30_call(0, MEM32(g_esp + 4u), sub_0008F2B0_gen, 4u);   /* cdecl ret */
+    uint32_t idx = MEM32(g_esp + 4u);
+    p30_call(0, idx, sqtail_on() ? sub_0008F2B0_fixed : sub_0008F2B0_gen, 4u);   /* cdecl ret */
+    if (idx < P30_CHARS && phys30_log_on() >= 2)
+        sqtail_log(idx);
 }
 
 extern void sub_00090FB0_gen(void);
@@ -9942,6 +10662,18 @@ void conker_SetFrameRate(int fps)
     g_fps = fps < 60 ? 30 : fps > FRAME_UNCAPPED ? FRAME_UNCAPPED : fps;
 }
 
+/* For Automatic resolution (overlay.cpp, to-do 220): the frame rate the
+ * game is meant to reach, the setting capped at the monitor's refresh with
+ * VSync on (under it with vrr); 0 = none (uncapped, VSync off). */
+int conker_TargetFps(void)
+{
+    int r = frame_rate(), cap = xbox_VsyncCapHz();
+
+    if (cap && r > cap)
+        r = cap;
+    return r >= FRAME_UNCAPPED ? 0 : r;
+}
+
 void conker_SetDipFix(int on)
 {
     g_dip_fix = on != 0;
@@ -10325,26 +11057,343 @@ static int ucam_view(uint32_t cam);
 #define UCAM_LO_M (-85.0f)
 #define UCAM_HI_M 55.0f
 
+/* What a look (the mouse, a gyro) turns directly for one player's camera,
+ * found fresh each frame by look_find; look_turn turns it. kind: 0 = no
+ * direct writer (the mouse stays the stick there, a gyro does nothing),
+ * else an entry of s_look_kinds. The camera is [0x008470DC] + player x
+ * 0x770 (the game's four, conker-notes "cameras"). */
+typedef struct {
+    int kind, direct, mpvt;
+    uint32_t cam, ctl, mode, aim, aimd, swim, bat, scope, tank, tankd, mpv;
+    uint32_t tail;
+} Look;
+
+static const char *const s_look_kinds[] = {
+    "right stick", "camera turned directly", "head-cam turned directly",
+    "aim turned directly", "aim left/right direct, up/down stick",
+    "swimming turned directly", "bat flight turned directly",
+    "sniper scope turned directly", "tank turned directly",
+    "multiplayer tank turned directly", "Toad gun turned directly",
+    "Dragon gun turned directly", "turret turned directly",
+    "Mule turned directly (up/down stick)", "Steed turned directly",
+    "Vault tail turned directly", "Snoopa turned directly",
+};
+#define LOOK_AIM       3        /* a weapon out (single player) */
+#define LOOK_AIM_X     4        /* the same, up/down left to the stick */
+
+static int look_story(int set)
+{
+    return set == CONTROLS_STORY || set == CONTROLS_SWIM_SURFACE
+        || set == CONTROLS_SWIM_UNDER || set == CONTROLS_BAT_AIR;
+}
+
+static void look_find(int player, int set, Look *L)
+{
+    int story = look_story(set);
+    uint32_t cam, ctl, mode, base = MEM32(0x008470DCu);
+
+    memset(L, 0, sizeof(*L));
+    if (!base || player < 0 || player > 3 || MEM8(0x007FA275u)
+        || MEM8(0x0076F0E0u) == 1)
+        return;
+    cam = base + (uint32_t)player * 0x770u;
+    ctl = MEM32(cam + 4u);
+    mode = MEM32(cam + 0xC0u);
+    L->cam = cam;
+    L->ctl = ctl;
+    L->mode = mode;
+    if (story || set == CONTROLS_MP) {
+        if (story && ctl && (mode == 1u || mode == 0x100u))
+            L->direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
+        /* Aiming: a weapon out in single player (camera byte 0 set), every
+         * multiplayer match. */
+        if (ctl && mode == 0x100u && (set == CONTROLS_MP || MEM8(cam))) {
+            uint32_t chr = MEM32(cam + 0x3E0u);
+            L->aim = chr ? MEM32(chr + 0x568u) : 0;
+            L->aimd = L->aim ? MEM32(L->aim + 0x4D4u) : 0;
+            if (L->aim)
+                L->direct = XBOX_KBM_DIRECT_X
+                          | (L->aimd ? XBOX_KBM_DIRECT_Y : 0);
+            /* A multiplayer scope (Long Ranger): aiming state +0x5D0 is 0
+             * (2 while aiming unscoped), so 0x00039B40 skips its aim code. */
+            if (L->aimd && set == CONTROLS_MP && !MEM32(cam + 0x5D0u))
+                L->scope = L->aimd;
+            /* The It's War tank: Conker drives a vehicle character. Not
+             * the camera's aiming state +0x5D0, which wanders there (1, 2,
+             * 0). Multiplayer vehicles: mp_vehicle below. */
+            if (chr && set != CONTROLS_MP) {
+                uint32_t v = driven_vehicle(chr);
+                L->tank = v ? MEM32(v + 0x568u) : 0;
+                L->tankd = L->tank ? MEM32(L->tank + 0x4D4u) : 0;
+                if (!L->tankd)
+                    L->tank = 0;
+                else
+                    L->direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
+            }
+        }
+        if (ctl && set == CONTROLS_MP) {
+            L->mpv = mp_vehicle(MEM32(cam + 0x3E0u), &L->mpvt);
+            if (L->mpv)
+                L->direct = XBOX_KBM_DIRECT_X
+                          | (L->mpvt == MPV_MULE ? 0 : XBOX_KBM_DIRECT_Y);
+        }
+        if (ctl && mode == 0x80u && set == CONTROLS_SWIM_UNDER) {
+            uint32_t chr = MEM32(cam + 0x3E0u);
+            uint32_t a = chr ? MEM32(chr + 0x568u) : 0;
+            L->swim = a ? MEM32(a + 0x4D4u) : 0;
+            if (L->swim)
+                L->direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
+        }
+        if (ctl && mode == 1u && set == CONTROLS_BAT_AIR) {
+            uint32_t chr = MEM32(cam + 0x3E0u);
+            uint32_t a = chr && MEM8(chr + 0x1B5u) == 10u
+                       ? MEM32(chr + 0x568u) : 0;
+            L->bat = a ? MEM32(a + 0x4D4u) : 0;
+        }
+    }
+    /* Holding the alien's tail (The Vault): camera mode 0x100 like
+     * aiming, but the camera turns with the values the scope keeps in
+     * step, not with the aim alone (conker-notes 2026-10-28, Vault tail). */
+    if (set == CONTROLS_VAULT_TAIL && player == 0) {
+        uint32_t chr = MEM32(cam + 0x3E0u);
+        L->aim = chr ? MEM32(chr + 0x568u) : 0;
+        L->aimd = L->aim ? MEM32(L->aim + 0x4D4u) : 0;
+        if (ctl && L->aimd) {
+            L->tail = L->aimd;
+            L->direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
+        }
+    }
+    L->kind = !L->direct ? 0 : L->tail ? 15 : L->mpvt == MPV_SNOOPA ? 16
+            : L->mpv ? 8 + L->mpvt : L->tank ? 8 : L->scope ? 7 : L->bat ? 6
+            : L->swim ? 5 : L->aim ? (L->aimd ? LOOK_AIM : LOOK_AIM_X)
+            : mode == 0x100u ? 2 : 1;
+}
+
+/* Turns what look_find found: yaw = degrees to the right, up = degrees
+ * up (the mouse's or the gyro's, after their own sensitivity and invert).
+ * spread: the mouse's uneven steps are spread over a few frames on the
+ * Steed, Snoopa and Mule (only player 1's mouse uses it); a gyro is smooth
+ * already and turns at once. */
+static void look_turn(const Look *L, float yaw, float up, int spread)
+{
+    uint32_t cam = L->cam, ctl = L->ctl, aim = L->aim, aimd = L->aimd;
+    uint32_t mpv = L->mpv;
+    int mpvt = L->mpvt;
+
+    if (!L->direct)
+        return;
+    if (mpv && (mpvt == MPV_STEED || mpvt == MPV_SNOOPA || mpvt == MPV_MULE)) {
+        /* The Steed and the Snoopa: their character's facing (the game
+         * derives the heading from it; stick right lowers it) and pitch
+         * (smaller is nose up),
+         * at full speed: it spins fast on the stick. The Mule: its facing
+         * the same way; up/down stays with the stick. Uneven mouse steps
+         * shook its model in first person (user), so each movement is
+         * spread over a few frames: RECOMP_KBM_STEED_SMOOTH = the share
+         * left for later each frame (default 0.75; 0 = off; 0.5 still
+         * stuttered on quick jerks), RECOMP_KBM_STEED_MAX = degrees a
+         * frame at most (default 8; 0 = no limit). */
+        static float smooth = -1.0f, cap, py, pp;
+        uint32_t c = MEM32(mpv + 4u);
+        float y, q, a, b;
+        if (smooth < 0.0f) {
+            const char *e = getenv("RECOMP_KBM_STEED_SMOOTH");
+            smooth = e && *e ? (float)atof(e) : 0.75f;
+            smooth = smooth < 0.0f ? 0.0f : smooth > 0.95f ? 0.95f : smooth;
+            e = getenv("RECOMP_KBM_STEED_MAX");
+            cap = e && *e ? (float)atof(e) : 8.0f;
+        }
+        if (spread) {
+            py -= yaw;
+            pp -= up;
+            a = py * (1.0f - smooth);
+            b = pp * (1.0f - smooth);
+            if (cap > 0.0f) {
+                a = a > cap ? cap : a < -cap ? -cap : a;
+                b = b > cap ? cap : b < -cap ? -cap : b;
+            }
+            if (py - a > -0.01f && py - a < 0.01f)
+                a = py;
+            if (pp - b > -0.01f && pp - b < 0.01f)
+                b = pp;
+            py -= a;
+            pp -= b;
+        } else {
+            a = -yaw;
+            b = -up;
+        }
+        y = MEMF(c + 0x114u) + a;
+        y = y >= 360.0f ? y - 360.0f : y < 0.0f ? y + 360.0f : y;
+        MEMF(c + 0x114u) = y;
+        if (mpvt == MPV_MULE)
+            return;
+        q = MEMF(c + 0x1C0u) + b;
+        MEMF(c + 0x1C0u) = q < s_mpv[mpvt].lo ? s_mpv[mpvt].lo
+                         : q > s_mpv[mpvt].hi ? s_mpv[mpvt].hi : q;
+        if (spread && (q < s_mpv[mpvt].lo || q > s_mpv[mpvt].hi))
+            pp = 0.0f;
+        return;
+    }
+    if (yaw == 0.0f && up == 0.0f)
+        return;
+    if (mpv) {
+        /* A gun (Tankus, Toad, Dragon, turret): yaw to the hull
+         * (stick right lowers it; the vehicles wrap it, a turret
+         * leaves it as is) and pitch (smaller is up), at tank speed:
+         * the slow aim is the game's. */
+        float t = tank_mouse_scale();
+        float p = MEMF(mpv + 0x774u), q;
+        MEMF(mpv + 0x770u) -= yaw * t;
+        q = p - up * t;
+        MEMF(mpv + 0x774u) = q < s_mpv[mpvt].lo ? s_mpv[mpvt].lo
+                           : q > s_mpv[mpvt].hi ? s_mpv[mpvt].hi : q;
+        return;
+    }
+    if (L->tank) {
+        /* The turret's yaw to the hull and the pitch's source, slower
+         * than on foot; the game wraps the yaw itself. */
+        float t = tank_mouse_scale();
+        float p = MEMF(L->tankd + 0x40u), q;
+        MEMF(L->tank + 0x2ECu) -= yaw * t;
+        q = p + up * t;
+        MEMF(L->tankd + 0x40u) = q < TANK_PITCH_LO ? TANK_PITCH_LO
+                               : q > TANK_PITCH_HI ? TANK_PITCH_HI : q;
+        return;
+    }
+    if (L->swim || L->bat) {
+        /* Underwater and bat flight: the source, its springs (yaw
+         * current, minus the pitch) and the camera's pitch offset. */
+        uint32_t src = L->swim ? L->swim : L->bat;
+        uint32_t ys = L->swim ? 0x0087BF38u : 0x0075A1C4u;
+        uint32_t ps = L->swim ? 0x0087BF10u : 0x0075A1ECu;
+        float off = L->swim ? 0.0f : -5.0f;
+        uint32_t chr = MEM32(cam + 0x3E0u);
+        float d = -yaw, y, p, q;
+        uint16_t h;
+        y = MEMF(src + 4u) + d;
+        MEMF(ys) += d;
+        if (y >= 360.0f) {
+            y -= 360.0f;
+            MEMF(ys) -= 360.0f;
+        } else if (y < 0.0f) {
+            y += 360.0f;
+            MEMF(ys) += 360.0f;
+        }
+        MEMF(src + 4u) = y;
+        /* As 0x002D3CF0 and 0x002BC180 make it from the spring. */
+        h = (uint16_t)(-0x4000 + (int32_t)(MEMF(ys)
+                                           * (65536.0f / 360.0f)));
+        MEM16(chr + 0x170u) = h;
+        MEM16(chr + 0x174u) = h;
+        MEMF(chr + 0x114u) = (float)(h + 0x4000) * (360.0f / 65536.0f);
+        MEMF(ctl + 0x3BCu) += d;
+        MEMF(ctl + 0x3C0u) += d;
+        MEMF(ctl + 0x60u) += d;
+        MEMF(ctl + 0x5Cu) += d;
+        if (L->bat && MEM8(0x0084A5B0u))
+            return;
+        /* The game's own range (stick held each way). */
+        p = MEMF(src + 0x40u);
+        q = p + up;
+        q = q < SWIM_PITCH_LO ? SWIM_PITCH_LO
+          : q > SWIM_PITCH_HI ? SWIM_PITCH_HI : q;
+        MEMF(src + 0x40u) = q;
+        MEMF(ps) -= q - p;
+        d = swim_cam_pitch(q + off) - swim_cam_pitch(p + off);
+        MEMF(ctl + 0x394u) += d;
+        MEMF(ctl + 0x398u) += d;
+        MEMF(ctl + 0x38u) += d;
+        MEMF(ctl + 0x34u) += d;
+        return;
+    }
+    if (L->tail) {
+        /* The tail: the right stick moved aim data +4, aim +0x14
+         * (the other way), aim +0x258, camera +0x3BC and controller
+         * +0x5C / +0x60 by the same amount, as scoped; up/down aim
+         * data +0x40, which the game keeps in range and makes the
+         * controller's pitch from, as aiming. */
+        float d = -yaw;
+        float y = MEMF(L->tail + 4u) + d;
+        MEMF(L->tail + 4u) = y >= 360.0f ? y - 360.0f
+                           : y < 0.0f ? y + 360.0f : y;
+        MEMF(aim + 0x14u) -= d;
+        MEMF(aim + 0x258u) += d;
+        MEMF(cam + 0x3BCu) += d;
+        MEMF(ctl + 0x5Cu) += d;
+        MEMF(ctl + 0x60u) += d;
+        MEMF(L->tail + 0x40u) += up;
+        return;
+    }
+    if (L->scope) {
+        /* Scoped: every value the stick moves, by the same amount
+         * (writing only some of them was put back the same frame). */
+        float d = -yaw;
+        float y = MEMF(L->scope + 4u) + d;
+        float p = MEMF(ctl + 0x34u), q;
+        MEMF(L->scope + 4u) = y >= 360.0f ? y - 360.0f
+                            : y < 0.0f ? y + 360.0f : y;
+        MEMF(aim + 0x14u) -= d;
+        MEMF(aim + 0x258u) += d;
+        MEMF(aim + 0x260u) += d;
+        MEMF(cam + 0x3BCu) += d;
+        MEMF(ctl + 0x5Cu) += d;
+        MEMF(ctl + 0x60u) += d;
+        /* Pitch: +0x34 down is up on screen; the game's range +-80. */
+        q = p - up;
+        q = q < -SCOPE_PITCH_MAX ? -SCOPE_PITCH_MAX
+          : q > SCOPE_PITCH_MAX ? SCOPE_PITCH_MAX : q;
+        MEMF(ctl + 0x34u) += q - p;
+        MEMF(ctl + 0x38u) += q - p;
+        MEMF(aim + 0x25Cu) += q - p;
+        MEMF(aim + 0x264u) += q - p;
+        return;
+    }
+    if (aim) {
+        MEMF(aim + 0x14u) += yaw;
+        if (aimd)   /* the game keeps it within the weapon's range */
+            MEMF(aimd + 0x40u) += up;
+        return;
+    }
+    {
+        float lo, hi, p, q;
+        if (L->mode == 0x100u) {
+            /* Head-cam: 0x00039B40 takes the stick's turn off +0x5C
+             * (+0x60 is made from it there) and sets Conker's facing
+             * from it; the pitch has no wanted value. */
+            MEMF(ctl + 0x5Cu) -= yaw;
+            MEMF(ctl + 0x34u) += up;
+            return;
+        }
+        MEMF(ctl + 0x60u) -= yaw;
+        /* The wanted pitch +0x8EC, limited as 0x00047DC0 does; the
+         * camera eases +0x34 (and +0x38) towards it, so they move by
+         * the same amount or the camera eases back. */
+        if (MEM8(ctl + 0x8C4u) || MEM8(ctl + 0x8C5u))
+            lo = -65.0f, hi = 65.0f;
+        else if (ucam_view(cam))            /* Unlocked Camera */
+            lo = UCAM_LO_M, hi = UCAM_HI_M;
+        else if (MEM16(cam + 0x220u) == 3u)
+            lo = -30.0f, hi = -5.0f;
+        else
+            lo = -45.0f, hi = -2.0f;
+        p = MEMF(ctl + 0x8ECu);
+        q = p + up < lo ? lo : p + up > hi ? hi : p + up;
+        if (q == p)
+            return;
+        MEMF(ctl + 0x8ECu) = q;
+        MEMF(ctl + 0x38u) += q - p;
+        MEMF(ctl + 0x34u) += q - p;
+    }
+}
+
+static void gyro_look(int set);
+
 static void mouse_look(int set)
 {
-    static const char *const kinds[] = {
-        "right stick", "camera turned directly", "head-cam turned directly",
-        "aim turned directly", "aim left/right direct, up/down stick",
-        "swimming turned directly", "bat flight turned directly",
-        "sniper scope turned directly", "tank turned directly",
-        "multiplayer tank turned directly", "Toad gun turned directly",
-        "Dragon gun turned directly", "turret turned directly",
-        "Mule turned directly (up/down stick)", "Steed turned directly",
-        "Vault tail turned directly", "Snoopa turned directly",
-    };
     static int was = -1;
     static uint32_t was_mode;
-    uint32_t cam = 0, ctl = 0, mode = 0, aim = 0, aimd = 0, swim = 0, bat = 0;
-    uint32_t scope = 0, tank = 0, tankd = 0, mpv = 0, tail = 0;
-    int mpvt = 0;
-    int story = set == CONTROLS_STORY || set == CONTROLS_SWIM_SURFACE
-                || set == CONTROLS_SWIM_UNDER || set == CONTROLS_BAT_AIR;
-    int direct = 0, kind;
+    int story = look_story(set);
+    Look L;
     long dx, dy;
 
     if (story || set == CONTROLS_MP)
@@ -10377,295 +11426,31 @@ static void mouse_look(int set)
         }
     }
 
-    /* The camera below is the first player's (the only one in single
-     * player; split screen not looked into): with the keyboard on another
-     * controller port (F3 > Slots) the mouse stays the right
-     * stick of that port's pad. */
-    if ((story || set == CONTROLS_MP) && controls_keyboard_port() == 0
-        && !MEM8(0x007FA275u) && MEM8(0x0076F0E0u) != 1) {
-        cam = MEM32(0x008470DCu);
-        ctl = cam ? MEM32(cam + 4u) : 0;
-        mode = cam ? MEM32(cam + 0xC0u) : 0;
-        if (story && ctl && (mode == 1u || mode == 0x100u))
-            direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
-        /* Aiming: a weapon out in single player (camera byte 0 set), every
-         * multiplayer match. */
-        if (ctl && mode == 0x100u && (set == CONTROLS_MP || MEM8(cam))) {
-            uint32_t chr = MEM32(cam + 0x3E0u);
-            aim = chr ? MEM32(chr + 0x568u) : 0;
-            aimd = aim ? MEM32(aim + 0x4D4u) : 0;
-            if (aim)
-                direct = XBOX_KBM_DIRECT_X | (aimd ? XBOX_KBM_DIRECT_Y : 0);
-            /* A multiplayer scope (Long Ranger): aiming state +0x5D0 is 0
-             * (2 while aiming unscoped), so 0x00039B40 skips its aim code. */
-            if (aimd && set == CONTROLS_MP && !MEM32(cam + 0x5D0u))
-                scope = aimd;
-            /* The It's War tank: Conker drives a vehicle character. Not
-             * the camera's aiming state +0x5D0, which wanders there (1, 2,
-             * 0). Multiplayer vehicles: mp_vehicle below. */
-            if (chr && set != CONTROLS_MP) {
-                uint32_t v = driven_vehicle(chr);
-                tank = v ? MEM32(v + 0x568u) : 0;
-                tankd = tank ? MEM32(tank + 0x4D4u) : 0;
-                if (!tankd)
-                    tank = 0;
-                else
-                    direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
-            }
-        }
-        if (ctl && set == CONTROLS_MP) {
-            mpv = mp_vehicle(MEM32(cam + 0x3E0u), &mpvt);
-            if (mpv)
-                direct = XBOX_KBM_DIRECT_X
-                       | (mpvt == MPV_MULE ? 0 : XBOX_KBM_DIRECT_Y);
-        }
-        if (ctl && mode == 0x80u && set == CONTROLS_SWIM_UNDER) {
-            uint32_t chr = MEM32(cam + 0x3E0u);
-            uint32_t a = chr ? MEM32(chr + 0x568u) : 0;
-            swim = a ? MEM32(a + 0x4D4u) : 0;
-            if (swim)
-                direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
-        }
-        if (ctl && mode == 1u && set == CONTROLS_BAT_AIR) {
-            uint32_t chr = MEM32(cam + 0x3E0u);
-            uint32_t a = chr && MEM8(chr + 0x1B5u) == 10u
-                       ? MEM32(chr + 0x568u) : 0;
-            bat = a ? MEM32(a + 0x4D4u) : 0;
-        }
-    }
-    /* Holding the alien's tail (The Vault): camera mode 0x100 like
-     * aiming, but the camera turns with the values the scope keeps in
-     * step, not with the aim alone (conker-notes 2026-10-28, Vault tail). */
-    if (set == CONTROLS_VAULT_TAIL && controls_keyboard_port() == 0
-        && !MEM8(0x007FA275u) && MEM8(0x0076F0E0u) != 1) {
-        uint32_t chr;
-        cam = MEM32(0x008470DCu);
-        ctl = cam ? MEM32(cam + 4u) : 0;
-        mode = cam ? MEM32(cam + 0xC0u) : 0;
-        chr = cam ? MEM32(cam + 0x3E0u) : 0;
-        aim = chr ? MEM32(chr + 0x568u) : 0;
-        aimd = aim ? MEM32(aim + 0x4D4u) : 0;
-        if (ctl && aimd) {
-            tail = aimd;
-            direct = XBOX_KBM_DIRECT_X | XBOX_KBM_DIRECT_Y;
-        }
-    }
-    kind = !direct ? 0 : tail ? 15 : mpvt == MPV_SNOOPA ? 16 : mpv ? 8 + mpvt : tank ? 8 : scope ? 7 : bat ? 6 : swim ? 5 : aim ? (aimd ? 3 : 4)
-         : mode == 0x100u ? 2 : 1;
-    if (kind != was || (!direct && cam && mode != was_mode)) {
+    /* The camera is the first player's (the only one in single player):
+     * with the keyboard on another controller port (F3 > Slots) the mouse
+     * stays the right stick of that port's pad. */
+    if ((story || set == CONTROLS_MP || set == CONTROLS_VAULT_TAIL)
+        && controls_keyboard_port() == 0)
+        look_find(0, set, &L);
+    else
+        memset(&L, 0, sizeof(L));
+    if (L.kind != was || (!L.direct && L.cam && L.mode != was_mode)) {
         fprintf(stderr, "[CONTROLS] t=%ld mouse look: %s (camera mode %08X)\n",
-                attach_ms(), kinds[kind], mode);
-        was = kind;
-        was_mode = mode;
+                attach_ms(), s_look_kinds[L.kind], L.mode);
+        was = L.kind;
+        was_mode = L.mode;
     }
-    xbox_KbmMouseDirect(direct);
-    if (!direct || !xbox_KbmTakeMouse(&dx, &dy))
+    xbox_KbmMouseDirect(L.direct);
+    if (!L.direct || !xbox_KbmTakeMouse(&dx, &dy))
         dx = dy = 0;
-    if (mpv && (mpvt == MPV_STEED || mpvt == MPV_SNOOPA || mpvt == MPV_MULE)) {
-        /* The Steed and the Snoopa: their character's facing (the game
-         * derives the heading from it; stick right lowers it) and pitch
-         * (smaller is nose up),
-         * at full speed: it spins fast on the stick. The Mule: its facing
-         * the same way; up/down stays with the stick. Uneven mouse steps
-         * shook its model in first person (user), so each movement is
-         * spread over a few frames: RECOMP_KBM_STEED_SMOOTH = the share
-         * left for later each frame (default 0.75; 0 = off; 0.5 still
-         * stuttered on quick jerks), RECOMP_KBM_STEED_MAX = degrees a
-         * frame at most (default 8; 0 = no limit). */
-        static float smooth = -1.0f, cap, py, pp;
-        uint32_t c = MEM32(mpv + 4u);
-        float sx, sy, k = mouse_deg_per_count(), y, q, a, b;
-        int inv;
-        if (smooth < 0.0f) {
-            const char *e = getenv("RECOMP_KBM_STEED_SMOOTH");
-            smooth = e && *e ? (float)atof(e) : 0.75f;
-            smooth = smooth < 0.0f ? 0.0f : smooth > 0.95f ? 0.95f : smooth;
-            e = getenv("RECOMP_KBM_STEED_MAX");
-            cap = e && *e ? (float)atof(e) : 8.0f;
-        }
-        controls_mouse(set, &sx, &sy, &inv);
-        py -= (float)dx * k * sx;
-        pp += (float)(inv ? -dy : dy) * k * sy;
-        a = py * (1.0f - smooth);
-        b = pp * (1.0f - smooth);
-        if (cap > 0.0f) {
-            a = a > cap ? cap : a < -cap ? -cap : a;
-            b = b > cap ? cap : b < -cap ? -cap : b;
-        }
-        if (py - a > -0.01f && py - a < 0.01f)
-            a = py;
-        if (pp - b > -0.01f && pp - b < 0.01f)
-            b = pp;
-        py -= a;
-        pp -= b;
-        y = MEMF(c + 0x114u) + a;
-        y = y >= 360.0f ? y - 360.0f : y < 0.0f ? y + 360.0f : y;
-        MEMF(c + 0x114u) = y;
-        if (mpvt == MPV_MULE)
-            return;
-        q = MEMF(c + 0x1C0u) + b;
-        MEMF(c + 0x1C0u) = q < s_mpv[mpvt].lo ? s_mpv[mpvt].lo
-                         : q > s_mpv[mpvt].hi ? s_mpv[mpvt].hi : q;
-        if (q < s_mpv[mpvt].lo || q > s_mpv[mpvt].hi)
-            pp = 0.0f;
-        return;
-    }
-    if (!dx && !dy)
-        return;
-    {
+    if (L.direct) {
         float sx, sy, k = mouse_deg_per_count();
         int inv;
         controls_mouse(set, &sx, &sy, &inv);
-        if (mpv) {
-            /* A gun (Tankus, Toad, Dragon, turret): yaw to the hull
-             * (stick right lowers it; the vehicles wrap it, a turret
-             * leaves it as is) and pitch (smaller is up), at tank speed:
-             * the slow aim is the game's. */
-            float t = tank_mouse_scale();
-            float p = MEMF(mpv + 0x774u), q;
-            MEMF(mpv + 0x770u) -= (float)dx * k * sx * t;
-            q = p + (float)(inv ? -dy : dy) * k * sy * t;
-            MEMF(mpv + 0x774u) = q < s_mpv[mpvt].lo ? s_mpv[mpvt].lo
-                               : q > s_mpv[mpvt].hi ? s_mpv[mpvt].hi : q;
-            return;
-        }
-        if (tank) {
-            /* The turret's yaw to the hull and the pitch's source, slower
-             * than on foot; the game wraps the yaw itself. */
-            float t = tank_mouse_scale();
-            float p = MEMF(tankd + 0x40u), q;
-            MEMF(tank + 0x2ECu) -= (float)dx * k * sx * t;
-            q = p + (float)(inv ? dy : -dy) * k * sy * t;
-            MEMF(tankd + 0x40u) = q < TANK_PITCH_LO ? TANK_PITCH_LO
-                                : q > TANK_PITCH_HI ? TANK_PITCH_HI : q;
-            return;
-        }
-        if (swim || bat) {
-            /* Underwater and bat flight: the source, its springs (yaw
-             * current, minus the pitch) and the camera's pitch offset. */
-            uint32_t src = swim ? swim : bat;
-            uint32_t ys = swim ? 0x0087BF38u : 0x0075A1C4u;
-            uint32_t ps = swim ? 0x0087BF10u : 0x0075A1ECu;
-            float off = swim ? 0.0f : -5.0f;
-            uint32_t chr = MEM32(cam + 0x3E0u);
-            float d = -(float)dx * k * sx, y, p, q;
-            uint16_t h;
-            y = MEMF(src + 4u) + d;
-            MEMF(ys) += d;
-            if (y >= 360.0f) {
-                y -= 360.0f;
-                MEMF(ys) -= 360.0f;
-            } else if (y < 0.0f) {
-                y += 360.0f;
-                MEMF(ys) += 360.0f;
-            }
-            MEMF(src + 4u) = y;
-            /* As 0x002D3CF0 and 0x002BC180 make it from the spring. */
-            h = (uint16_t)(-0x4000 + (int32_t)(MEMF(ys)
-                                               * (65536.0f / 360.0f)));
-            MEM16(chr + 0x170u) = h;
-            MEM16(chr + 0x174u) = h;
-            MEMF(chr + 0x114u) = (float)(h + 0x4000) * (360.0f / 65536.0f);
-            MEMF(ctl + 0x3BCu) += d;
-            MEMF(ctl + 0x3C0u) += d;
-            MEMF(ctl + 0x60u) += d;
-            MEMF(ctl + 0x5Cu) += d;
-            if (bat && MEM8(0x0084A5B0u))
-                return;
-            /* The game's own range (stick held each way). */
-            p = MEMF(src + 0x40u);
-            q = p + (float)(inv ? dy : -dy) * k * sy;
-            q = q < SWIM_PITCH_LO ? SWIM_PITCH_LO
-              : q > SWIM_PITCH_HI ? SWIM_PITCH_HI : q;
-            MEMF(src + 0x40u) = q;
-            MEMF(ps) -= q - p;
-            d = swim_cam_pitch(q + off) - swim_cam_pitch(p + off);
-            MEMF(ctl + 0x394u) += d;
-            MEMF(ctl + 0x398u) += d;
-            MEMF(ctl + 0x38u) += d;
-            MEMF(ctl + 0x34u) += d;
-            return;
-        }
-        if (tail) {
-            /* The tail: the right stick moved aim data +4, aim +0x14
-             * (the other way), aim +0x258, camera +0x3BC and controller
-             * +0x5C / +0x60 by the same amount, as scoped; up/down aim
-             * data +0x40, which the game keeps in range and makes the
-             * controller's pitch from, as aiming. */
-            float d = -(float)dx * k * sx;
-            float y = MEMF(tail + 4u) + d;
-            MEMF(tail + 4u) = y >= 360.0f ? y - 360.0f
-                            : y < 0.0f ? y + 360.0f : y;
-            MEMF(aim + 0x14u) -= d;
-            MEMF(aim + 0x258u) += d;
-            MEMF(cam + 0x3BCu) += d;
-            MEMF(ctl + 0x5Cu) += d;
-            MEMF(ctl + 0x60u) += d;
-            MEMF(tail + 0x40u) += (float)(inv ? dy : -dy) * k * sy;
-            return;
-        }
-        if (scope) {
-            /* Scoped: every value the stick moves, by the same amount
-             * (writing only some of them was put back the same frame). */
-            float d = -(float)dx * k * sx;
-            float y = MEMF(scope + 4u) + d;
-            float p = MEMF(ctl + 0x34u), q;
-            MEMF(scope + 4u) = y >= 360.0f ? y - 360.0f
-                             : y < 0.0f ? y + 360.0f : y;
-            MEMF(aim + 0x14u) -= d;
-            MEMF(aim + 0x258u) += d;
-            MEMF(aim + 0x260u) += d;
-            MEMF(cam + 0x3BCu) += d;
-            MEMF(ctl + 0x5Cu) += d;
-            MEMF(ctl + 0x60u) += d;
-            /* Pitch: +0x34 down is up on screen; the game's range +-80. */
-            q = p - (float)(inv ? dy : -dy) * k * sy;
-            q = q < -SCOPE_PITCH_MAX ? -SCOPE_PITCH_MAX
-              : q > SCOPE_PITCH_MAX ? SCOPE_PITCH_MAX : q;
-            MEMF(ctl + 0x34u) += q - p;
-            MEMF(ctl + 0x38u) += q - p;
-            MEMF(aim + 0x25Cu) += q - p;
-            MEMF(aim + 0x264u) += q - p;
-            return;
-        }
-        if (aim) {
-            MEMF(aim + 0x14u) += (float)dx * k * sx;
-            if (aimd)   /* the game keeps it within the weapon's range */
-                MEMF(aimd + 0x40u) += (float)(inv ? dy : -dy) * k * sy;
-            return;
-        }
-        {
-            float dp = (float)(inv ? dy : -dy) * k * sy;
-            float lo, hi, p, q;
-            if (mode == 0x100u) {
-                /* Head-cam: 0x00039B40 takes the stick's turn off +0x5C
-                 * (+0x60 is made from it there) and sets Conker's facing
-                 * from it; the pitch has no wanted value. */
-                MEMF(ctl + 0x5Cu) -= (float)dx * k * sx;
-                MEMF(ctl + 0x34u) += dp;
-                return;
-            }
-            MEMF(ctl + 0x60u) -= (float)dx * k * sx;
-            /* The wanted pitch +0x8EC, limited as 0x00047DC0 does; the
-             * camera eases +0x34 (and +0x38) towards it, so they move by
-             * the same amount or the camera eases back. */
-            if (MEM8(ctl + 0x8C4u) || MEM8(ctl + 0x8C5u))
-                lo = -65.0f, hi = 65.0f;
-            else if (ucam_view(cam))            /* Unlocked Camera */
-                lo = UCAM_LO_M, hi = UCAM_HI_M;
-            else if (MEM16(cam + 0x220u) == 3u)
-                lo = -30.0f, hi = -5.0f;
-            else
-                lo = -45.0f, hi = -2.0f;
-            p = MEMF(ctl + 0x8ECu);
-            q = p + dp < lo ? lo : p + dp > hi ? hi : p + dp;
-            if (q == p)
-                return;
-            MEMF(ctl + 0x8ECu) = q;
-            MEMF(ctl + 0x38u) += q - p;
-            MEMF(ctl + 0x34u) += q - p;
-        }
+        look_turn(&L, (float)dx * k * sx,
+                  (float)(inv ? dy : -dy) * k * sy, 1);
     }
+    gyro_look(set);
 }
 
 /* Single player in the water (conker-notes 2026-10-26, swimming): Conker
@@ -10890,30 +11675,102 @@ const char *conker_BKindName(int k)
 #define MODERN_FIRE_MS 150   /* the shotgun fires on letting go of RT */
 
 /* Modern on the controller too (user 2026-10-30), player 1 in single
- * player only: on foot B is the context button (B pads only), holding LT
- * aims (the weapon out while held, as the keyboard's aim key), RT attacks
- * while aiming and crouches otherwise, LB is the head-cam (the game's LT,
- * held); the bat flying aims while LT is held; underwater RT also swims up
- * (B) and LT down (A). The toolkit's pad filter (xbox_InputSetPadFilter)
- * runs on the USB thread on the controller's own state, before the
- * keyboard is merged in: it keeps the pad's B, LT and RT for the polls
- * below (game thread, once a frame) and puts their answer in their place.
- * The swimming, beehive gun, The Vault, vehicles, cutscenes and menus keep
- * the controller as the game has it. */
+ * player only: on foot the Context button presses B on B pads only, holding
+ * Aim takes the weapon out (as the keyboard's aim key), Attack fires while
+ * aiming and Crouch crouches otherwise. Which buttons those are is the
+ * controller binds' (to-do 39, pad_binds.c; Modern's defaults B, LT, RT,
+ * RT): binds_filter in the toolkit's pad filter (xbox_InputSetPadFilter,
+ * the USB thread, the controller's own state before the keyboard is merged
+ * in) hands them to the polls below (game thread, once a frame) and puts
+ * their answer in B and RT. Swimming, the bat, vehicles and the rest are
+ * the binds' own; cutscenes and menus keep the controller as the game has
+ * it. */
 #define PAD_NATIVE 0
 #define PAD_FOOT   1     /* on foot, modern_poll */
-#define PAD_UNDER  2     /* underwater */
-#define PAD_BAT    3     /* the bat flying, bat_poll */
 
 static volatile LONG s_pad_mode;
 static volatile LONG s_pad_in_b, s_pad_in_lt, s_pad_in_rt;   /* pad, port 1 */
 static volatile LONG s_pad_out_b, s_pad_out_rt, s_pad_out_lt;
+/* Controller binds (to-do 39, pad_binds.c): the bat's two aim rows held, and
+ * what gyro aiming takes for "the left trigger held" (Classic: the game's
+ * left trigger; Modern: Aim's button). From pad_filter. */
+static volatile LONG s_pad_in_bat_toggle, s_pad_in_bat_hold, s_pad_gyro_lt;
+static volatile LONG s_pad_in_crouch;      /* Modern on foot: Crouch's button */
+/* Single player's on-foot state for the binds (game thread, controls_poll):
+ * on foot (story set, no vehicle) and a weapon out. */
+static volatile LONG s_bind_foot, s_bind_weapon_out;
 
 /* The input display (to-do 153, overlay.cpp): slot 1's controller as it came
  * in (the keyboard's keys bound to it included), before anything of ours
  * changes what the game gets. Written here (the pad's thread), read by the
  * overlay (executor); a torn read is one frame of a mixed picture. */
 static volatile XBOX_GAMEPAD s_input_seen;
+
+/* Gyro aiming (to-do 35; per slot, F3 > Slots > Options): each port's
+ * controller's turn (xbox_InputGyroTake: calibrated, player space, degrees
+ * of the hand's turn) into the values the mouse turns (look_turn), times
+ * that slot's gyro speed. Single player, port 0 only: while a weapon is out
+ * (LOOK_AIM / LOOK_AIM_X) and the controller's own left trigger is held, in
+ * either layout (user 2026-11-15; in Modern, holding LT is the aim itself).
+ * Multiplayer: all match long when the slot's "Gyro in multiplayer" is on
+ * (user 2026-11-15), on that player's camera (player n = port n), with the
+ * aim, scope and vehicles the mouse turns. Every pad's turn is taken each
+ * frame, used or not, so nothing old is applied later.
+ * RECOMP_GYRO_TEST=<yaw>,<pitch>: port 0 turns that many degrees a second
+ * right / up as if it had a gyro with LT held (scripted tests, no pad). */
+static void gyro_look(int set)
+{
+    static int was[4] = { -1, -1, -1, -1 };
+    static float test[2];
+    static int test_on = -1;
+    static LARGE_INTEGER last, freq;
+    int story = look_story(set), p;
+    float dt = 0.0f;
+
+    if (test_on < 0) {
+        const char *e = getenv("RECOMP_GYRO_TEST");
+        test_on = e && *e && sscanf(e, "%f,%f", &test[0], &test[1]) >= 1;
+        QueryPerformanceFrequency(&freq);
+    }
+    if (test_on) {
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        dt = last.QuadPart ? (float)(now.QuadPart - last.QuadPart)
+                             / (float)freq.QuadPart : 0.0f;
+        dt = dt > 0.25f ? 0.0f : dt;
+        last = now;
+    }
+    for (p = 0; p < 4; p++) {
+        float gy, gp, sx = 1.0f, sy = 1.0f;
+        int inv = 0, active = 0, now;
+        Look L;
+
+        if (!xbox_InputGyroTake((DWORD)p, &gy, &gp) && !(test_on && p == 0))
+            continue;
+        if (test_on && p == 0) {
+            gy += test[0] * dt;
+            gp += test[1] * dt;
+        }
+        memset(&L, 0, sizeof(L));
+        if (controls_gyro(p, set == CONTROLS_MP, &sx, &sy, &inv)
+            && (set == CONTROLS_MP || (story && p == 0))) {
+            look_find(p, set, &L);
+            if (set == CONTROLS_MP)
+                active = L.direct != 0;
+            else
+                active = (L.kind == LOOK_AIM || L.kind == LOOK_AIM_X)
+                      && (test_on || s_pad_gyro_lt);   /* controller binds */
+        }
+        now = active ? L.kind : 0;
+        if (now != was[p]) {
+            fprintf(stderr, "[GYRO] t=%ld player %d: %s\n", attach_ms(),
+                    p + 1, active ? s_look_kinds[L.kind] : "off");
+            was[p] = now;
+        }
+        if (active)
+            look_turn(&L, gy * sx, (inv ? -gp : gp) * sy, 0);
+    }
+}
 
 void conker_InputDisplayState(unsigned short *buttons, unsigned char analog[8],
                               short sticks[4])
@@ -10995,14 +11852,10 @@ static int ucam_on(void)
     return g_ucam;
 }
 
+/* Live: the console's "log ucam on" (dev_logs.c). */
 static int ucam_log(void)
 {
-    static int on = -1;
-    if (on < 0) {
-        const char *e = getenv("RECOMP_UCAM_LOG");
-        on = e && *e && *e != '0';
-    }
-    return on;
+    return dev_log(DLOG_UCAM);
 }
 
 /* The normal view the Unlocked Camera takes over (see above), cam_stick_look
@@ -11156,34 +12009,120 @@ static void ucam_wrec_update(uint32_t cam)
             s_ucam_wrec_wlo, s_ucam_wrec_whi, MEMF(MEM32(cam + 4u) + 0x26Cu));
 }
 
+/* The right stick's turn speeds in the normal view (user 2026-11-15, 0.3.3).
+ * cam_stick_look turns the yaw +0x60 by 1.5 x the stick's x (+8) and the
+ * wanted pitch +0x8EC by 1.2 x its y (+0x44) each call, and the game hands it
+ * a y about a third of the x at full tilt (0.30 against 0.87): up / down
+ * turned ~44 degrees a second, left / right ~200 at 120 fps. With the
+ * Unlocked Camera the pitch's step is UCAM_PITCH_GAIN times the game's
+ * (RECOMP_UCAM_PITCH_GAIN, 1 = the game's): 4.5 matched the yaw (207 a
+ * second) but was too twitchy, the user asked for halfway (2026-11-15): 2.75,
+ * ~125 a second. Slot 1's single-player camera speed (story_camera_speed1,
+ * F3 Slots > Options) scales both, with or without the Unlocked Camera. */
+#define UCAM_PITCH_GAIN 2.75f
+static float ucam_pitch_gain(void)
+{
+    static float g = -1.0f;
+    if (g < 0.0f) {
+        const char *e = getenv("RECOMP_UCAM_PITCH_GAIN");
+        g = e && *e && atof(e) > 0.0 ? (float)atof(e) : UCAM_PITCH_GAIN;
+    }
+    return g;
+}
+
+/* [UCAM] every 2 s (log ucam): the normal view the Unlocked Camera takes,
+ * or why it isn't taking camera 0's free view (to-do 252's hunt). */
+static void ucam_log_line(uint32_t cam, int in_charge, float u, float c,
+                          float lo, float hi)
+{
+    static long last;
+    long now = attach_ms();
+    uint32_t ctl = cam ? MEM32(cam + 4u) : 0, stick;
+    if (!ucam_log() || !ctl || now - last < 2000)
+        return;
+    last = now;
+    stick = MEM32(ctl + 0x8B4u);
+    if (!in_charge) {
+        fprintf(stderr, "[UCAM] t=%ld not in charge: option %d, camera 0 %d, mp %u, "
+                "cutscene %u, mode %08X, aiming %u, +0x8C4 %u, +0x8C5 %u; pitch "
+                "wanted %.1f used %.1f\n", now, ucam_on(),
+                cam == MEM32(0x008470DCu), MEM8(0x007819D5u),
+                MEM8(0x0076F0E0u), MEM32(cam + 0xC0u), MEM8(cam),
+                MEM8(ctl + 0x8C4u), MEM8(ctl + 0x8C5u), MEMF(ctl + 0x8ECu),
+                MEMF(ctl + 0x38u));
+        return;
+    }
+    fprintf(stderr, "[UCAM] t=%ld pitch %.1f (game %.1f, limits %.0f..%.0f; used "
+            "%.1f / %.1f) preset %u zoom %.2f -> %.2f distance %.0f (target %.0f) "
+            "stick %.2f %.2f +0x96 %u +0x29C %.2f +0x8C6..8 %u %u %u\n",
+            now, u, c, lo, hi, MEMF(ctl + 0x38u), MEMF(ctl + 0x34u),
+            MEM16(cam + 0x220u), s_ucam_zoom, s_ucam_zoom_tgt,
+            MEMF(ctl + 0x24Cu), MEMF(ctl + 0x26Cu),
+            stick ? MEMF(stick + 8u) : 0.0f, stick ? MEMF(stick + 0x44u) : 0.0f,
+            MEM8(ctl + 0x96u), MEMF(ctl + 0x29Cu), MEM8(ctl + 0x8C6u),
+            MEM8(ctl + 0x8C7u), MEM8(ctl + 0x8C8u));
+}
+
 /* cam_stick_look (cdecl: camera, flag): pitch and yaw from the right stick,
  * the far camera's distance and view width, every frame of free camera. */
 extern void sub_00047730_gen(void);
 void sub_00047730(void)
 {
     uint32_t cam = MEM32(g_esp + 4u), ctl, stick;
-    float lo, hi, w, u, c, sy, sy_game, e;
+    float lo, hi, w, u, c, sy, sy_game, sx_game, e, spd;
     int dpad_up;
     long now;
     float dt;
 
+    ctl = cam ? MEM32(cam + 4u) : 0;
+    stick = ctl ? MEM32(ctl + 0x8B4u) : 0;
+    /* Slot 1's camera speed: single player's camera 0 only. */
+    spd = cam && cam == MEM32(0x008470DCu) && !MEM8(0x007819D5u)
+        ? controls_camera_speed(0, 0) : 1.0f;
     if (!ucam_view(cam)) {
+        if (cam && cam == MEM32(0x008470DCu) && !(MEM32(cam + 0xC0u) & 0x100u))
+            ucam_log_line(cam, 0, 0.0f, 0.0f, 0.0f, 0.0f);
+        if (stick && (spd < 0.999f || spd > 1.001f)) {
+            float x = MEMF(stick + 8u), y = MEMF(stick + 0x44u);
+            MEMF(stick + 8u) = x * spd;
+            MEMF(stick + 0x44u) = y * spd;
+            sub_00047730_gen();
+            MEMF(stick + 8u) = x;
+            MEMF(stick + 0x44u) = y;
+            return;
+        }
         sub_00047730_gen();
         return;
     }
-    ctl = MEM32(cam + 4u);
-    stick = MEM32(ctl + 0x8B4u);
     now = attach_ms();
     dt = s_ucam_frame + 1u == s_ctl_frame && now > s_ucam_ms
        ? (float)(now - s_ucam_ms) / 1000.0f : 0.0f;
     s_ucam_ms = now;
     s_ucam_frame = s_ctl_frame;
 
+    /* To-do 252 (user's report 2026-11-15, a 0.3.2 bug): the head-cam (LT,
+     * no weapon) sets the pitch channel's limits (controller +0x50 / +0x54;
+     * both FLT_MAX = none in the normal view) to -45 / 45 and nothing puts
+     * them back: the game's own -45..-2 fits inside, but the Unlocked
+     * Camera's eased pitch then stopped at 45 either way (the wanted one
+     * still went on). In charge, none again. */
+    if (MEM32(ctl + 0x50u) != 0x7F7FFFFFu || MEM32(ctl + 0x54u) != 0x7F7FFFFFu) {
+        if (ucam_log())
+            fprintf(stderr, "[UCAM] t=%ld pitch limits %.1f..%.1f (the head-cam's) "
+                    "cleared\n", attach_ms(), MEMF(ctl + 0x50u), MEMF(ctl + 0x54u));
+        MEM32(ctl + 0x50u) = 0x7F7FFFFFu;
+        MEM32(ctl + 0x54u) = 0x7F7FFFFFu;
+    }
     sy_game = stick ? MEMF(stick + 0x44u) : 0.0f;
+    sx_game = stick ? MEMF(stick + 8u) : 0.0f;
     dpad_up = (s_input_seen.wButtons & XBOX_GAMEPAD_DPAD_UP) != 0;
     sy = s_input_seen.sThumbRY / 32767.0f;
     ucam_zoom_step(&s_ucam_zoom, &s_ucam_zoom_tgt, UCAM_ZOOM_MIN, UCAM_ZOOM_MAX,
                    dt, dpad_up, sy);
+    if (ucam_log() >= 2)
+        fprintf(stderr, "[UCAMF] t=%ld frame %u look: dt %.4f dpad %d ry %.2f zoom %.3f -> "
+                "%.3f mode %08X\n", now, s_ctl_frame, dt, dpad_up, sy, s_ucam_zoom,
+                s_ucam_zoom_tgt, MEM32(cam + 0xC0u));
 
     ucam_game_limits(cam, &lo, &hi);
     w = MEMF(ctl + 0x8ECu);
@@ -11194,17 +12133,21 @@ void sub_00047730(void)
     if (w < UCAM_LO || w > UCAM_HI)
         w = ucam_clamp(w, lo, hi);
     u = w;
-    if (!dpad_up && MEMF(ctl + 0x29Cu) == 0.0f)
-        u -= sy_game * 1.2f;                    /* as cam_stick_look */
+    if (!dpad_up && MEMF(ctl + 0x29Cu) == 0.0f)     /* as cam_stick_look */
+        u -= sy_game * 1.2f * ucam_pitch_gain() * spd;
     u = ucam_clamp(u, UCAM_LO, UCAM_HI);
     c = ucam_clamp(u, lo, hi);
 
     MEMF(ctl + 0x8ECu) = c;
-    if (stick)
+    if (stick) {
         MEMF(stick + 0x44u) = 0.0f;
+        MEMF(stick + 8u) = sx_game * spd;
+    }
     sub_00047730_gen();
-    if (stick)
+    if (stick) {
         MEMF(stick + 0x44u) = sy_game;
+        MEMF(stick + 8u) = sx_game;
+    }
     if (!MEM8(ctl + 0x96u)) {
         e = MEMF(ctl + 0x38u) + (u - c);
         MEMF(ctl + 0x38u) = ucam_clamp(e, UCAM_LO - 3.0f, UCAM_HI + 3.0f);
@@ -11234,15 +12177,97 @@ void sub_00047730(void)
         MEMF(ctl + 0x5Cu) = y;
     }
 
-    if (ucam_log()) {
-        static long last;
-        if (now - last >= 2000) {
-            last = now;
-            fprintf(stderr, "[UCAM] t=%ld pitch %.1f (game %.1f, limits %.0f..%.0f) "
-                    "preset %u zoom %.2f -> %.2f distance %.0f (target %.0f)\n",
-                    now, u, c, lo, hi, MEM16(cam + 0x220u), s_ucam_zoom,
-                    s_ucam_zoom_tgt, MEMF(ctl + 0x24Cu), MEMF(ctl + 0x26Cu));
+    ucam_log_line(cam, 1, u, c, lo, hi);
+}
+
+/* The aim routine (thiscall: ecx = aim data, eax = the pad record, [esp+4] =
+ * dt; every frame a weapon is out in single player, all match long in
+ * multiplayer): its turn speeds are the aim record's [aim data] +0 (up /
+ * down, x 1.25) and +4 (left / right); it never writes them. For the call
+ * they are scaled by the player's camera speed (to-do 253, user 2026-11-15:
+ * single player's story_camera_speed1, multiplayer's mp_camera_speedN; a
+ * record shared by players is put back after each call). The player is the
+ * camera (n = slot n) whose character's aim data this is. */
+extern void sub_002F99A0_gen(void);
+void sub_002F99A0(void)
+{
+    uint32_t aimd = g_ecx, rec = aimd ? MEM32(aimd) : 0;
+    uint32_t base = MEM32(0x008470DCu);
+    int mp = MEM8(0x007819D5u) != 0, p, player = -1;
+    float s = 1.0f, p0, y0;
+
+    for (p = 0; p < (mp ? 4 : 1) && base && rec; p++) {
+        uint32_t cam = base + (uint32_t)p * 0x770u;
+        uint32_t chr = MEM32(cam + 0x3E0u);
+        uint32_t aim = chr ? MEM32(chr + 0x568u) : 0;
+        if (aim && MEM32(aim + 0x4D4u) == aimd) {
+            player = p;
+            break;
         }
+    }
+    if (player >= 0)
+        s = controls_camera_speed(player, mp);
+    if (!rec || (s > 0.999f && s < 1.001f)) {
+        sub_002F99A0_gen();
+        return;
+    }
+    p0 = MEMF(rec);
+    y0 = MEMF(rec + 4u);
+    MEMF(rec) = p0 * s;
+    MEMF(rec + 4u) = y0 * s;
+    sub_002F99A0_gen();
+    MEMF(rec) = p0;
+    MEMF(rec + 4u) = y0;
+}
+
+/* To-do 256 (user's report 2026-11-16): under water the zoom did nothing.
+ * The game's underwater camera, mode 0x80 (pushed by 0x0003E4A0 while the
+ * followed character is under: a dive, or swimming down from the surface by
+ * himself), sets camera byte +0 to 1 (as the aim camera does) and never runs
+ * cam_stick_look, so the zoom's input was never read and ucam_view turned it
+ * away. Its input is read in cam_ctl_ease_caller (run in every mode), but
+ * the factor goes on the underwater rig's wanted distance (sub_0003BDF0 /
+ * sub_0004B140 below): the rig, eased apart, places the eye itself and hands
+ * the camera its distance every frame (cam_rig_set 0x00042670), so a factor
+ * on the camera's own ease was undone the same frame and never reached the
+ * eye. The same zoom as above water on the rig's 260. The rest stays the
+ * underwater camera's: its tilt, and its own right-stick push (the stick's
+ * up shortens the distance while held, 260 -> 146), which doesn't get the
+ * stick's up / down while D-pad up is held (pad_filter), as with a weapon. */
+static unsigned s_ucam_wtframe;             /* s_ctl_frame of the last underwater frame */
+
+static int ucam_water(uint32_t cam)
+{
+    uint32_t ctl, mode;
+    if (!ucam_on() || !cam || cam != MEM32(0x008470DCu) || MEM8(0x007819D5u)
+        || MEM8(0x0076F0E0u) == 1)
+        return 0;
+    ctl = MEM32(cam + 4u);
+    mode = MEM32(cam + 0xC0u);
+    return ctl && (mode & 0x80u) && !(mode & 0x100u)
+        && !MEM8(ctl + 0x8C4u) && !MEM8(ctl + 0x8C5u);
+}
+
+static void ucam_water_input(uint32_t cam)
+{
+    static long last;
+    long now = attach_ms();
+    float dt = s_ucam_frame + 1u == s_ctl_frame && now > s_ucam_ms
+             ? (float)(now - s_ucam_ms) / 1000.0f : 0.0f;
+    uint32_t ctl = MEM32(cam + 4u);
+
+    s_ucam_ms = now;
+    s_ucam_frame = s_ctl_frame;
+    s_ucam_wtframe = s_ctl_frame;
+    ucam_zoom_step(&s_ucam_zoom, &s_ucam_zoom_tgt, UCAM_ZOOM_MIN, UCAM_ZOOM_MAX, dt,
+                   (s_input_seen.wButtons & XBOX_GAMEPAD_DPAD_UP) != 0,
+                   s_input_seen.sThumbRY / 32767.0f);
+    if (ucam_log() && now - last >= 2000) {
+        last = now;
+        fprintf(stderr, "[UCAM] t=%ld under water (mode %08X): zoom %.2f -> %.2f distance "
+                "%.0f (target %.0f) height %.0f (target %.0f)\n", now,
+                MEM32(cam + 0xC0u), s_ucam_zoom, s_ucam_zoom_tgt, MEMF(ctl + 0x24Cu),
+                MEMF(ctl + 0x26Cu), MEMF(ctl + 0x250u), MEMF(ctl + 0x270u));
     }
 }
 
@@ -11262,7 +12287,13 @@ void sub_000386C0(void)
             z = s_ucam_wzoom;
         else if (s_ucam_frame == s_ctl_frame && ucam_view(cam))
             z = s_ucam_zoom;
+        else if (ucam_water(cam))
+            ucam_water_input(cam);      /* z stays 1: cam_rig_set takes the zoom */
     }
+    if (ucam_log() >= 2 && cam && cam == MEM32(0x008470DCu))
+        fprintf(stderr, "[UCAMF] t=%ld frame %u ease: look frame %u z %.3f mode %08X byte0 %u "
+                "dist %.0f target %.0f\n", attach_ms(), s_ctl_frame, s_ucam_frame, z,
+                MEM32(cam + 0xC0u), MEM8(cam), MEMF(ctl + 0x24Cu), MEMF(ctl + 0x26Cu));
     if (z > 0.999f && z < 1.001f) {
         sub_000386C0_gen();
         return;
@@ -11276,6 +12307,46 @@ void sub_000386C0(void)
     sub_000386C0_gen();
     MEMF(ctl + 0x26Cu) = d0;
     MEMF(ctl + 0x270u) = h0;
+}
+
+/* The underwater camera (to-do 256): cam_underwater 0x0003BDF0 (eax =
+ * camera; from the character update 0x002D3CF0 while the character's rig
+ * [char+0x564] is on) hands the rig its wanted yaw, distance (a constant 260),
+ * pitch (85 + a swimming bob) through cam_rig_want 0x0004B140, then runs the
+ * rig (0x0004B320), whose own ease places the eye and hands the camera its
+ * distance (cam_rig_set 0x00042670). For camera 0 under water (ucam_water)
+ * the wanted distance gets the zoom, so the rig eases to it as to its own. */
+static float s_ucam_rig_z;                  /* the zoom for cam_rig_want, 0 = none */
+
+extern void sub_0003BDF0_gen(void);
+void sub_0003BDF0(void)
+{
+    if (s_ucam_wtframe + 1u < s_ctl_frame || !ucam_water(g_eax)) {
+        sub_0003BDF0_gen();
+        return;
+    }
+    s_ucam_rig_z = s_ucam_zoom;
+    sub_0003BDF0_gen();
+    s_ucam_rig_z = 0.0f;
+}
+
+/* cam_rig_want (edi = rig, eax = the point to look at, [esp+4] yaw, [esp+8]
+ * distance, [esp+0xC..] pitch and the rest; callee pops 0x18). */
+extern void sub_0004B140_gen(void);
+void sub_0004B140(void)
+{
+    uint32_t slot = g_esp + 8u;
+    float d, z = s_ucam_rig_z;
+
+    if (z <= 0.0f || (z > 0.999f && z < 1.001f)) {
+        sub_0004B140_gen();
+        return;
+    }
+    d = MEMF(slot);
+    if (d * z < UCAM_DIST_MIN && d > UCAM_DIST_MIN)
+        z = UCAM_DIST_MIN / d;
+    MEMF(slot) = d * z;                         /* the caller's pushed copy */
+    sub_0004B140_gen();
 }
 
 /* cam_zoom_toggle (this = ecx = the camera's pad record, eax = camera, edi =
@@ -11347,46 +12418,143 @@ void sub_00039B40(void)
     }
 }
 
+/* The buttons the game's chord reader (pad_filter) holds now (chords.h bits,
+ * = XInput's): noclip's fly controls leave them alone until let go. */
+static volatile LONG s_game_chord_used;
+
+unsigned conker_GameChordUsed(void)
+{
+    return (unsigned)s_game_chord_used;
+}
+
+static int noclip_flying(void);
+
+/* To-do 181: a menu of ours up with the pad the game's (a click back in the
+ * game): Start doesn't pause the game. Held back until let go, so a press
+ * held as the menu closes doesn't pause it either. The menus read the
+ * controller themselves (xbox_InputHostPadRead), not this state. Port 0's
+ * Start is the game's after the controller binds (Pause may be another
+ * button). */
+static void start_held_back(DWORD port, XBOX_INPUT_STATE *st)
+{
+    static unsigned char held_back[4];
+    if (port >= 4)
+        return;
+    if (!(st->Gamepad.wButtons & XBOX_GAMEPAD_START))
+        held_back[port] = 0;
+    else if (held_back[port] || overlay_blocks_pause()) {
+        held_back[port] = 1;
+        st->Gamepad.wButtons &= (WORD)~XBOX_GAMEPAD_START;
+    }
+}
+
+/* Controller binds (to-do 39, pad_binds.c; the user's design and defaults
+ * 2026-11-17): slot 1's controller in single player gameplay (on foot,
+ * swimming, the bat, the beehive gun, The Vault) goes through the player's
+ * binds for the scheme; menus, the pause screen, cutscenes, photo mode and
+ * multiplayer keep it as the game has it. After the chords, the cheat code,
+ * noclip and the skip's LT took theirs (those read the real buttons). A
+ * button held as the binds come on or go off is kept from the game until
+ * let go (B resuming the pause screen is no context action). */
+static void binds_filter(XBOX_INPUT_STATE *st)
+{
+    static unsigned held_back;
+    static int was_on = -1;
+    BYTE *a = st->Gamepad.bAnalogButtons;
+    const int th = XBOX_ANALOG_BUTTON_THRESHOLD;
+    const int set = controls_mode();
+    const int on = set == CONTROLS_STORY || set == CONTROLS_SWIM_SURFACE
+                || set == CONTROLS_SWIM_UNDER || set == CONTROLS_BEE_GUN
+                || set == CONTROLS_VAULT_SUIT || set == CONTROLS_VAULT_TAIL
+                || set == CONTROLS_BAT_GROUND || set == CONTROLS_BAT_AIR;
+    unsigned p = (st->Gamepad.wButtons & 0xFFu)
+               | (a[XBOX_BUTTON_A] > th ? CHORD_A : 0u)
+               | (a[XBOX_BUTTON_B] > th ? CHORD_B : 0u)
+               | (a[XBOX_BUTTON_X] > th ? CHORD_X : 0u)
+               | (a[XBOX_BUTTON_Y] > th ? CHORD_Y : 0u)
+               | (a[XBOX_BUTTON_BLACK] > th ? CHORD_LB : 0u)
+               | (a[XBOX_BUTTON_WHITE] > th ? CHORD_RB : 0u)
+               | (a[XBOX_BUTTON_LTRIGGER] > th ? PADB_LT : 0u)
+               | (a[XBOX_BUTTON_RTRIGGER] > th ? PADB_RT : 0u);
+    PadBindsIn in;
+    PadBindsOut o;
+
+    if (on != was_on) {
+        held_back = p;
+        was_on = on;
+    }
+    held_back &= p;
+    if (!on) {
+        pad_binds_idle(set == CONTROLS_PAUSE || set == CONTROLS_PHOTO);
+        InterlockedExchange(&s_pad_in_b, 0);
+        InterlockedExchange(&s_pad_in_lt, 0);
+        InterlockedExchange(&s_pad_in_rt, 0);
+        InterlockedExchange(&s_pad_in_bat_toggle, 0);
+        InterlockedExchange(&s_pad_in_bat_hold, 0);
+        InterlockedExchange(&s_pad_gyro_lt, 0);
+        if (held_back) {
+            st->Gamepad.wButtons &= (WORD)~(held_back & 0xFFu);
+            if (held_back & CHORD_A) a[XBOX_BUTTON_A] = 0;
+            if (held_back & CHORD_B) a[XBOX_BUTTON_B] = 0;
+            if (held_back & CHORD_X) a[XBOX_BUTTON_X] = 0;
+            if (held_back & CHORD_Y) a[XBOX_BUTTON_Y] = 0;
+            if (held_back & CHORD_LB) a[XBOX_BUTTON_BLACK] = 0;
+            if (held_back & CHORD_RB) a[XBOX_BUTTON_WHITE] = 0;
+            if (held_back & PADB_LT) a[XBOX_BUTTON_LTRIGGER] = 0;
+            if (held_back & PADB_RT) a[XBOX_BUTTON_RTRIGGER] = 0;
+        }
+        return;
+    }
+    memset(&in, 0, sizeof(in));
+    in.buttons = p & ~held_back;
+    in.lt = (in.buttons & PADB_LT) ? a[XBOX_BUTTON_LTRIGGER] : 0;
+    in.rt = (in.buttons & PADB_RT) ? a[XBOX_BUTTON_RTRIGGER] : 0;
+    in.place = set == CONTROLS_SWIM_SURFACE ? PADB_SURFACE
+             : set == CONTROLS_SWIM_UNDER ? PADB_UNDER
+             : set == CONTROLS_BAT_GROUND ? PADB_BAT_GROUND
+             : set == CONTROLS_BAT_AIR ? PADB_BAT_AIR : PADB_ON_FOOT;
+    in.modern = controls_modern(NULL, NULL, NULL);
+    in.modern_foot = s_pad_mode == PAD_FOOT;
+    in.foot = (int)s_bind_foot;
+    in.weapon_out = (int)s_bind_weapon_out;
+    in.suit = set == CONTROLS_VAULT_SUIT || set == CONTROLS_VAULT_TAIL;
+    pad_binds_step(&in, &o);
+
+    st->Gamepad.wButtons = (WORD)(o.buttons & 0xFFu);
+    a[XBOX_BUTTON_A] = (o.buttons & CHORD_A) ? 255 : 0;
+    a[XBOX_BUTTON_B] = (o.buttons & CHORD_B) ? 255 : 0;
+    a[XBOX_BUTTON_X] = (o.buttons & CHORD_X) ? 255 : 0;
+    a[XBOX_BUTTON_Y] = (o.buttons & CHORD_Y) ? 255 : 0;
+    a[XBOX_BUTTON_BLACK] = (o.buttons & CHORD_LB) ? 255 : 0;
+    a[XBOX_BUTTON_WHITE] = (o.buttons & CHORD_RB) ? 255 : 0;
+    a[XBOX_BUTTON_LTRIGGER] = o.lt;
+    a[XBOX_BUTTON_RTRIGGER] = o.rt;
+    InterlockedExchange(&s_pad_in_b, o.ctx);
+    InterlockedExchange(&s_pad_in_lt, o.aim);
+    InterlockedExchange(&s_pad_in_rt, o.attack);
+    InterlockedExchange(&s_pad_in_crouch, o.crouch);
+    InterlockedExchange(&s_pad_in_bat_toggle, o.bat_toggle);
+    InterlockedExchange(&s_pad_in_bat_hold, o.bat_hold);
+    InterlockedExchange(&s_pad_gyro_lt, in.modern ? o.aim : o.lt > th);
+}
+
 static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
 {
     BYTE *a = st->Gamepad.bAnalogButtons;
-    int lt, rt;
 
     if (port == 0)
         memcpy((void *)&s_input_seen, &st->Gamepad, sizeof s_input_seen);
-    /* To-do 181: a menu of ours up with the pad the game's (a click back in
-     * the game): Start doesn't pause the game. Held back until let go, so a
-     * press held as the menu closes doesn't pause it either. The menus read
-     * the controller themselves (xbox_InputHostPadRead), not this state. */
-    if (port < 4) {
-        static unsigned char held_back[4];
-        if (!(st->Gamepad.wButtons & XBOX_GAMEPAD_START))
-            held_back[port] = 0;
-        else if (held_back[port] || overlay_blocks_pause()) {
-            held_back[port] = 1;
-            st->Gamepad.wButtons &= (WORD)~XBOX_GAMEPAD_START;
-        }
-    }
-    if (port != 0)
+    if (port != 0) {
+        start_held_back(port, st);
         return 0;
+    }
     /* Unlocked Camera with a weapon of ours out: D-pad up + the right stick's
      * up / down zooms, so the game doesn't get that up / down (the aim stays
      * put; s_input_seen above keeps it for the zoom). */
-    if (s_ucam_wframe && s_ucam_wframe + 2u >= s_ctl_frame
+    if (((s_ucam_wframe && s_ucam_wframe + 2u >= s_ctl_frame)
+         || (s_ucam_wtframe && s_ucam_wtframe + 2u >= s_ctl_frame))   /* under water, to-do 256 */
         && (st->Gamepad.wButtons & XBOX_GAMEPAD_DPAD_UP))
         st->Gamepad.sThumbRY = 0;
-    /* Both sticks clicked at once: Bullet time on / off while the cheat is on
-     * (to-do 161); the game gets neither click while both are down. */
-    if (cheats_active() & CHEAT_BIT(CHEAT_BULLET)) {
-        static int both_was;
-        const WORD sticks = XBOX_GAMEPAD_LEFT_THUMB | XBOX_GAMEPAD_RIGHT_THUMB;
-        const int both = (st->Gamepad.wButtons & sticks) == sticks;
-        if (both && !both_was)
-            conker_BulletToggle();
-        both_was = both;
-        if (both)
-            st->Gamepad.wButtons &= (WORD)~sticks;
-    }
     /* RB held on the Options screen or the pause menu: the cheat unlock code,
      * and the game gets nothing (cheats.c, SPEC 10.3). */
     {
@@ -11410,28 +12578,65 @@ static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
             return 0;
         }
     }
-    /* Back + Start opens our list of menus (overlay.cpp, to-do 125): with Back
-     * held, Start is not the game's pause. The overlay looks at the pad itself,
-     * and its menu then keeps the pad until both are let go. */
-    if (st->Gamepad.wButtons & XBOX_GAMEPAD_BACK)
-        st->Gamepad.wButtons &= (WORD)~XBOX_GAMEPAD_START;
-    /* RB + A: noclip (--debug; SPEC 10.3). The A stays from the game until let go,
-     * or turning it off in the air would jump. */
-    if (settings_debug()) {
-        static int was, hide_a;
-        const int ab = a[XBOX_BUTTON_A] > XBOX_ANALOG_BUTTON_THRESHOLD;
-        const int rb = a[XBOX_BUTTON_WHITE] > XBOX_ANALOG_BUTTON_THRESHOLD;
-        const int now = ab && rb && !(st->Gamepad.wButtons & XBOX_GAMEPAD_BACK);
+    /* The controller's chords (chords.c, to-do 39; the user's plan
+     * 2026-11-17): No-clip (RB + A by default, --debug) and Bullet Time (both
+     * sticks clicked, while its cheat is on) act here; the menus' and photo
+     * mode's chords act where those read the pad (overlay.cpp, photo_mode.c).
+     * Every chord's two buttons stay from the game from the moment it is
+     * made until each is let go (Back + Start: no pause; RB + A: no jump, not
+     * even when noclip goes off in the air). */
+    {
+        static ChordState chord;
+        const int t = XBOX_ANALOG_BUTTON_THRESHOLD;
+        unsigned b = (st->Gamepad.wButtons & 0xFFu)
+                   | (a[XBOX_BUTTON_A] > t ? CHORD_A : 0u)
+                   | (a[XBOX_BUTTON_B] > t ? CHORD_B : 0u)
+                   | (a[XBOX_BUTTON_X] > t ? CHORD_X : 0u)
+                   | (a[XBOX_BUTTON_Y] > t ? CHORD_Y : 0u)
+                   | (a[XBOX_BUTTON_BLACK] > t ? CHORD_LB : 0u)
+                   | (a[XBOX_BUTTON_WHITE] > t ? CHORD_RB : 0u);
+        unsigned fired = chords_step(&chord, b, photo_active() ? CHORD_CTX_PHOTO
+                                                               : CHORD_CTX_GAME);
+        unsigned used = chord.used;
 
-        if (now && !was) {
+        InterlockedExchange(&s_game_chord_used, (LONG)used);
+        if (fired & CHORD_FN_BIT(CHORD_NOCLIP))
             conker_SetNoclip(!conker_Noclip());
-            hide_a = 1;
-        }
-        was = now;
-        if (!ab)
-            hide_a = 0;
-        if (hide_a)
+        if (fired & CHORD_FN_BIT(CHORD_BULLET))
+            conker_BulletToggle();
+        st->Gamepad.wButtons &= (WORD)~(used & 0xFFu);
+        if (used & CHORD_A)
             a[XBOX_BUTTON_A] = 0;
+        if (used & CHORD_B)
+            a[XBOX_BUTTON_B] = 0;
+        if (used & CHORD_X)
+            a[XBOX_BUTTON_X] = 0;
+        if (used & CHORD_Y)
+            a[XBOX_BUTTON_Y] = 0;
+        if (used & CHORD_LB)
+            a[XBOX_BUTTON_BLACK] = 0;
+        if (used & CHORD_RB)
+            a[XBOX_BUTTON_WHITE] = 0;
+    }
+    /* Noclip flies with A (up), B and RT (down) on the controller
+     * (photo_fly_input; user 2026-11-17): while he flies the game gets none
+     * of them (no weapon out, context action or crouch), and each stays from
+     * it after he lands until let go (no jump on landing). LT goes on to the
+     * game: the head-cam, as without noclip. */
+    {
+        static const int btn[3] = { XBOX_BUTTON_A, XBOX_BUTTON_B,
+                                    XBOX_BUTTON_RTRIGGER };
+        static unsigned hide;
+        const int flying = noclip_flying();
+        for (int i = 0; i < 3; i++) {
+            if (flying)
+                hide |= 1u << i;
+            if (!(hide & (1u << i)))
+                continue;
+            if (!flying && a[btn[i]] <= XBOX_ANALOG_BUTTON_THRESHOLD)
+                hide &= ~(1u << i);
+            a[btn[i]] = 0;
+        }
     }
     /* LT held through a cutscene skip: hidden until let go. */
     if (s_skip_lt_block) {
@@ -11440,37 +12645,22 @@ static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
         else
             InterlockedExchange(&s_skip_lt_block, 0);
     }
-    lt = a[XBOX_BUTTON_LTRIGGER] > XBOX_ANALOG_BUTTON_THRESHOLD;
-    rt = a[XBOX_BUTTON_RTRIGGER] > XBOX_ANALOG_BUTTON_THRESHOLD;
-    InterlockedExchange(&s_pad_in_b,
-                        a[XBOX_BUTTON_B] > XBOX_ANALOG_BUTTON_THRESHOLD);
-    InterlockedExchange(&s_pad_in_lt, lt);
-    InterlockedExchange(&s_pad_in_rt, rt);
-    switch (s_pad_mode) {
-    case PAD_FOOT:
+    binds_filter(st);
+    start_held_back(port, st);
+    /* Modern on foot: B and, while aiming, RT are modern_poll's answer
+     * (Context, Aim and Attack went to it from the binds); not aiming,
+     * Crouch's button crouches (RT), or RT stays held while the shotgun
+     * goes away. */
+    if (s_pad_mode == PAD_FOOT) {
         a[XBOX_BUTTON_B] = s_pad_out_b ? 255 : 0;
-        /* Aiming, RT is modern_poll's (attack, the shotgun's laser);
-         * otherwise the pad's own (crouch), or held while the shotgun goes
-         * away. */
-        if (lt)
+        if (s_pad_in_lt)
             a[XBOX_BUTTON_RTRIGGER] = s_pad_out_rt ? 255 : 0;
-        else if (s_pad_out_rt)
-            a[XBOX_BUTTON_RTRIGGER] = 255;
-        /* LB (the Xbox pad's Black) is the head-cam, the game's LT. */
-        a[XBOX_BUTTON_LTRIGGER] = a[XBOX_BUTTON_BLACK];
-        a[XBOX_BUTTON_BLACK] = 0;
-        break;
-    case PAD_UNDER:
-        if (rt)
-            a[XBOX_BUTTON_B] = 255;
-        if (lt)
-            a[XBOX_BUTTON_A] = 255;
-        a[XBOX_BUTTON_LTRIGGER] = a[XBOX_BUTTON_RTRIGGER] = 0;
-        break;
-    case PAD_BAT:
-        a[XBOX_BUTTON_LTRIGGER] = s_pad_out_lt ? 255 : 0;
-        break;
+        else
+            a[XBOX_BUTTON_RTRIGGER] = s_pad_out_rt || s_pad_in_crouch ? 255 : 0;
     }
+    /* The bat flying: its aim taps the left trigger (bat_poll). */
+    if (controls_mode() == CONTROLS_BAT_AIR)
+        a[XBOX_BUTTON_LTRIGGER] = s_pad_out_lt ? 255 : 0;
     return 0;
 }
 
@@ -11750,47 +12940,49 @@ static void zoom_poll(int set)
 /* The bat's aiming view (user 2026-10-28): 0x002BC180 toggles 0x0084A5B0
  * on each press of the left trigger, and while the trigger is held (the
  * button table's +0x64 at 0x00763268, per player) it stops the bat. So the
- * aim key taps the trigger: Classic once per press of the key, Modern
- * whenever the key held and the aim flag differ, then waits for the game's
- * answer. Only while the flight code would take the press: the flying
- * camera's byte (Conker's +0x564 -> +0) set and nothing held (+0x250). */
+ * aim keys tap the trigger: the toggle (Classic's story_bat_aim, Modern's
+ * _alt, and the controller's Aim (toggle)) once per press, the hold (the
+ * other key, the controller's Aim (hold)) whenever it held and the aim flag
+ * differ, then waits for the game's answer (user 2026-11-17: both on the
+ * keyboard and the controller). Only while the flight code would take the
+ * press: the flying camera's byte (Conker's +0x564 -> +0) set and nothing
+ * held (+0x250). */
 #define BAT_TAP_MS  100   /* one press of the left trigger, about three frames */
 #define BAT_WAIT_MS 300   /* then the game's answer, before another */
 
 static void bat_poll(int set)
 {
-    static int on_was, held_was, want, owned;
+    static int on_was, tog_was, want, owned;
     static long tap_until, wait_until;
     uint32_t cam = MEM32(0x008470DCu);
     uint32_t chr = cam ? MEM32(cam + 0x3E0u) : 0;
     uint32_t fc = chr ? MEM32(chr + 0x564u) : 0;
-    ControlKeys key;
-    int modern, held, aiming, ready, lt = 0;
+    ControlKeys tog_k, hold_k;
+    int tog, held, aiming, ready, lt = 0;
     long now = attach_ms();
 
-    modern = controls_bat_aim(&key);
-    /* Modern: the controller's LT held aims too (pad_filter). */
-    if (set != CONTROLS_BAT_AIR || (!key && !modern) || !chr) {
+    controls_bat_aim(&tog_k, &hold_k);
+    if (set != CONTROLS_BAT_AIR || !chr) {
         if (on_was)
             xbox_KbmForce(XBOX_KBM_LT, 0);
         if (set != CONTROLS_PHOTO && set != CONTROLS_PAUSE)
             owned = 0;   /* as modern_poll's weapon */
-        on_was = held_was = want = 0;
+        on_was = tog_was = want = 0;
         tap_until = wait_until = 0;
         InterlockedExchange(&s_pad_out_lt, 0);
         return;
     }
     on_was = 1;
-    held = controls_keys_held(CONTROLS_STORY, key);
-    if (modern)
-        held |= (int)s_pad_in_lt;
+    /* The controller's Aim rows: pad_filter (controller binds). */
+    tog = controls_keys_held(CONTROLS_STORY, tog_k) || s_pad_in_bat_toggle;
+    held = controls_keys_held(CONTROLS_STORY, hold_k) || s_pad_in_bat_hold;
     aiming = MEM8(0x0084A5B0u) != 0;
     ready = fc && MEM8(fc) && !MEM8(chr + 0x250u);
-    if (held && !held_was)
+    if (tog && !tog_was)
         want = 1;
-    held_was = held;
-    /* Modern stops only an aim the key holds (as modern_poll's weapon): one
-     * the controller's left trigger turned on stays on, as in Classic. */
+    tog_was = tog;
+    /* The hold stops only an aim it holds (as modern_poll's weapon): one the
+     * toggle turned on stays on. */
     if (!aiming)
         owned = 0;
     else if (held)
@@ -11798,7 +12990,7 @@ static void bat_poll(int set)
     if (now < tap_until) {
         lt = 1;
     } else if (now >= wait_until && ready
-               && (modern ? held != aiming && (held || owned) : want)) {
+               && (want || (held != aiming && (held || owned)))) {
         lt = 1;
         want = 0;
         tap_until = now + BAT_TAP_MS;
@@ -11808,6 +13000,24 @@ static void bat_poll(int set)
     }
     xbox_KbmForce(XBOX_KBM_LT, lt);
     InterlockedExchange(&s_pad_out_lt, lt);
+}
+
+/* The controller binds' on-foot state (game thread, each frame): on foot
+ * in the story set (no vehicle, as modern_poll's) and a weapon out (Classic:
+ * Attack's button, not Crouch's, is RT then). */
+static void binds_poll(int set)
+{
+    uint32_t cam = MEM32(0x008470DCu);
+    uint32_t chr = cam ? MEM32(cam + 0x3E0u) : 0;
+    uint32_t aim = chr ? MEM32(chr + 0x568u) : 0;
+    int foot = 0, out = 0;
+
+    if (set == CONTROLS_STORY && chr && aim) {
+        foot = !driven_vehicle(chr) && !MEM8(chr + 0x1B5u);
+        out = foot && weapon_kind(MEM32(aim + 0xA0u) & ~0x80u);
+    }
+    InterlockedExchange(&s_bind_foot, foot);
+    InterlockedExchange(&s_bind_weapon_out, out);
 }
 
 static const char *const s_ctl_names[] = {
@@ -11985,21 +13195,18 @@ static void controls_poll(void)
         static int hooked;
         int modern = controls_modern(NULL, NULL, NULL);
         int foot = modern_poll(set);
-        LONG mode = !modern ? PAD_NATIVE
-                  : foot ? PAD_FOOT
-                  : set == CONTROLS_SWIM_UNDER ? PAD_UNDER
-                  : set == CONTROLS_BAT_AIR ? PAD_BAT : PAD_NATIVE;
+        LONG mode = modern && foot ? PAD_FOOT : PAD_NATIVE;
         if (!hooked) {
             hooked = 1;
             xbox_InputSetPadFilter(pad_filter);
         }
         zoom_poll(set);
         bat_poll(set);
+        binds_poll(set);
         if (InterlockedExchange(&s_pad_mode, mode) != mode)
             fprintf(stderr, "[CONTROLS] t=%ld controller layout: %s\n",
                     attach_ms(), mode == PAD_FOOT ? "modern, on foot"
-                    : mode == PAD_UNDER ? "modern, underwater"
-                    : mode == PAD_BAT ? "modern, bat flying" : "as the game has it");
+                    : "the binds' buttons");
     }
     controls_set_mode(set);           /* every frame: latched skip keys */
     if (set == last)
@@ -12958,13 +14165,175 @@ void sub_001767B0(void)
     sub_001767B0_gen();
 }
 
+/* Creaky Crate's slam drawn as a fall (to-do 226). BarnOutside's hostile crate
+ * (kind 0x15) hops: its air step lifts it ~140 in 0.3 s, and in the frame
+ * its fall starts the ground update 0x002ED170 (for this kind a floor probe
+ * from y 100 straight down; a falling character within reach of its floor
+ * lands) puts it on the floor. One frame from the top to the ground: 33 ms
+ * at 30 fps, 17 at 60, 8 at 120, a teleport after a smooth rise (measured at
+ * all three, conker-notes 2026-11-16). The game's logic is left as it is
+ * (its landing frame decides the slam); only the drawn crate falls. From the
+ * frame of the drop its skin matrices (world space, [char+0x3C8], 64 bytes a
+ * joint, translation y at float 13) and the frame's half of its attachments'
+ * matrices are drawn d x (1 - (t / len)^2) higher: d the drop, t the 30 fps
+ * frames since the drop's frame began (frame steps summed, so a held world
+ * holds it), a fall that speeds up into the ground. Put back after each draw,
+ * as Big Head. A length of one 30 fps frame (33 ms) shows the ground when it
+ * does at 30 fps (30 the original, 60 one frame in between, 120 three); the
+ * user found that still far too snappy (2026-11-16), so the default is 120 ms
+ * (giacomozama's), at every rate: 30 fps gets three frames in between too.
+ * The crate's landing sound (cue woodcrt) starts ~100 ms after the game's
+ * landing at 30 fps and ~116 at 60 and 120, so the drawn crate now lands with
+ * it (in the original the sound came after the snap). A drop: kind 0x15, down more than 20
+ * in one frame after a frame that moved less than a third of that, within
+ * 100 sideways, on its floor now ([char+0xDC] <= 0.1, as the ground update
+ * leaves it); the crate drawn in the frame before too (the frame counter
+ * [0x007F9F60] one on). RECOMP_CRATE_FALL=0 = original, RECOMP_CRATE_FALL_MS
+ * = the fall's length (default 120); [CRATEFALL] lines
+ * while the char log is on (console log char on). */
+#define CF_KIND 0x15u
+static struct {
+    int on;
+    float len;                          /* in 30 fps frames */
+    uint8_t idx_by_id[256];             /* character index + 1 of a crate's id */
+    struct { uint32_t fc; float x, y, z, dy, d, t; uint8_t seen, falling; } c[0x81];
+    uint32_t bones;                     /* skin matrices lifted now, 0 = none */
+    int n;
+    float saved[P30_MAXJ];
+    uint32_t att_m;
+    float att_saved;
+} s_cf = { -1 };
+
+static void cf_init(void)
+{
+    const char *e = getenv("RECOMP_CRATE_FALL_MS");
+    float ms = e && *e ? (float)atof(e) : 120.0f;
+    s_cf.on = env_on("RECOMP_CRATE_FALL", 1);
+    if (!(ms >= 1.0f && ms <= 1000.0f))
+        ms = 120.0f;
+    s_cf.len = ms * 30.0f / 1000.0f;
+    fprintf(stderr, "[CRATEFALL] Creaky Crate's slam drawn as a fall: %s, %.0f ms\n",
+            s_cf.on ? "on" : "off (RECOMP_CRATE_FALL=0)", ms);
+}
+
+/* How much higher the character at this index is drawn now; 0 = as the game
+ * has it. The first call of a frame moves its fall on. */
+static float crate_fall_lift(uint32_t idx)
+{
+    uint32_t base = MEM32(0x0084A5F8u), c, fc;
+    float r;
+    if (s_cf.on < 0)
+        cf_init();
+    if (!s_cf.on || idx > 0x80u || !xact_va_ok(base))
+        return 0.0f;
+    c = base + idx * 0x6D0u;
+    if (MEM32(c + 0x68u) != CF_KIND || !MEM32(c + 0x64u)) {
+        s_cf.c[idx].seen = s_cf.c[idx].falling = 0;
+        return 0.0f;
+    }
+    s_cf.idx_by_id[MEM8(c + 0x10Bu)] = (uint8_t)(idx + 1u);
+    fc = MEM32(0x007F9F60u);
+    if (fc != s_cf.c[idx].fc) {
+        float x = MEMF(c + 0x78u), y = MEMF(c + 0x7Cu), z = MEMF(c + 0x80u);
+        float step = MEMF(0x007FA24Cu), dx, dy, dz;
+        int next = s_cf.c[idx].seen && fc - s_cf.c[idx].fc == 1u;
+        if (!(step >= 0.0f && step <= 8.0f))
+            step = 1.0f;
+        dx = x - s_cf.c[idx].x;
+        dy = y - s_cf.c[idx].y;
+        dz = z - s_cf.c[idx].z;
+        if (s_cf.c[idx].falling) {
+            s_cf.c[idx].t += step;
+            if (!next || s_cf.c[idx].t >= s_cf.len)
+                s_cf.c[idx].falling = 0;
+        }
+        if (next && !s_cf.c[idx].falling && dy < -20.0f && s_cf.c[idx].dy > dy / 3.0f
+            && dx * dx + dz * dz < 100.0f * 100.0f && MEMF(c + 0xDCu) <= 0.1f) {
+            s_cf.c[idx].d = -dy;
+            s_cf.c[idx].t = step;
+            s_cf.c[idx].falling = step < s_cf.len;
+            if (char_log_on())
+                fprintf(stderr, "[CRATEFALL] t=%ld ms f%u #%02X drop %.1f (%.1f -> %.1f), step %.3f%s\n",
+                        attach_ms(), fc, idx, -dy, y - dy, y, step,
+                        s_cf.c[idx].falling ? "" : ": a frame as long as the fall, nothing to add");
+        }
+        s_cf.c[idx].dy = next ? dy : 0.0f;
+        s_cf.c[idx].x = x;
+        s_cf.c[idx].y = y;
+        s_cf.c[idx].z = z;
+        s_cf.c[idx].fc = fc;
+        s_cf.c[idx].seen = 1;
+        if (s_cf.c[idx].falling && char_log_on()) {
+            r = s_cf.c[idx].t / s_cf.len;
+            fprintf(stderr, "[CRATEFALL] t=%ld ms f%u #%02X drawn at %.1f (lift %.1f, %.2f of the fall)\n",
+                    attach_ms(), fc, idx, y + s_cf.c[idx].d * (1.0f - r * r),
+                    s_cf.c[idx].d * (1.0f - r * r), r);
+        }
+    }
+    if (!s_cf.c[idx].falling)
+        return 0.0f;
+    r = s_cf.c[idx].t / s_cf.len;
+    return s_cf.c[idx].d * (1.0f - r * r);
+}
+
+/* Lifts a falling crate's skin matrices for its draw; 1 = lifted. */
+static int crate_fall_begin(uint32_t idx)
+{
+    uint32_t bones, def, jt;
+    float lift;
+    int n, j;
+    if (s_cf.bones || (lift = crate_fall_lift(idx)) == 0.0f)
+        return 0;
+    n = p30_char(MEM32(0x0084A5F8u) + idx * 0x6D0u, &bones, &def, &jt);
+    if (!n)
+        return 0;
+    for (j = 0; j < n; j++) {
+        float *m = p30_bone(bones, j);
+        s_cf.saved[j] = m[13];
+        m[13] += lift;
+    }
+    s_cf.bones = bones;
+    s_cf.n = n;
+    return 1;
+}
+
+static void crate_fall_end(void)
+{
+    int j;
+    for (j = 0; j < s_cf.n; j++)
+        p30_bone(s_cf.bones, j)[13] = s_cf.saved[j];
+    s_cf.bones = 0;
+}
+
+/* The same for an attachment on a falling crate (its frame's matrix). */
+static int crate_fall_att_begin(uint32_t rec)
+{
+    uint32_t idx, m;
+    float lift, *f;
+    if (!rec || s_cf.att_m || !(idx = s_cf.idx_by_id[MEM8(rec)])
+        || MEM8(MEM32(0x0084A5F8u) + (idx - 1u) * 0x6D0u + 0x10Bu) != MEM8(rec)
+        || (lift = crate_fall_lift(idx - 1u)) == 0.0f || !xact_va_ok(m = MEM32(rec + 0x60u)))
+        return 0;
+    s_cf.att_m = m + (MEM8(0x007FA230u) & 1) * 64u;
+    f = (float *)XBOX_PTR(s_cf.att_m);
+    s_cf.att_saved = f[13];
+    f[13] += lift;
+    return 1;
+}
+
+static void crate_fall_att_end(void)
+{
+    ((float *)XBOX_PTR(s_cf.att_m))[13] = s_cf.att_saved;
+    s_cf.att_m = 0;
+}
+
 /* 0x0007FB00 char_render_pass (cdecl, [esp+4] character index, [esp+0x14]
  * pass: 1 OPAQUE, 12 OPAQUE_BACKGROUND, conker-notes 2026-10-29). */
 extern void sub_0007FB00_gen(void);
 void sub_0007FB00(void)
 {
     uint32_t pass = MEM32(g_esp + 0x14u);
-    int two, stump, big;
+    int two, stump, big, crate;
 
     if (photo_hides_char(MEM32(g_esp + 4u))) {
         g_esp += 4;                     /* ret (cdecl) */
@@ -12985,9 +14354,12 @@ void sub_0007FB00(void)
     }
     stump = stump_begin(MEM32(g_esp + 4u));
     big = bh_begin(MEM32(g_esp + 4u));
+    crate = crate_fall_begin(MEM32(g_esp + 4u));
     wire_enter();
     sub_0007FB00_gen();
     wire_leave();
+    if (crate)
+        crate_fall_end();
     if (big)
         bh_end();
     if (stump)
@@ -13025,9 +14397,12 @@ void sub_000780E0(void)
     }
     {
         int big = bh_att_begin(rec);    /* Big Head's face pieces */
+        int crate = crate_fall_att_begin(rec);
         wire_enter();
         sub_000780E0_gen();
         wire_leave();
+        if (crate)
+            crate_fall_att_end();
         if (big)
             bh_att_end();
     }
@@ -13302,7 +14677,9 @@ void sub_00317780(void)
  * HUD (to-do 152). */
 /* Hide Speech Bubbles (to-do 183, user 2026-11-10): apart from Hide HUD since
  * 0.3.0's third round; F2 Display (hide_bubbles, RECOMP_HIDE_BUBBLES=1). Photo
- * mode's HUD key still hides them with the HUD. */
+ * mode's HUD key still hides them with the HUD; in photo mode that key alone
+ * decides. The P pause (and console timescale 0) is a photo-mode freeze without
+ * its controls: the setting holds there (user 2026-11-16; they came back). */
 static volatile int g_hide_bubbles = -1;
 
 void conker_SetHideBubbles(int on)
@@ -13317,7 +14694,7 @@ static int play_bubbles_hidden(void)
         const char *e = getenv("RECOMP_HIDE_BUBBLES");
         g_hide_bubbles = e && *e == '1';
     }
-    return !photo_frozen() && g_hide_bubbles;
+    return !photo_active() && g_hide_bubbles;
 }
 
 extern void sub_000E1880_gen(void);
@@ -13547,12 +14924,16 @@ void sub_002A78D0_enter(void)
  * one [SWAP] line per swap and one [FRAME] line per frame_timer_update (at
  * most 3000 each) with D3D's vblank count and last due vblank (miniport
  * +0x1C0, +0x1C8); "fixed" when the dip fix took one off. */
+static volatile uint32_t s_swap_no;    /* D3D's swap count (held-picture checks) */
+
 void sub_002A8020_enter(void)
 {
     static unsigned n;
     uint32_t d = MEM32(g_esp + 4), mp = MEM32(0x005499E8u) + 0x1C28u;
     uint32_t missed = MEM32(d + 8);
     int fixed = 0;
+
+    s_swap_no = MEM32(d);
 
     if (missed && MEM32(d + 4) == MEM32(mp + 0x1C0u) && dip_fix_on()) {
         MEM32(d + 8) = missed - 1u;
@@ -17179,6 +18560,12 @@ int conker_Noclip(void)
     return g_noclip;
 }
 
+/* He flies now (noclip on, and not in a cutscene or on a vehicle). */
+static int noclip_flying(void)
+{
+    return s_noclip_up;
+}
+
 const char *conker_NoclipRefused(void)
 {
     uint32_t lv = MEM32(0x007FA1F8u);
@@ -17916,3 +19303,184 @@ void sub_0035DEF0(void)
     if (open)
         cheat_chapters_close(saved);
 }
+
+/* ---- 0.3.3 fixes of 2026-11-16: English throne bubbles (224), the beach
+ * soldiers' and Rodent's fur (225), the caveman's censor box above 30 fps
+ * (226). Ideas from giacomozama's Conker recomp (GPL-3.0: ideas and
+ * addresses only, our own code). ---- */
+
+/* English throne-monologue speech bubbles (to-do 224). The speech command
+ * 0x000569A0 drops a line flagged 0x100 when XGetLanguage (0x0042C91F) says
+ * English (1): Conker's throne-room monologues (the intro and the ending)
+ * show their bubbles in every language but English. For that one call
+ * (return address 0x00056AD4) the answer is "not English"; every other
+ * caller gets the real one. RECOMP_ENGLISH_BUBBLES=0 = original. */
+extern void sub_0042C91F_gen(void);
+void sub_0042C91F(void)
+{
+    static int on = -1, told;
+    int here = MEM32(g_esp) == 0x00056AD4u;
+
+    sub_0042C91F_gen();
+    if (!here)
+        return;
+    if (on < 0)
+        on = env_on("RECOMP_ENGLISH_BUBBLES", 1);
+    if (on && g_eax == 1u) {
+        g_eax = 0u;
+        if (!told) {
+            told = 1;
+            fprintf(stderr, "[BUBBLES] a line meant for the other languages' bubbles shown in "
+                    "English too (RECOMP_ENGLISH_BUBBLES=0 = original)\n");
+        }
+    }
+}
+
+/* Beach Bloodbath's soldiers keep their full fur (to-do 225 (1)). The fur
+ * shell count 0x00081FC0 (cdecl: viewport, &shell scale; edi = character)
+ * has a case of its own for level 4 outside cutscenes ([0x0076F0E0] 0): its
+ * CombatSquirrels (type +0x68 = 0x58) get at most 4 shells at half length,
+ * where everywhere else they get up to 8 at full length (the bar draws 10):
+ * thin cheeks and bare eyebrows, so that a beach full of them ran on an
+ * Xbox. With the pop-in fur fix on (popin_fur) the type reads as none of
+ * the function's special ones for the call: the usual count and length.
+ * RECOMP_BEACH_FUR=0 = original. */
+extern void sub_00081FC0_gen(void);
+void sub_00081FC0(void)
+{
+    static int on = -1, told;
+    uint32_t c = g_edi;
+
+    if (on < 0)
+        on = env_on("RECOMP_BEACH_FUR", 1);
+    if (!on || MEM32(0x007FA1F8u) != 4u || MEM8(0x0076F0E0u) || !xact_va_ok(c)
+        || MEM32(c + 0x68u) != 0x58u || !popin_on(POPIN_FUR)) {
+        sub_00081FC0_gen();
+        return;
+    }
+    MEM32(c + 0x68u) = 0xFFFFFFFFu;
+    sub_00081FC0_gen();
+    MEM32(c + 0x68u) = 0x58u;
+    if (!told) {
+        told = 1;
+        fprintf(stderr, "[FUR] Beach Bloodbath's soldiers: full fur (%u shells this time; "
+                "RECOMP_BEACH_FUR=0 = 4 at half length)\n", g_eax);
+    }
+}
+
+/* A player's fur shells get the alpha reference the object path gives its
+ * own (to-do 225 (2), Rodent's fur spots in the throne room). The player
+ * draw 0x0007FB00 sets up its shells at 0x0008032F (shell scale, then
+ * 0x00537230(1), returning to 0x00080358, then the stencil states through
+ * the state setter 0x00537990: ecx = method, edx = value) and runs the
+ * material's push buffer; the object path 0x00078452 first sets the alpha
+ * reference (method 0x340) to 10 (its shadow [0x00549AEC]). Rodent's
+ * material sets no alpha test of its own, so his shells took the one drawn
+ * before: in the throne-room close-ups a prop's "greater than 229" cut each
+ * strand down to its densest texels, spots on bare skin (hidden at 480p).
+ * Now the player's shells get reference 10 as an object's do; a material
+ * that sets its own still does. RECOMP_FUR_ALPHA_FIX=0 = original, =2 on
+ * every other swap only (held-picture check: a frozen frame dumped with
+ * RECOMP_FB_DUMP, then _work\war77\cmp_alt.py: neighbours = fix vs not). */
+extern void sub_00537230_gen(void);
+extern void sub_00537990(void);
+void sub_00537230(void)
+{
+    static int on = -1;
+    int here = MEM32(g_esp) == 0x00080358u;
+
+    sub_00537230_gen();
+    if (!here)
+        return;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_FUR_ALPHA_FIX");
+        on = !e || !*e ? 1 : *e == '0' ? 0 : *e == '2' ? 2 : 1;
+    }
+    if (!on || (on == 2 && (s_swap_no & 1u)))
+        return;
+    {
+        /* One [FUR] line per alpha reference found left over (another
+         * than 10) per level, with the scene's clock: where it mattered. */
+        static uint32_t seen[8], nseen, level;
+        uint32_t ref = MEM32(0x00549AECu), i;
+        if (MEM32(0x007FA1F8u) != level) {
+            level = MEM32(0x007FA1F8u);
+            nseen = 0;
+        }
+        for (i = 0; i < nseen && seen[i] != ref; i++)
+            ;
+        if (ref != 0xAu && i == nseen && nseen < 8) {
+            seen[nseen++] = ref;
+            fprintf(stderr, "[FUR] t=%ld level 0x%02X: a player's fur shells found alpha "
+                    "reference %u left from the draw before; set to 10\n", attach_ms(),
+                    level, ref);
+        }
+    }
+    g_ecx = 0x40340u;
+    g_edx = 0xAu;
+    g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
+    sub_00537990();
+    MEM32(0x00549AECu) = 0xAu;
+}
+
+/* The caveman boss's censor box keeps pace above 30 fps (to-do 226). His
+ * defeat in DinoArena pixelates a 100 x 100 patch (0x001EB210, 7 x 7
+ * blocks) at the ints [0x00849700] / [0x00849704]; scene command 0x93
+ * places it with a velocity in pixels a console frame ([0x00849708] /
+ * [0x0084970C]), which 0x002A4471 adds right after the draw (return address
+ * 0x002A4465) every drawn frame unless paused [0x007FA275]: at 60 it moved
+ * twice as fast and slid off him as the camera panned. Before the add the
+ * position is set back by the velocity and on by velocity x the frame step
+ * [0x007FA24C], the fraction carried. RECOMP_CENSOR_FIX=0 = original. */
+extern void sub_001EB210_gen(void);
+void sub_001EB210(void)
+{
+    static int on = -1, told;
+    static float cx, cy;
+    static int32_t lvx, lvy;
+    int here = MEM32(g_esp) == 0x002A4465u;
+    float step = MEMF(0x007FA24Cu), fx, fy;
+    int32_t vx, vy, ix, iy;
+    int changed;
+
+    sub_001EB210_gen();
+    if (!here)
+        return;
+    {
+        /* RECOMP_CENSOR_LOG=1: the box's place every drawn frame (before the
+         * add), to compare its path at 30 and above. */
+        static int log = -1;
+        if (log < 0)
+            log = env_on("RECOMP_CENSOR_LOG", 0);
+        if (log)
+            fprintf(stderr, "[CENSOR] t=%ld at %d, %d step %.3f\n", attach_ms(),
+                    (int32_t)MEM32(0x00849700u), (int32_t)MEM32(0x00849704u), step);
+    }
+    if (on < 0)
+        on = env_on("RECOMP_CENSOR_FIX", 1);
+    if (!on || MEM8(0x007FA275u) || !(step > 0.0f && step < 0.999f))
+        return;
+    vx = (int32_t)MEM32(0x00849708u);
+    vy = (int32_t)MEM32(0x0084970Cu);
+    changed = vx != lvx || vy != lvy;
+    if (changed) {
+        cx = cy = 0.0f;
+        lvx = vx;
+        lvy = vy;
+    }
+    fx = (float)vx * step + cx;
+    fy = (float)vy * step + cy;
+    ix = (int32_t)floorf(fx);
+    iy = (int32_t)floorf(fy);
+    cx = fx - (float)ix;
+    cy = fy - (float)iy;
+    MEM32(0x00849700u) = (uint32_t)((int32_t)MEM32(0x00849700u) - vx + ix);
+    MEM32(0x00849704u) = (uint32_t)((int32_t)MEM32(0x00849704u) - vy + iy);
+    if (told < 20 && (changed || !told)) {
+        told++;
+        fprintf(stderr, "[CENSOR] t=%ld box at %d, %d, velocity %d, %d a console frame taken "
+                "x %.3f a frame (RECOMP_CENSOR_FIX=0 = once a frame)\n", attach_ms(),
+                (int32_t)MEM32(0x00849700u), (int32_t)MEM32(0x00849704u), vx, vy, step);
+    }
+}
+

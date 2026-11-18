@@ -207,42 +207,47 @@ def main():
         '8. SMAA (anti-aliasing)',
         'https://github.com/iryoku/smaa, included unchanged in the toolkit\n'
         '(third_party/smaa).\n\n' + read(os.path.join(lic, 'SMAA.txt'))))
+    parts.append(section(
+        '9. GamepadMotionHelpers (gyro aiming)',
+        'https://github.com/JibbSmart/GamepadMotionHelpers, included unchanged in\n'
+        'the toolkit (third_party/gamepadmotionhelpers).\n\n'
+        + read(os.path.join(lic, 'GamepadMotionHelpers.txt'))))
 
     # ── conker-launcher.exe ──
     parts.append('\nPART 2: conker-launcher.exe (the launcher)\n'
                  '==========================================\n')
     parts.append(section(
-        '9. .NET runtime',
+        '10. .NET runtime',
         f'https://github.com/dotnet/runtime ({runtime[1]}), built into the launcher so\n'
         'no .NET install is needed. Its own third-party notices are Appendix B.\n\n'
         + nuget_file(runtime, 'LICENSE.TXT', 'LICENSE.txt')))
     parts.append(section(
-        '10. Avalonia (the launcher\'s window and controls)',
+        '11. Avalonia (the launcher\'s window and controls)',
         f'https://github.com/AvaloniaUI/Avalonia ({avalonia[1]}): Avalonia, Avalonia.Desktop,\n'
         'Avalonia.Win32, Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Themes.Fluent\n'
         'and the packages they bring along.\n\n' + mit_from_nuspec(avalonia)))
     parts.append(section(
-        '11. ANGLE (graphics for Avalonia, via Avalonia.Angle.Windows.Natives)',
+        '12. ANGLE (graphics for Avalonia, via Avalonia.Angle.Windows.Natives)',
         f'https://chromium.googlesource.com/angle/angle ({angle[1]})\n\n'
         + nuget_file(angle, 'LICENSE')))
     parts.append(section(
-        '12. SkiaSharp and HarfBuzzSharp (drawing and text for Avalonia)',
+        '13. SkiaSharp and HarfBuzzSharp (drawing and text for Avalonia)',
         f'https://github.com/mono/SkiaSharp (SkiaSharp {skia[1]}, HarfBuzzSharp {harfbuzz[1]}).\n'
         'Their native libraries contain Skia, HarfBuzz and the libraries those use;\n'
         'those notices are Appendix C.\n\n' + nuget_file(skia, 'LICENSE.txt')))
     parts.append(section(
-        '13. CommunityToolkit.Mvvm',
+        '14. CommunityToolkit.Mvvm',
         f'https://github.com/CommunityToolkit/dotnet ({mvvm[1]}). Its own third-party\n'
         'notices are Appendix D.\n\n' + nuget_file(mvvm, 'License.md', 'LICENSE.md')))
     parts.append(section(
-        '14. SharpCompress (opening .zip, .7z and .rar files when importing)',
+        '15. SharpCompress (opening .zip, .7z and .rar files when importing)',
         f'https://github.com/adamhathcock/sharpcompress ({sharpcompress[1]})\n\n'
         + mit_from_nuspec(sharpcompress)))
     parts.append(section(
-        '15. MicroCom.Runtime (used by Avalonia)',
+        '16. MicroCom.Runtime (used by Avalonia)',
         f'https://github.com/kekekeks/MicroCom ({microcom[1]})\n\n' + mit_from_nuspec(microcom)))
     parts.append(section(
-        '16. Tmds.DBus.Protocol (used by Avalonia)',
+        '17. Tmds.DBus.Protocol (used by Avalonia)',
         f'https://github.com/tmds/Tmds.DBus ({dbus[1]})\n\n' + mit_from_nuspec(dbus)))
 
     parts.append('\n' + CREDITS)

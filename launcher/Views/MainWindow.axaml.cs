@@ -314,6 +314,22 @@ public sealed partial class MainWindow : Window, IFilePicker
 
     private void OnKeyDownFirst(object? sender, KeyEventArgs e)
     {
+        // "Press the chord": Esc cancels (the chord itself comes from a controller).
+        if (ControlsVm is { IsChordCapturing: true } chordVm && e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            chordVm.CancelChordCaptureCommand.Execute(null);
+            return;
+        }
+
+        // "Press a button" (a controller button, to-do 39): Esc cancels too.
+        if (ControlsVm is { IsPadCapturing: true } padVm && e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            padVm.CancelPadCaptureCommand.Execute(null);
+            return;
+        }
+
         if (ControlsVm is { IsCapturing: true } controls)
         {
             e.Handled = true;
@@ -554,7 +570,7 @@ public sealed partial class MainWindow : Window, IFilePicker
     }
 
     /// <summary>The pop-ups over the page, topmost first (as PadNavigator.TopOverlay).</summary>
-    private Control[] Overlays => [UserFilesOverlay, BrowserOverlay, ReportOverlay, HistoryOverlay, UpdateOverlay, WelcomeOverlay];
+    private Control[] Overlays => [PadCaptureLayer, ChordCaptureLayer, ChordsOverlay, SlotOptionsOverlay, UserFilesOverlay, BrowserOverlay, ReportOverlay, HistoryOverlay, UpdateOverlay, WelcomeOverlay];
 
     /// <summary>
     /// A pop-up showing: keyboard Tab cycles inside it and skips the page (the page stays as it

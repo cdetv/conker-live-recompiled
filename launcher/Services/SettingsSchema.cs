@@ -19,7 +19,8 @@ public sealed record SettingOption(
 /// while it is on). A key row's Button is the controller button it presses (shown
 /// unless ButtonShown is false), Section the heading it is under, Scheme the single player scheme
 /// it belongs to (null: both), ClashesAll that its key clashes with every row of its tab. A reset
-/// button's Keys are what it puts back; a fixed row's FixedKeys its keys as text.
+/// button's Keys are what it puts back; a fixed row's FixedKeys its keys as text. Slot: the F3
+/// slot (1-4) whose Options window the entry is in (rumble, sticks, gyro); 0 = none.
 /// </summary>
 public sealed record MenuEntry(
     string Type, string Label, string? Key, string? Tip, string? Needs,
@@ -28,7 +29,42 @@ public sealed record MenuEntry(
     string? Button = null, bool ButtonShown = true, string? Section = null, string? Scheme = null,
     bool ClashesAll = false, string? Question = null, IReadOnlyList<string>? Keys = null,
     string? FixedKeys = null, int Count = 0, string? KeyboardKey = null, string? KeyboardOnKey = null,
-    string? Parent = null, string? Mute = null);
+    string? Parent = null, string? Mute = null, int Slot = 0, ChordsInfo? Chords = null,
+    string? Pad = null, PadBindsInfo? PadBinds = null);
+
+/// <summary>A controller button an action can have (to-do 39): its settings.ini name ("rt") and label ("Right trigger").</summary>
+public sealed record PadChoice(string Name, string Label);
+
+/// <summary>
+/// A single player action's controller bind (to-do 39, <c>src/pad_binds.c</c>): its name
+/// (settings.ini <c>pad_classic_&lt;name&gt;</c> / <c>pad_modern_&lt;name&gt;</c>), where it works (0 the
+/// main list, else a section's place), whether it needs a button, the one action it may share a
+/// button with on the main list (Crouch and Attack), and its label per scheme (null: not in it).
+/// </summary>
+public sealed record PadAction(string Name, int Place, bool Required, string Shares, string? Classic, string? Modern);
+
+/// <summary>F3 Controls > Single player's Controller column: the buttons one can pick and the actions.</summary>
+public sealed record PadBindsInfo(IReadOnlyList<PadChoice> Buttons, IReadOnlyList<PadAction> Actions);
+
+/// <summary>A controller chord one can pick (to-do 39): its settings.ini name ("back+start") and label ("Back + Start").</summary>
+public sealed record ChordChoice(string Name, string Label);
+
+/// <summary>A group of chord functions (Universal, Photo Mode, Cheats / Debug) and its rule.</summary>
+public sealed record ChordGroup(string Name, string Tip);
+
+/// <summary>
+/// A function a chord drives: its settings.ini key, label, tip, group (the index in
+/// <see cref="ChordsInfo.Groups"/>; 0 = Universal) and whether it may be unbound.
+/// </summary>
+public sealed record ChordFunction(string Key, string Label, string Tip, int Group, bool Required);
+
+/// <summary>
+/// F3 Slots' Chords window (to-do 39, <c>src/chords.c</c>): the chords one can pick, the groups,
+/// and the functions that show (with --debug: the debug ones; the cheat's once unlocked). Two
+/// functions may share a chord only when neither is Universal and they are in different groups.
+/// </summary>
+public sealed record ChordsInfo(
+    IReadOnlyList<ChordChoice> Chords, IReadOnlyList<ChordGroup> Groups, IReadOnlyList<ChordFunction> Functions);
 
 /// <summary>A quality preset (to-do 202): its name and the option values it sets.</summary>
 public sealed record QualityPreset(string Name, IReadOnlyDictionary<string, string> Values);
@@ -210,7 +246,34 @@ public sealed class SettingsSchema
         Scheme: Str(m, "scheme"), ClashesAll: Bool(m, "clashes_all") ?? false, Question: Str(m, "question"),
         Keys: List(m, "keys"), FixedKeys: Str(m, "keys"), Count: (int)Num(m, "count"),
         KeyboardKey: Str(m, "keyboard_key"), KeyboardOnKey: Str(m, "keyboard_on_key"), Parent: Str(m, "parent"),
-        Mute: Str(m, "mute"));
+        Mute: Str(m, "mute"), Slot: (int)Num(m, "slot"),
+        Chords: Str(m, "type") == "chords" ? ParseChords(m) : null,
+        Pad: Str(m, "pad"), PadBinds: Str(m, "type") == "pad_binds" ? ParsePadBinds(m) : null);
+
+    private static PadBindsInfo ParsePadBinds(JsonElement m)
+    {
+        IEnumerable<JsonElement> Arr(string name) =>
+            m.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.Array ? v.EnumerateArray() : [];
+
+        return new PadBindsInfo(
+            [.. Arr("buttons").Select(b => new PadChoice(Str(b, "name") ?? "", Str(b, "label") ?? ""))],
+            [.. Arr("actions").Select(a => new PadAction(Str(a, "name") ?? "", (int)Num(a, "place"),
+                                                         Bool(a, "required") ?? false, Str(a, "shares") ?? "",
+                                                         Str(a, "classic"), Str(a, "modern")))]);
+    }
+
+    private static ChordsInfo ParseChords(JsonElement m)
+    {
+        IEnumerable<JsonElement> Arr(string name) =>
+            m.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.Array ? v.EnumerateArray() : [];
+
+        return new ChordsInfo(
+            [.. Arr("chords").Select(c => new ChordChoice(Str(c, "name") ?? "", Str(c, "label") ?? ""))],
+            [.. Arr("groups").Select(g => new ChordGroup(Str(g, "name") ?? "", Str(g, "tip") ?? ""))],
+            [.. Arr("functions").Select(fn => new ChordFunction(Str(fn, "key") ?? "", Str(fn, "label") ?? "",
+                                                                Str(fn, "tip") ?? "", (int)Num(fn, "group"),
+                                                                Bool(fn, "required") ?? false))]);
+    }
 
     /// <summary>
     /// A value as the game would store it, or null when the game would ignore it (and use the

@@ -1196,7 +1196,7 @@ static void cmd_bind(int argc, char **argv)
         return;
     }
     if (argc < 3) {
-        complain("bind <key> <command> | bind list | bind reset (bind f5 warp Windy)");
+        complain("bind <key> <command> | bind list | bind reset (bind f5 warp Windmill)");
         return;
     }
     if (!bind_key_ok(argv[1])) {
@@ -2268,7 +2268,7 @@ static const Command s_commands[] = {
     { "inflives", "[on|off]", "Infinite lives", cmd_cheat },
     { "mpunlocks", "[on|off]", "Multiplayer unlocks", cmd_cheat },
     { "glass", "[on|off]", "Glass Squirrel", cmd_cheat },
-    { "bullettime", "[on|off]", "Bullet time (then B or both sticks clicked)", cmd_cheat },
+    { "bullettime", "[on|off]", "Bullet time (then B or its controller chord)", cmd_cheat },
     { "moonjump", "[on|off]", "Moon Jump", cmd_cheat },
     { "superspeed", "[on|off]", "Super Speed", cmd_cheat },
     { "bighead", "[on|off]", "Big Head", cmd_cheat },

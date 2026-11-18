@@ -72,6 +72,14 @@ typedef struct {
 
 int controls_count(int set);
 const ControlAction *controls_action(int set, int i);
+/* Action i's controller button as the menus show it: its "button", but a
+ * photo table row driven by a chord shows that chord now (chords.c). */
+const char *controls_button(int set, int i);
+/* Action i's controller bind (pad_binds.h PADB_*; single player's rows,
+ * to-do 39), -1 when it has none (the sticks, Back, the D-pad: fixed).
+ * table_pad: the same for row i of the set's whole table (controls_table_row). */
+int controls_pad_action(int set, int i);
+int controls_table_pad(int set, int i);
 /* Action i's first key now (an input as below, 0 = none): the fixed sets'
  * one key; a player set's row may have more (controls_keys). */
 int controls_key(int set, int i);
@@ -145,7 +153,7 @@ void controls_apply_pad_feel(int port, float strength, float dead_zone);
 
 /* Controller ports 0-3 (the game's players 1-4), from settings.ini: which
  * controller drives one (a host pad: 0-3 = Windows' (XInput) controller
- * 1-4, 4-7 = PlayStation controller 1-4; -2 = any, -1 = none), the port
+ * 1-4, 4-7 = PlayStation / Switch controller 1-4; -2 = any, -1 = none), the port
  * the keyboard and mouse drive, whether a host pad is connected, and which
  * one drives a port now (-1 none). Changed by saving controller_slot<n> /
  * keyboard_slot and calling controls_apply. */
@@ -156,7 +164,7 @@ int controls_keyboard_port(void);
 int controls_pad_connected(int pad);
 int controls_pad_of_port(int port);
 /* A connected controller's name as Windows lists it (USB game
- * controllers; SDL's name for a PlayStation pad), UTF-8; 0 and "" when it
+ * controllers; SDL's name for a PlayStation / Switch pad), UTF-8; 0 and "" when it
  * has none. */
 int controls_pad_name(int pad, char *out, int size);
 
@@ -176,6 +184,25 @@ void controls_set_mode(int set);
 /* A player set's mouse sensitivity (1 = 100 %) and invert, for mouse look
  * done by the game's camera (recomp_manual.c). */
 void controls_mouse(int set, float *sx, float *sy, int *invert);
+/* A slot's (port 0-3) gyro aiming (to-do 35): 1 when on for single player
+ * (mp 0) or multiplayer (mp 1), with its speeds (1 = the hand's turn) and
+ * up / down invert; copies made by controls_apply / controls_apply_gyro
+ * (that alone after a gyro setting changes), so the game thread may read
+ * them. */
+int controls_gyro(int port, int mp, float *sx, float *sy, int *invert);
+void controls_apply_gyro(void);
+/* A slot's right-stick camera speed, a factor (1 = 100 %): single player
+ * (mp 0; slot 1's story_camera_speed1, 1 for the others) or multiplayer
+ * (mp 1; mp_camera_speedN); applied with the gyro's settings; any thread. */
+float controls_camera_speed(int port, int mp);
+/* The slot's controller's gyro now, for F3's meter: speeds (degrees a
+ * second; right, up) and flags (0 = no gyro; 1 has one, 2 calibrating,
+ * 4 held still); a hand calibration (~2 s, the controller lies still). */
+#define CONTROLS_GYRO_HAS         1
+#define CONTROLS_GYRO_CALIBRATING 2
+#define CONTROLS_GYRO_STILL       4
+int controls_gyro_rate(int port, float *yaw, float *pitch);
+void controls_gyro_calibrate(int port);
 int controls_mode(void);
 /* Single player's Modern scheme (story_scheme): 1 when chosen, with its
  * context, aim and attack keys; the game thread drives those from the
@@ -187,10 +214,11 @@ int controls_sling_toggle(void);
 /* Multiplayer's zoom held (mp_zoom_mode = hold): 1 when chosen, with the
  * zoom keys; the game thread zooms by the game's state (recomp_manual.c). */
 int controls_zoom_hold(ControlKeys *zoom);
-/* The bat's aim keys (story_bat_aim) in *aim; returns 1 for Modern (aim
- * while held), 0 for Classic (each press toggles). The game thread taps the
- * left trigger by the game's aim state (recomp_manual.c). */
-int controls_bat_aim(ControlKeys *aim);
+/* The bat's aim keys: *toggle (each press turns the aim on or off) and
+ * *hold (aimed while held); story_bat_aim is Classic's toggle and Modern's
+ * hold, story_bat_aim_alt the other. Returns 1 for Modern. The game thread
+ * taps the left trigger by the game's aim state (recomp_manual.c). */
+int controls_bat_aim(ControlKeys *toggle, ControlKeys *hold);
 /* Unlocked Camera's zoom keys (story_cam_zoom_in / _out); returns 1 while
  * single player's on-foot keys are on. For the window thread (overlay.cpp). */
 int controls_cam_zoom(ControlKeys *in, ControlKeys *out);

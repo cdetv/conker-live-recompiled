@@ -103,6 +103,8 @@ set(GAME_SOURCES
     src/console.c
     src/cmd_pipe.c
     src/cheats.c
+    src/chords.c
+    src/pad_binds.c
     src/edit_save.c
     src/controls.c
     src/photo_mode.c
@@ -118,6 +120,7 @@ set(GAME_SOURCES
     src/debug_tools.c
     src/dev_logs.c
     src/speedrun.c
+    src/gpu_busy.c
     src/overlay.cpp
     src/menu_mouse.cpp
     # Add game-specific sources here, e.g.:
@@ -237,6 +240,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     dbghelp
     # SHA-1 of default.xbe: is it a version we run (main.c).
     bcrypt
+    # Windows' GPU usage counter for Automatic resolution and F1 (gpu_busy.c).
+    pdh
 )
 
 # MSVC-specific: large address aware, increase section limit for big generated files

@@ -138,11 +138,15 @@
 #include "edit_save.h"
 #include "console.h"
 #include "controls.h"
+#include "chords.h"
+#include "pad_binds.h"
 #include "photo_mode.h"
 #include "decensor.h"
 #include "precompile.h"
 #include "bug_report.h"
 #include "menu_mouse.h"
+#include "dev_logs.h"
+#include "gpu_busy.h"
 
 extern "C" {
 void xbox_KbmSetActive(int on);
@@ -172,6 +176,7 @@ int xbox_SetAntiAlias(int mode);
 int xbox_SetRenderScale(int percent);
 int xbox_RenderScaleSize(unsigned *w, unsigned *h);
 int xbox_SetUpscaler(int mode);
+void xbox_PrepareUpscaler(void);
 int xbox_SetVsync(int mode);
 int xbox_SetCrt(int mode, float strength);
 void conker_SetGlow(float pct);
@@ -188,6 +193,7 @@ void conker_SetFieldOfView(float deg);
 float conker_FovAcross(float deg);
 void conker_SetSmoothLightmaps(int on);
 void conker_SetFrameRate(int fps);
+int conker_TargetFps(void);
 void conker_SetDipFix(int on);
 void conker_SetMainMenuSpeed(int on);
 void conker_SetSubmenuSpeed(int on);
@@ -835,6 +841,27 @@ static bool s_capture_cancel;   /* Esc pressed: the question closes, nothing set
 static int s_capture_first;     /* a key held while setting one: alone when let
                                  * go, a combo's hold key when another follows */
 static int s_ask_reset = -1;  /* "Reset all ...?" is up for this set */
+static int s_slot_opts = -1;  /* F3 Slots: this slot's Options window is up */
+static int s_goto_slot_opts = -1; /* F3 to open on Slots with this slot's Options */
+/* F3 Slots > Chords (to-do 39): the window up, and "press the chord" for one
+ * function: feed_pad hands the pad to capture_chord meanwhile. */
+static bool s_chords_open;
+static int s_chord_capture = -1;    /* the function asked for, -1 none */
+static int s_chord_cap_got = -1;    /* the chord pressed, once */
+static unsigned s_chord_cap_held;   /* buttons held since all were let go */
+static bool s_chord_cap_ready;      /* all let go since the question opened */
+static bool s_chord_cap_cancel;     /* B alone: no change */
+static char s_chord_msg[160];       /* why the last press was not taken */
+static bool s_chords_ask_reset;     /* "Reset all chords?" showing */
+/* F3 Controls > Single player's Controller column (controller binds, to-do
+ * 39): "press a button" for one action of the scheme shown; feed_pad hands
+ * the pad to capture_bind meanwhile. */
+static int s_bind_capture = -1;     /* the action asked for (PADB_*), -1 none */
+static unsigned s_bind_cap_got;     /* the button pressed, once (0 none) */
+static bool s_bind_cap_ready;       /* all let go since the question opened */
+static bool s_bind_cap_cancel;      /* Back: no change */
+static char s_bind_msg[200];        /* the last change's swap / why it was refused */
+static bool s_binds_ask_reset;      /* "Reset the controller buttons?" showing */
 static bool s_paused;         /* the pause key: the flip is held */
 static bool s_apu_held;       /* the sound is paused with it */
 static bool s_pad_menu;       /* the pad drives the menu, not the game */
@@ -871,11 +898,16 @@ static float s_fps_bottom;    /* the label's lower edge, for the pause label */
 /* F1 level 3, "what's limiting me" (to-do 204, #22): each frame's time on the
  * game thread (game logic), on the executor thread (graphics translation:
  * this hook's thread) and on the GPU, per fps window. CPU time from the
- * threads' cycle counts (they sleep while they wait, so that is work),
- * turned into ms by the TSC's rate over the window; GPU time from the
- * toolkit's first-to-last timestamps of each frame. */
+ * threads' cycle counts, turned into ms by the TSC's rate over the window
+ * (some waits spin, so they count waiting for the GPU too, and the two
+ * threads overlap: at a 120 fps cap game + graphics read 130 %); GPU time
+ * from Windows' GPU usage counter (gpu_busy.c: the 3D engine's busy share
+ * times the frame), else the toolkit's first-to-last timestamps of each
+ * frame (which count the GPU's idle gaps). */
 static bool s_lim_have, s_lim_started;
 static double s_lim_game, s_lim_exec, s_lim_gpu;      /* ms a frame */
+static double s_lim_span;            /* the timestamps' span, ms a frame */
+static double s_lim_busy = -1.0;     /* the GPU's busy share; -1 = none */
 static const char *s_lim_verdict, *s_lim_hint;
 static HANDLE s_lim_game_h;
 static unsigned long s_lim_game_tid;
@@ -883,6 +915,67 @@ static ULONG64 s_lim_game_c0, s_lim_exec_c0;
 static unsigned __int64 s_lim_tsc0;
 static LARGE_INTEGER s_lim_qpc0;
 static ULONGLONG s_lim_logged;
+
+/* Automatic resolution (to-do 220, #22; auto_resolution, RECOMP_AUTO_RES):
+ * the same measures every half second, also with F1 off, move the render
+ * scale between AR_LOWEST and the player's render_scale (s_ar_top). The
+ * GPU's work a frame is its busy share from Windows' counter (gpu_busy.c)
+ * times the frame. Down when the frame rate is under 95 % of the target
+ * (conker_TargetFps) for AR_DOWN_WINDOWS windows and the GPU is busy
+ * AR_BUSY_DOWN of the time or more: to the highest step at which the
+ * frame, less the GPU work the step saves (scaled by the pixels), fits in
+ * AR_DOWN_TO of the budget (1000 / the target fps). Up one step when the
+ * frame rate is at the target and the next step's GPU work fits in
+ * AR_UP_BELOW of the budget for AR_UP_WAIT windows in a row. Of the CPU
+ * threads only one at AR_THREAD_FULL of the frame or more stops a step
+ * down: that thread is the limit (user's second check, It's War at 2.5x:
+ * six of seven steps down with the graphics thread at 94-97 % didn't make
+ * the frame faster; the ones that did had it at 55-72 %, and a frame the
+ * GPU holds back left both threads at ~30 %). Their sum is not asked: it
+ * counts spinning waits and the threads overlap, so it read 110-160 %
+ * both at a 120 fps cap with room to spare and at 4x, 80 fps, where the
+ * GPU was the limit (user's first check: the first version waited for it
+ * to be under 70 % and never lowered).
+ * A scale change remakes the frame's surfaces, so the scale moves seldom:
+ * the window after a change is not judged (its first frames rebuild), a
+ * step up waits AR_UP_AFTER_DOWN ms after a step down, and a step up that
+ * has to be undone soon doubles the wait for the next. A step down after
+ * which the frame is not AR_HELPED faster (nor at the target) is undone
+ * and steps down stop for AR_BLOCK ms, doubled for each such step in a row
+ * up to AR_BLOCK_MAX, or until the next level load: the resolution was not
+ * what slowed it (a movie, drawn at the window's size; the CPU). Nothing
+ * is judged during a level load and AR_AFTER_LOAD ms after it (its shader
+ * builds and uploads stall frames: a 4x -> 1.5x step was taken on one in
+ * the first test). Without the counter (Wine) the frame span stands in for
+ * the GPU's work (xbox_GpuFrameMs; it counts the GPU's idle gaps, so steps
+ * up may not come; the undo rule guards steps down). */
+#define AR_LOWEST         50
+#define AR_AFTER_LOAD     3000
+#define AR_SLOW           1.05       /* frame time over the budget: below
+                                        95 % of the target frame rate */
+#define AR_BUSY_DOWN      0.80       /* the GPU's busy share for a step down */
+#define AR_THREAD_FULL    0.90       /* a CPU thread's share: no step down */
+#define AR_DOWN_AT        0.90       /* the frame span of the budget, for a
+                                        step down without the counter */
+#define AR_DOWN_TO        0.80
+#define AR_UP_BELOW       0.70
+#define AR_DOWN_WINDOWS   2          /* half seconds in a row */
+#define AR_UP_WAIT        6
+#define AR_UP_WAIT_MAX    120
+#define AR_UP_AFTER_DOWN  5000
+#define AR_UP_UNDONE      10000      /* a step down this soon after a step up */
+#define AR_HELPED         0.95       /* frame time after a step down, at most */
+#define AR_BLOCK          15000
+#define AR_BLOCK_MAX      120000
+#define AR_CALM           60000      /* no step down this long: waits reset */
+static int s_ar = -1;                /* on; -1 = RECOMP_AUTO_RES not read yet */
+static int s_ar_top, s_ar_cur;       /* percents; 0 = not started */
+static int s_ar_skip, s_ar_hot, s_ar_cool, s_ar_up_wait = AR_UP_WAIT;
+static int s_ar_check_from;          /* the step down being checked: its from */
+static int s_ar_fails;               /* steps down in a row that didn't help */
+static double s_ar_check_ms;         /* and the frame's ms before it */
+static ULONGLONG s_ar_down_t, s_ar_up_t, s_ar_block_until, s_ar_quiet_until;
+static bool s_ar_timing;             /* xbox_SetGpuFrameTiming as last set */
 
 static ImGuiKey key_from_vk(WPARAM vk)
 {
@@ -925,7 +1018,8 @@ static bool read_pad(XINPUT_STATE *st)
 {
     /* RECOMP_MENU_PAD=<file> (tests, nobody at the pad): the file's hex
      * XInput buttons are slot 1's controller for the menus (0030 = Back +
-     * Start, 1000 = A). */
+     * Start, 1000 = A), then optionally the triggers 0-255 ("0000 0 255" =
+     * RT). */
     static const char *test_file;
     static bool test_looked;
     if (!test_looked) {
@@ -934,15 +1028,20 @@ static bool read_pad(XINPUT_STATE *st)
     }
     if (test_file) {
         FILE *f;
-        unsigned b = 0;
+        unsigned b = 0, lt = 0, rt = 0;
         memset(st, 0, sizeof(*st));
         f = _fsopen(test_file, "r", _SH_DENYNO);   /* the test writes to it */
         if (f) {
-            if (fscanf_s(f, "%x", &b) != 1)
+            int n = fscanf_s(f, "%x %u %u", &b, &lt, &rt);
+            if (n < 1)
                 b = 0;
+            if (n < 3)
+                lt = rt = 0;
             fclose(f);
         }
         st->Gamepad.wButtons = (WORD)b;
+        st->Gamepad.bLeftTrigger = (BYTE)(lt > 255u ? 255u : lt);
+        st->Gamepad.bRightTrigger = (BYTE)(rt > 255u ? 255u : rt);
         return true;
     }
     int pad = controls_pad_of_port(0);
@@ -1027,6 +1126,11 @@ static void open_menu(void)
     s_ask_quit = s_menu == MENU_QUIT;
     s_capture_idx = -1;
     s_ask_reset = -1;
+    s_slot_opts = -1;
+    s_chords_open = false;
+    s_chord_capture = -1;
+    s_bind_capture = -1;
+    s_binds_ask_reset = false;
     fprintf(stderr, "[OVERLAY] opened%s\n",
             s_menu == MENU_CONTROLS ? " (controls)"
             : s_menu == MENU_PHOTO ? " (photo panel)"
@@ -1034,7 +1138,7 @@ static void open_menu(void)
             : s_menu == MENU_DEBUG ? " (Debug menu)"
             : s_menu == MENU_CHEATS ? " (cheat menu)"
             : s_menu == MENU_CONSOLE ? " (console)"
-            : s_menu == MENU_PAD ? " (Back + Start menu)"
+            : s_menu == MENU_PAD ? " (Recomp Menu)"
             : s_menu == MENU_REPORT ? " (Report Bug)" : "");
     if (s_menu == MENU_REPORT)
         report_begin();
@@ -1052,6 +1156,11 @@ static void switch_menu(void)
     s_ask_quit = s_menu == MENU_QUIT;
     s_capture_idx = -1;
     s_ask_reset = -1;
+    s_slot_opts = -1;
+    s_chords_open = false;
+    s_chord_capture = -1;
+    s_bind_capture = -1;
+    s_binds_ask_reset = false;
     fprintf(stderr, "[OVERLAY] switched to the %s menu\n",
             s_menu == MENU_CONTROLS ? "controls"
             : s_menu == MENU_PHOTO ? "photo"
@@ -1059,7 +1168,7 @@ static void switch_menu(void)
             : s_menu == MENU_DEBUG ? "Debug"
             : s_menu == MENU_CHEATS ? "cheat"
             : s_menu == MENU_CONSOLE ? "console"
-            : s_menu == MENU_PAD ? "Back + Start"
+            : s_menu == MENU_PAD ? "Recomp"
             : s_menu == MENU_REPORT ? "Report Bug" : "settings");
     if (s_menu == MENU_REPORT)
         report_begin();
@@ -1180,6 +1289,292 @@ extern "C" int overlay_metrics(void)
     return (int)s_want_fps;
 }
 
+/* Automatic resolution (to-do 220): RECOMP_AUTO_RES as settings.ini's
+ * auto_resolution set it at start; the F2 box later (ar_switch). */
+static bool ar_on(void)
+{
+    if (s_ar < 0) {
+        const char *e = getenv("RECOMP_AUTO_RES");
+        s_ar = e && *e && *e != '0';
+        if (s_ar) {
+            fprintf(stderr, "[AUTORES] on (RECOMP_AUTO_RES)\n");
+            /* FSR made now, not at the first step below 1x (~110 ms). */
+            xbox_PrepareUpscaler();
+        }
+    }
+    return s_ar == 1;
+}
+
+/* The player's render scale: the highest Automatic resolution goes. */
+static int ar_top(void)
+{
+    const char *v = settings_env_override("render_scale")
+                    ? getenv("RECOMP_RENDER_SCALE")
+                    : settings_get("render_scale");
+    int p = v ? atoi(v) : 100;
+    return p < 25 ? 100 : p;
+}
+
+/* "0.75x", as the F2 menu shows a scale. */
+static const char *ar_x(int pct, char *buf, size_t n)
+{
+    snprintf(buf, n, "%.3gx", pct / 100.0);
+    return buf;
+}
+
+/* The GPU's frame times are measured for F1's "what limits" and for
+ * Automatic resolution; counting starts afresh when they come on. */
+static void gpu_timing_follow(void)
+{
+    bool want = s_fps == 3 || ar_on();
+
+    if (want == s_ar_timing)
+        return;
+    s_ar_timing = want;
+    xbox_SetGpuFrameTiming(want);
+    gpu_busy_want(want);
+    s_lim_started = false;
+    if (!s_fps)
+        s_fps_restart = true;
+}
+
+/* The scale the frame is drawn at, from the next present. */
+static void ar_set(int pct)
+{
+    if (pct == s_ar_cur || !xbox_SetRenderScale(pct))
+        return;
+    s_ar_cur = pct;
+    s_ar_skip = 1;
+    s_ar_hot = s_ar_cool = 0;
+}
+
+/* From the top again: switched on, or the render scale changed (the
+ * renderer is at the player's scale then). */
+static void ar_start(void)
+{
+    s_ar_top = ar_top();
+    s_ar_cur = s_ar_top;
+    s_ar_skip = 1;
+    s_ar_hot = s_ar_cool = 0;
+    s_ar_up_wait = AR_UP_WAIT;
+    s_ar_check_from = 0;
+    s_ar_block_until = 0;
+    s_ar_down_t = s_ar_up_t = 0;
+}
+
+/* The F2 box. Off: back to the player's render scale. */
+static void ar_switch(bool on)
+{
+    char a[16], b[16];
+
+    ar_on();
+    s_ar = on ? 1 : 0;
+    if (on) {
+        ar_start();
+        xbox_PrepareUpscaler();
+        fprintf(stderr, "[AUTORES] on: render scale between %s and %s\n",
+                ar_x(AR_LOWEST, a, sizeof a), ar_x(s_ar_top, b, sizeof b));
+    } else {
+        int top = ar_top();
+        if (s_ar_cur && s_ar_cur != top)
+            xbox_SetRenderScale(top);
+        s_ar_cur = 0;
+        fprintf(stderr, "[AUTORES] off: render scale %s\n",
+                ar_x(top, a, sizeof a));
+    }
+    gpu_timing_follow();
+}
+
+static const int AR_STEPS[] = {
+    50, 67, 75, 100, 125, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900,
+    1000,
+};
+#define AR_NSTEPS ((int)(sizeof(AR_STEPS) / sizeof(AR_STEPS[0])))
+
+/* A half-second window's measures (lim_window): frame_ms between presents,
+ * gs / es the game and executor threads' shares of it (logged only), span
+ * the timestamps' first-to-last ms a frame over span_n frames read, busy
+ * the GPU's busy share from Windows' counter (-1: none). */
+static void ar_window(double frame_ms, double gs, double es, double span,
+                      unsigned span_n, double busy)
+{
+    int target = conker_TargetFps(), cur, i;
+    double budget = 0.0, r, gpu_ms;
+    bool counter = busy >= 0.0, slow = false, gpu_full = false;
+    bool thread_full = gs >= AR_THREAD_FULL || es >= AR_THREAD_FULL;
+    ULONGLONG now = GetTickCount64();
+    const char *why = "steady";
+    char a[16], b[16], g[24];
+
+    if (!s_ar_cur)
+        ar_start();
+    cur = s_ar_cur;
+    if (counter)
+        snprintf(g, sizeof g, "%.0f %% busy", 100.0 * busy);
+    else
+        snprintf(g, sizeof g, "frame span");
+    gpu_ms = counter ? busy * frame_ms : span_n ? span : -1.0;
+    if (!target || gpu_ms < 0.0 || frame_ms <= 0.0) {
+        s_ar_hot = s_ar_cool = 0;
+        why = !target ? "no target frame rate (uncapped, VSync off)"
+                      : "no GPU time read";
+        goto out;
+    }
+    budget = 1000.0 / target;
+    slow = frame_ms > budget * AR_SLOW;
+    gpu_full = counter ? busy >= AR_BUSY_DOWN : gpu_ms >= AR_DOWN_AT * budget;
+    if (conker_LevelLoading()) {
+        /* A new level: what didn't help before may now (a menu, where the
+         * filters at the window's size cost the most, blocked the field
+         * for a minute). */
+        s_ar_quiet_until = now + AR_AFTER_LOAD;
+        s_ar_block_until = 0;
+        s_ar_fails = 0;
+    }
+    if (now < s_ar_quiet_until) {
+        s_ar_hot = s_ar_cool = 0;
+        why = "loading";
+        goto out;
+    }
+    if (s_ar_skip > 0) {
+        s_ar_skip--;
+        why = "skipped after a change";
+        goto out;
+    }
+
+    /* A step down just made: is the frame faster now? */
+    if (s_ar_check_from) {
+        int from = s_ar_check_from;
+        s_ar_check_from = 0;
+        if (slow && frame_ms > s_ar_check_ms * AR_HELPED) {
+            ULONGLONG len = (ULONGLONG)AR_BLOCK
+                            << (s_ar_fails < 4 ? s_ar_fails : 4);
+            if (len > AR_BLOCK_MAX)
+                len = AR_BLOCK_MAX;
+            s_ar_fails++;
+            fprintf(stderr, "[AUTORES] %s didn't help (frame %.1f -> %.1f ms):"
+                    " back to %s, no step down for %u s\n",
+                    ar_x(cur, a, sizeof a), s_ar_check_ms, frame_ms,
+                    ar_x(from, b, sizeof b), (unsigned)(len / 1000));
+            fflush(stderr);
+            s_ar_block_until = now + len;
+            ar_set(from);
+            return;
+        }
+        s_ar_fails = 0;
+    }
+
+    /* Down: the frame rate under the target with the GPU (nearly) full and
+     * no CPU thread full (that one holds the frame back whatever the GPU
+     * does). Held at the target nothing needs lowering (and without the
+     * counter the span can't be believed there: with VSync a GPU running
+     * ahead waits inside it for a back buffer still on screen;
+     * architecture gotchas). */
+    if (slow && gpu_full && !thread_full && cur > AR_LOWEST) {
+        s_ar_cool = 0;
+        if (now < s_ar_block_until) {
+            why = "over budget, steps down blocked";
+        } else if (++s_ar_hot < AR_DOWN_WINDOWS) {
+            why = "over budget";
+        } else {
+            int to = AR_LOWEST;
+            for (i = AR_NSTEPS - 1; i >= 0; i--) {
+                double left;
+                if (AR_STEPS[i] >= cur || AR_STEPS[i] < AR_LOWEST)
+                    continue;
+                r = (double)AR_STEPS[i] / cur;
+                /* The frame less the GPU work the step saves (the CPU
+                 * side and the GPU partly take turns); without the
+                 * counter the span alone. */
+                left = counter ? frame_ms - gpu_ms * (1.0 - r * r)
+                               : gpu_ms * r * r;
+                if (left <= AR_DOWN_TO * budget) {
+                    to = AR_STEPS[i];
+                    break;
+                }
+            }
+            /* A step up undone this soon: wait longer before the next. */
+            if (s_ar_up_t && now - s_ar_up_t < AR_UP_UNDONE) {
+                s_ar_up_wait *= 2;
+                if (s_ar_up_wait > AR_UP_WAIT_MAX)
+                    s_ar_up_wait = AR_UP_WAIT_MAX;
+            }
+            fprintf(stderr, "[AUTORES] %s -> %s: frame %.1f ms of %.1f (%d fps),"
+                    " GPU %.1f ms (%s); game %.1f, graphics %.1f ms\n",
+                    ar_x(cur, a, sizeof a), ar_x(to, b, sizeof b), frame_ms,
+                    budget, target, gpu_ms, g, gs * frame_ms, es * frame_ms);
+            fflush(stderr);
+            s_ar_check_from = cur;
+            s_ar_check_ms = frame_ms;
+            s_ar_down_t = now;
+            ar_set(to);
+            return;
+        }
+        goto out;
+    }
+    s_ar_hot = 0;
+
+    /* Up one step: at the target, the next step's GPU work, scaled by its
+     * pixels, inside AR_UP_BELOW of the budget for s_ar_up_wait windows in
+     * a row. Under the target the CPU side holds the frame back, and more
+     * pixels could only add to it. */
+    if (cur < s_ar_top) {
+        int next = s_ar_top;
+        for (i = 0; i < AR_NSTEPS; i++)
+            if (AR_STEPS[i] > cur) {
+                if (AR_STEPS[i] < s_ar_top)
+                    next = AR_STEPS[i];
+                break;
+            }
+        r = (double)next / cur;
+        if (now - s_ar_down_t < AR_UP_AFTER_DOWN) {
+            s_ar_cool = 0;
+            why = "stepped down just now";
+        } else if (slow) {
+            s_ar_cool = 0;
+            why = "under the target frame rate";
+        } else if (gpu_ms * r * r <= AR_UP_BELOW * budget) {
+            if (++s_ar_cool >= s_ar_up_wait) {
+                fprintf(stderr, "[AUTORES] %s -> %s: GPU %.1f ms a frame (%s)"
+                        " of %.1f (%d fps), room for more\n",
+                        ar_x(cur, a, sizeof a), ar_x(next, b, sizeof b),
+                        gpu_ms, g, budget, target);
+                fflush(stderr);
+                s_ar_up_t = now;
+                ar_set(next);
+                return;
+            }
+            why = "room for a step up";
+        } else {
+            s_ar_cool = 0;
+            why = "no room for a step up";
+        }
+    } else if (slow) {
+        why = "under the target, the GPU not full";
+    }
+    if (slow && gpu_full && thread_full)
+        why = gs >= AR_THREAD_FULL ? "the game thread full: a lower scale"
+                                     " won't help"
+                                   : "the graphics thread full: a lower"
+                                     " scale won't help";
+    else if (slow && gpu_full && cur <= AR_LOWEST)
+        why = "at the lowest step";
+    /* A minute without a step down: steps up wait as at first again. */
+    if (now - s_ar_down_t > AR_CALM)
+        s_ar_up_wait = AR_UP_WAIT;
+out:
+    if (dev_log(DLOG_AUTORES)) {
+        fprintf(stderr, "[AUTORES] %.1f fps (target %d, %.1f ms): GPU %.1f ms"
+                " (%s; span %.1f ms, %u frames), game %.0f %%, graphics %.0f %%;"
+                " scale %s of %s; down %d, up %d/%d; %s\n", frame_ms > 0.0
+                ? 1000.0 / frame_ms : 0.0, target, budget, gpu_ms, g, span,
+                span_n, 100.0 * gs, 100.0 * es, ar_x(cur, a, sizeof a),
+                ar_x(s_ar_top, b, sizeof b), s_ar_hot, s_ar_cool, s_ar_up_wait,
+                why);
+        fflush(stderr);
+    }
+}
+
 /* F1: the counter's level, into settings.ini. Counting starts afresh when
  * it comes on. */
 static void follow_fps(void)
@@ -1189,6 +1584,7 @@ static void follow_fps(void)
     int level = (int)s_want_fps;
     char v[2] = { (char)('0' + level), '\0' };
 
+    gpu_timing_follow();
     if (level == s_fps)
         return;
     if (!s_fps) {
@@ -1196,7 +1592,7 @@ static void follow_fps(void)
         s_fps_have = false;
     }
     s_fps = level;
-    xbox_SetGpuFrameTiming(level == 3);
+    gpu_timing_follow();
     s_lim_started = false;
     s_lim_have = false;
     if (strcmp(settings_get("fps_counter"), v))
@@ -1231,6 +1627,7 @@ static void lim_begin(void)
     s_lim_tsc0 = __rdtsc();
     QueryPerformanceCounter(&s_lim_qpc0);
     xbox_GpuFrameMs(NULL);              /* from now */
+    gpu_busy_take();
 }
 
 /* An fps window ended: frames presents in it, frame_ms their mean. */
@@ -1240,7 +1637,11 @@ static void lim_window(unsigned frames, double frame_ms)
     unsigned __int64 tsc;
     LARGE_INTEGER now, freq;
     unsigned gpu_n;
+    int target;
+    bool at_target;
     double wall, per_ms, gs, es, us;
+    const char *cpu_hint;
+    char gb[24];
 
     if (!s_lim_started || !frames) {
         lim_begin();
@@ -1262,30 +1663,54 @@ static void lim_window(unsigned frames, double frame_ms)
     }
     s_lim_game = (double)(g - s_lim_game_c0) / per_ms / frames;
     s_lim_exec = (double)(e - s_lim_exec_c0) / per_ms / frames;
-    s_lim_gpu = xbox_GpuFrameMs(&gpu_n);
+    s_lim_span = xbox_GpuFrameMs(&gpu_n);
+    s_lim_busy = gpu_busy_take();
+    s_lim_gpu = s_lim_busy >= 0.0 ? s_lim_busy * frame_ms : s_lim_span;
     s_lim_game_c0 = g;
     s_lim_exec_c0 = e;
     s_lim_tsc0 = tsc;
     s_lim_qpc0 = now;
 
-    /* Shares of the frame. A thread near 100 % is what the frame waits for;
-     * the two CPU threads also take turns (the game waits for the executor at
-     * its flushes), so together near 100 % is a CPU limit too. The GPU span
-     * counts its idle gaps, so it is believed only when the CPU side has
-     * room. Nothing near 100 %: the frame rate cap or VSync sets the pace. */
+    /* Shares of the frame. Held at the target frame rate nothing limits
+     * (the cap or VSync sets the pace), whatever the shares say: the CPU
+     * threads' counts include spinning waits and the threads overlap (130 %
+     * together at a 120 fps cap with room). Under it, a CPU thread at
+     * AR_THREAD_FULL is the limit (It's War, graphics at 94-97 % with the
+     * GPU 81-93 % busy: a lower scale didn't make the frame faster); then
+     * the GPU busy AR_BUSY_DOWN of the time; then a thread at 85 %, or both
+     * together near 100 % (the game waits for the executor at its flushes).
+     * Without the counter the span stands in for the GPU, believed only
+     * when the CPU side has room (it counts the GPU's idle gaps). */
+    target = conker_TargetFps();
+    at_target = target && frame_ms <= 1000.0 / target * AR_SLOW;
     gs = s_lim_game / frame_ms;
     es = s_lim_exec / frame_ms;
     us = s_lim_gpu > 0.0 ? s_lim_gpu / frame_ms : 0.0;
-    if (gs >= 0.85) {
+    cpu_hint = s_lim_busy >= 0.5
+             ? "a lower frame rate helps most; a lower resolution a little"
+             : "a lower resolution won't help; a lower frame rate will";
+    if (at_target) {
+        s_lim_verdict = "nothing (frame rate cap / VSync)";
+        s_lim_hint = "the PC keeps up with this frame rate";
+    } else if (gs >= AR_THREAD_FULL) {
         s_lim_verdict = "CPU (game logic)";
         s_lim_hint = "a lower resolution won't help; a lower frame rate will";
-    } else if (es >= 0.85) {
+    } else if (es >= AR_THREAD_FULL) {
         s_lim_verdict = "CPU (graphics translation)";
         s_lim_hint = "a lower resolution won't help; a lower frame rate will";
+    } else if (s_lim_busy >= AR_BUSY_DOWN) {
+        s_lim_verdict = "GPU";
+        s_lim_hint = "a lower render scale, resolution or the Low preset helps";
+    } else if (gs >= 0.85) {
+        s_lim_verdict = "CPU (game logic)";
+        s_lim_hint = cpu_hint;
+    } else if (es >= 0.85) {
+        s_lim_verdict = "CPU (graphics translation)";
+        s_lim_hint = cpu_hint;
     } else if (gs + es >= 0.9) {
         s_lim_verdict = "CPU (game and graphics in turn)";
-        s_lim_hint = "a lower resolution won't help; a lower frame rate will";
-    } else if (us >= 0.85) {
+        s_lim_hint = cpu_hint;
+    } else if (s_lim_busy < 0.0 && us >= 0.85) {
         s_lim_verdict = "GPU";
         s_lim_hint = "a lower render scale, resolution or the Low preset helps";
     } else {
@@ -1293,13 +1718,19 @@ static void lim_window(unsigned frames, double frame_ms)
         s_lim_hint = "the PC keeps up with this frame rate";
     }
     s_lim_have = true;
-    if (GetTickCount64() - s_lim_logged >= 10000) {
+    if (ar_on())
+        ar_window(frame_ms, gs, es, s_lim_span, gpu_n, s_lim_busy);
+    if (s_fps == 3 && GetTickCount64() - s_lim_logged >= 10000) {
         s_lim_logged = GetTickCount64();
+        if (s_lim_busy >= 0.0)
+            snprintf(gb, sizeof gb, "%.0f %% busy", 100.0 * s_lim_busy);
+        else
+            snprintf(gb, sizeof gb, "no counter");
         fprintf(stderr, "[LIMIT] %.1f fps, frame %.1f ms: game %.1f ms (%.0f %%),"
-                " graphics %.1f ms (%.0f %%), GPU %.1f ms (%.0f %%, %u frames)"
-                " -> limited by %s\n", 1000.0 / frame_ms, frame_ms, s_lim_game,
-                100.0 * gs, s_lim_exec, 100.0 * es, s_lim_gpu, 100.0 * us,
-                gpu_n, s_lim_verdict);
+                " graphics %.1f ms (%.0f %%), GPU %.1f ms (%s; span %.1f ms,"
+                " %u frames) -> limited by %s\n", 1000.0 / frame_ms, frame_ms,
+                s_lim_game, 100.0 * gs, s_lim_exec, 100.0 * es, s_lim_gpu, gb,
+                s_lim_span, gpu_n, s_lim_verdict);
         fflush(stderr);
     }
 }
@@ -1312,7 +1743,7 @@ static void fps_tick(bool fresh)
     LARGE_INTEGER now, freq;
     double ms, span;
 
-    if (!s_fps)
+    if (!s_fps && !ar_on())
         return;
     if (!fresh) {
         s_fps_restart = true;     /* the pause is no frame of the game's */
@@ -1324,7 +1755,7 @@ static void fps_tick(bool fresh)
         s_fps_prev = s_fps_t0 = now;
         s_fps_n = 0;
         s_fps_max = 0.0;
-        if (s_fps == 3)
+        if (s_fps == 3 || ar_on())
             lim_begin();
         return;
     }
@@ -1343,7 +1774,7 @@ static void fps_tick(bool fresh)
     s_fps_ms = span / s_fps_n;
     s_fps_long = s_fps_max;
     s_fps_have = true;
-    if (s_fps == 3)
+    if (s_fps == 3 || ar_on())
         lim_window(s_fps_n, s_fps_ms);
     s_fps_t0 = now;
     s_fps_n = 0;
@@ -1605,16 +2036,17 @@ static void remember_game_window(void)
     fprintf(stderr, "[OVERLAY] window_rect = %s\n", v);
 }
 
-/* Back + LB (Back + Black on an Xbox pad) with no menu up opens F2's menu
- * as the F2 key does (user 2026-10-29); Back then closes it (feed_pad).
- * Executor thread, each present. With no pad, looked for once a second:
- * XInput is slow on empty slots. */
+/* The Settings Menu chord (Back + LB by default; Back + Black on an Xbox
+ * pad) with no menu up opens F2's menu as the F2 key does (user
+ * 2026-10-29); Back then closes it (feed_pad). The Recomp Menu chord (Back
+ * + Start) opens the list of menus. Chords: F3 > Slots > Chords (chords.c,
+ * to-do 39). Executor thread, each present. With no pad, looked for once a
+ * second: XInput is slow on empty slots. */
 static void pad_opens_menu(void)
 {
     WORD &prev = s_opens_prev;
     static DWORD retry_at;
-    const WORD combo = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_LEFT_SHOULDER;
-    const WORD combo_list = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_START;
+    static ChordState chord;
     XINPUT_STATE st;
 
     if (retry_at && GetTickCount() - retry_at > 0x80000000u)
@@ -1638,26 +2070,111 @@ static void pad_opens_menu(void)
         stick_was = stick;
     }
     const bool none_up = !s_want_open || console_free();
-    if (none_up && (b & combo) == combo && (prev & combo) != combo) {
+    const unsigned fired = chords_step(&chord, b, photo_active() ? CHORD_CTX_PHOTO
+                                                                 : CHORD_CTX_GAME);
+    if (none_up && (fired & CHORD_FN_BIT(CHORD_SETTINGS))) {
         open_if_free(MENU_SETTINGS);
-        fprintf(stderr, "[OVERLAY] Back + LB: settings menu\n");
+        fprintf(stderr, "[OVERLAY] %s: settings menu\n",
+                chords_fn_chord_label(CHORD_SETTINGS));
     }
-    /* Back + Start (to-do 125): the list of menus. Also in photo mode, which
-     * keeps this combination free. */
-    else if (none_up && (b & combo_list) == combo_list
-             && (prev & combo_list) != combo_list) {
+    /* The Recomp Menu (to-do 125): the list of menus. Also in photo mode,
+     * whose chords may not take its chord (Universal). */
+    else if (none_up && (fired & CHORD_FN_BIT(CHORD_MENU))) {
         open_if_free(MENU_PAD);
-        fprintf(stderr, "[OVERLAY] Back + Start: the list of menus\n");
+        fprintf(stderr, "[OVERLAY] %s: the list of menus\n",
+                chords_fn_chord_label(CHORD_MENU));
     }
     /* B on the main menu's boards: the quit question (to-do 28). Slot 1's
-     * controller only (read_pad; user 2026-11-07); the keyboard has Esc. */
-    else if (none_up && (b & XINPUT_GAMEPAD_B)
+     * controller only (read_pad; user 2026-11-07); the keyboard has Esc. Not
+     * a B in a chord. */
+    else if (none_up && (b & XINPUT_GAMEPAD_B) && !(chord.used & XINPUT_GAMEPAD_B)
              && !(prev & XINPUT_GAMEPAD_B) && !s_paused && !photo_active()
              && conker_MainMenuBoard() && !cheats_pad_holding()) {
         open_if_free(MENU_QUIT);
         fprintf(stderr, "[OVERLAY] B on the main menu: quit question\n");
     }
     prev = b;
+}
+
+/* "Press the chord" (F3 > Slots > Chords): slot 1's buttons while the
+ * question is up. Two held together that make a chord answer it; B pressed
+ * alone and let go cancels; anything else says why it isn't one. Each
+ * press waits for every button to be let go first. */
+static void capture_chord(WORD buttons)
+{
+    const unsigned all = CHORD_UP | CHORD_DOWN | CHORD_LEFT | CHORD_RIGHT
+                       | CHORD_START | CHORD_BACK | CHORD_LS | CHORD_RS
+                       | CHORD_LB | CHORD_RB | CHORD_A | CHORD_B | CHORD_X
+                       | CHORD_Y;
+    unsigned b = buttons & all;
+
+    if (!s_chord_cap_ready) {
+        if (!b) {
+            s_chord_cap_ready = true;
+            s_chord_cap_held = 0;
+        }
+        return;
+    }
+    if (b) {
+        int c;
+        s_chord_cap_held |= b;
+        c = chords_of_buttons(s_chord_cap_held);
+        if (c >= 0 && s_chord_cap_got < 0) {
+            s_chord_cap_got = c;
+            s_chord_cap_ready = false;      /* the next one once let go */
+        }
+        return;
+    }
+    /* All let go without a chord. */
+    if (s_chord_cap_held == CHORD_B) {
+        s_chord_cap_cancel = true;
+    } else if (s_chord_cap_held) {
+        char names[96];
+        size_t len = 0;
+        names[0] = '\0';
+        for (unsigned bit = 1; bit <= 0x8000u; bit <<= 1)
+            if (s_chord_cap_held & bit) {
+                snprintf(names + len, sizeof(names) - len, "%s%s",
+                         len ? " + " : "", chords_button_label(bit));
+                len = strlen(names);
+            }
+        snprintf(s_chord_msg, sizeof(s_chord_msg),
+                 (s_chord_cap_held & (s_chord_cap_held - 1))
+                 ? "%s is not one of the chords"
+                 : "%s alone: hold it and press a second button", names);
+    }
+    s_chord_cap_held = 0;
+}
+
+/* "Press a button" (F3 Controls > Single player's Controller column): slot
+ * 1's first button pressed once all were let go answers it; Back cancels;
+ * the D-pad can't be bound (says so). */
+static void capture_bind(const XINPUT_GAMEPAD *g)
+{
+    const unsigned dpad = CHORD_UP | CHORD_DOWN | CHORD_LEFT | CHORD_RIGHT;
+    unsigned b = (g->wButtons & 0xF3FFu)
+               | (g->bLeftTrigger > 30 ? PADB_LT : 0u)
+               | (g->bRightTrigger > 30 ? PADB_RT : 0u);
+
+    if (!s_bind_cap_ready) {
+        s_bind_cap_ready = b == 0;
+        return;
+    }
+    if (!b)
+        return;
+    s_bind_cap_ready = false;               /* the next one once let go */
+    if (b & CHORD_BACK) {
+        s_bind_cap_cancel = true;
+        return;
+    }
+    for (int i = 0; i < pad_binds_choices(); i++)
+        if (b & pad_binds_choice(i)) {
+            s_bind_cap_got = pad_binds_choice(i);
+            return;
+        }
+    if (b & dpad)
+        snprintf(s_bind_msg, sizeof(s_bind_msg), "The D-pad can't be bound: "
+                 "pick another button (Back cancels)");
 }
 
 /* The pad into ImGui's gamepad keys, as imgui_impl_win32 maps it. Start,
@@ -1675,6 +2192,21 @@ static void feed_pad(bool *close)
     else
         io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
     s_pad_prev = st.Gamepad.wButtons;
+    /* "Press the chord" (F3 > Slots > Chords): the pad is the question's;
+     * the menu sees it at rest, and what is still held when it closes
+     * reaches the menu only once let go. */
+    if (s_chord_capture >= 0) {
+        capture_chord(st.Gamepad.wButtons);
+        s_pad_latch |= st.Gamepad.wButtons;
+        memset(&st, 0, sizeof(st));
+        pressed = 0;
+    }
+    if (s_bind_capture >= 0) {
+        capture_bind(&st.Gamepad);
+        s_pad_latch |= st.Gamepad.wButtons;
+        memset(&st, 0, sizeof(st));
+        pressed = 0;
+    }
     /* A button held when the menu opened reaches ImGui only once let go
      * and pressed again: ImGui took the held B that opened the quit
      * question as a press of its No, and the question closed at once
@@ -1779,6 +2311,10 @@ static const char *s_dump_scheme;
 /* The checkbox the entries being shown sit under (shown only while it is
  * on, indented). */
 static const char *s_dump_parent;
+/* F3 Slots: the slot (1-4) whose Options window the entries being shown
+ * belong to (the launcher shows them behind that slot's Options button);
+ * 0 = none. */
+static int s_dump_slot;
 
 /* Opens the entry's JSON object, with the fields every entry has; the
  * caller adds its own and closes it. False when no dump is running. */
@@ -1800,6 +2336,8 @@ static bool dump_item(const char *type, const char *label, const char *key)
         fprintf(s_dump, ", \"scheme\": \"%s\"", s_dump_scheme);
     if (s_dump_parent)
         fprintf(s_dump, ", \"parent\": \"%s\"", s_dump_parent);
+    if (s_dump_slot)
+        fprintf(s_dump, ", \"slot\": %d", s_dump_slot);
     return true;
 }
 
@@ -1859,8 +2397,13 @@ static void checkbox(const char *label, const char *key, bool applies_now,
 {
     bool on = strcmp(settings_get(key), "0") != 0;
     bool changed = ImGui::Checkbox(label, &on);
-    if (tip)
-        ImGui::SetItemTooltip("%s", tip);
+    /* Wrapped (to-do 220): a long tip ran off a 1280-wide window. */
+    if (tip && ImGui::BeginItemTooltip()) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(tip);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
     if (dump_item("checkbox", label, key)) {
         if (tip) {
             fputs(", \"tip\": ", s_dump);
@@ -1880,6 +2423,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetIdleDemo(on);
         if (!strcmp(key, "unlocked_camera") && !settings_env_override(key))
             conker_SetUnlockedCamera(on);
+        if (!strcmp(key, "auto_resolution") && !settings_env_override(key))
+            ar_switch(on);
         if (!strcmp(key, "speedrun_cutscenes"))
             speedrun_set_cutscenes(on);
         /* Its key switches it whatever the environment said. */
@@ -1889,6 +2434,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetHideBubbles(on);
         if (!strncmp(key, "rumble", 6))
             controls_apply_pad_feel(key[6] - '1', -1.0f, -1.0f);
+        if (!strncmp(key, "gyro_", 5))
+            controls_apply_gyro();
         if (!strcmp(key, "main_menu_speed") && !settings_env_override(key))
             conker_SetMainMenuSpeed(on);
         if (!strcmp(key, "submenu_speed") && !settings_env_override(key))
@@ -1991,6 +2538,8 @@ static void apply_render_scale(void)
     if (!xbox_SetRenderScale(atoi(settings_get("render_scale"))))
         snprintf(s_error, sizeof(s_error), "Render scale %s %% not taken",
                  settings_get("render_scale"));
+    else if (ar_on())
+        ar_start();         /* Automatic resolution's new top */
 }
 
 /* upscaler, just saved: to the filter chain at once, unless the
@@ -1999,6 +2548,8 @@ static void apply_upscaler(void)
 {
     if (!settings_env_override("upscaler"))
         xbox_SetUpscaler(_stricmp(settings_get("upscaler"), "fsr") ? 0 : 1);
+    if (ar_on())
+        xbox_PrepareUpscaler();     /* FSR chosen: made before it's needed */
 }
 
 /* vsync, just saved: to the present at once, unless the environment
@@ -2166,6 +2717,19 @@ static Slide s_slides[] = {
     { "stick_dead_zone2", 10.0f, false },
     { "stick_dead_zone3", 10.0f, false },
     { "stick_dead_zone4", 10.0f, false },
+    { "story_camera_speed1", 100.0f, false },
+    { "mp_camera_speed1", 100.0f, false },
+    { "mp_camera_speed2", 100.0f, false },
+    { "mp_camera_speed3", 100.0f, false },
+    { "mp_camera_speed4", 100.0f, false },
+    { "gyro_speed_x1", 200.0f, false },
+    { "gyro_speed_y1", 200.0f, false },
+    { "gyro_speed_x2", 200.0f, false },
+    { "gyro_speed_y2", 200.0f, false },
+    { "gyro_speed_x3", 200.0f, false },
+    { "gyro_speed_y3", 200.0f, false },
+    { "gyro_speed_x4", 200.0f, false },
+    { "gyro_speed_y4", 200.0f, false },
     /* Sound tab (to-do 13); the channels in conker_SetSoundChannel's order. */
     { "master_volume", 100.0f, false },
     { "music_volume", 100.0f, false },
@@ -2260,6 +2824,13 @@ static void apply_slider(const char *key, bool saved)
     if (!strncmp(key, "stick_dead_zone", 15)) {
         controls_apply_pad_feel(key[15] - '1', -1.0f,
                                 slide_value(slide_for(key)));
+        return;
+    }
+    /* Gyro speeds (to-do 35): once saved (the pad is the
+     * menu's while it moves). */
+    if (!strncmp(key, "gyro_", 5)) {
+        if (saved)
+            controls_apply_gyro();
         return;
     }
     /* Sound (to-do 13): live while it moves. */
@@ -2685,13 +3256,24 @@ static void graphics_tab(unsigned w, unsigned h, bool *close)
     presets_choice();
     choice("Render scale", "render_scale", scale_values, scale_names,
            settings_debug() ? 16 : 10, true);
+    /* To-do 220 (#22). */
+    checkbox("Automatic resolution", "auto_resolution", true,
+             "Lowers the render scale by itself when the graphics card can't "
+             "keep up with the frame rate, and raises it again when it can: "
+             "never above the render scale chosen here, never below 0.5x. "
+             "Helps only when the graphics card is what slows the game (F1 "
+             "pressed three times shows what does)");
     {
         /* The size the game is drawn at, and when the toolkit capped it
          * (texture size, video memory), the multiple that is. */
         unsigned dw, dh;
         int pct = xbox_RenderScaleSize(&dw, &dh);
-        char buf[160];
-        if (pct < atoi(settings_get("render_scale")))
+        char buf[160], x[16];
+        if (ar_on() && s_ar_cur && s_ar_cur < s_ar_top)
+            snprintf(buf, sizeof(buf), "    Drawn at %ux%u now: lowered to %s"
+                     " by Automatic resolution", dw, dh,
+                     ar_x(s_ar_cur, x, sizeof x));
+        else if (pct < atoi(settings_get("render_scale")))
             snprintf(buf, sizeof(buf), "    Drawn at %ux%u: capped at %.2gx,"
                      " the largest the renderer and this graphics card take"
                      " here", dw, dh, pct / 100.0);
@@ -3038,6 +3620,8 @@ static void apply_preset_key(const char *key)
         return;
     else if (!strcmp(key, "frame_rate"))
         conker_SetFrameRate(atoi(v));
+    else if (!strcmp(key, "auto_resolution"))
+        ar_switch(strcmp(v, "0") != 0);
     else if (!strcmp(key, "shadow_resolution"))
         conker_SetShadowRes((unsigned)atoi(v));
     else if (!strcmp(key, "grass_full_detail"))
@@ -3063,6 +3647,7 @@ static void preset_tip(int p, char *out, size_t n)
         { "cutscene_blur", "Cutscene blur" },
         { "texture_filter", "Texture filtering" },
         { "hrtf", "3D sound (HRTF)" },
+        { "auto_resolution", "Automatic resolution" },
     };
     size_t len = 0;
     out[0] = '\0';
@@ -3247,6 +3832,15 @@ static void build_pad_menu(unsigned w, unsigned h, bool *close)
         InterlockedExchange(&s_want_open, MENU_SETTINGS);
     if (ImGui::Button("Controls", size))
         InterlockedExchange(&s_want_open, MENU_CONTROLS);
+    /* User 2026-11-15: straight to the Options window of the controller that
+     * opened this list. The menus read slot 1's controller alone (read_pad;
+     * user 2026-11-07), so it is slot 1's. */
+    if (ImGui::Button("Controller Options", size)) {
+        s_goto_slot_opts = 0;
+        InterlockedExchange(&s_want_open, MENU_CONTROLS);
+        fprintf(stderr, "[OVERLAY] Recomp Menu: controller options (slot %d)\n",
+                s_goto_slot_opts + 1);
+    }
     if (ImGui::Button("Photo Mode", size)) {
         photo_request_toggle();
         *close = true;
@@ -3437,13 +4031,14 @@ static void build_debug(unsigned w, unsigned h, bool *close)
         bool on = conker_Noclip() != 0;
 
         ImGui::BeginDisabled(no != NULL && !on);
-        snprintf(label, sizeof(label), "Noclip (%s, RB + A)",
-                 controls_keys_label(controls_hotkeys(PHOTO_NOCLIP)));
+        snprintf(label, sizeof(label), "Noclip (%s, %s)",
+                 controls_keys_label(controls_hotkeys(PHOTO_NOCLIP)),
+                 chords_fn_chord_label(CHORD_NOCLIP));
         if (ImGui::Checkbox(label, &on))
             conker_SetNoclip(on);
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("Conker flies through everything: left stick moves, RT up, "
-                              "LT down. Triggers still fire, he can't die, landing "
+        ImGui::SetItemTooltip("Conker flies through everything: left stick moves, A up, "
+                              "B or RT down. Triggers still fire, he can't die, landing "
                               "does no damage");
 
         /* Wireframe (to-do 34). */
@@ -3463,12 +4058,15 @@ static void build_debug(unsigned w, unsigned h, bool *close)
 
         /* Freecam (to-do 33): photo mode's camera with the world running. */
         on = photo_freecam() != 0;
-        snprintf(label, sizeof(label), "Freecam (swap: %s, Back + X)",
-                 controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_FREECAM_SWAP)));
+        snprintf(label, sizeof(label), "Freecam (swap: %s, %s)",
+                 controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_FREECAM_SWAP)),
+                 chords_fn_chord_label(CHORD_FREECAM_SWAP));
         if (ImGui::Checkbox(label, &on))
             photo_freecam_set(on);
-        ImGui::SetItemTooltip("Photo mode's fly camera with the world running. Leave: "
-                              "here, its leave key or Back + RB");
+        ImGui::SetItemTooltip("Photo mode's fly camera with the world running. On from "
+                              "gameplay: %s. Leave: here, its leave key or %s",
+                              chords_fn_chord_label(CHORD_FREECAM),
+                              chords_fn_chord_label(CHORD_PHOTO));
 
         /* Timescale (to-do 21): nothing to save, so not a choice in F2. */
         int ts = conker_Timescale();
@@ -4334,18 +4932,180 @@ static bool same_section(const char *a, const char *b)
     return a == b || (a && b && !strcmp(a, b));
 }
 
-static bool begin_keys(const char *id)
+/* pad: single player's tables, with the controller binds' column (to-do
+ * 39) and a header row naming the two. */
+static bool begin_keys(const char *id, bool pad)
 {
-    if (!ImGui::BeginTable(id, 3, ImGuiTableFlags_RowBg
+    if (!ImGui::BeginTable(id, pad ? 5 : 3, ImGuiTableFlags_RowBg
                            | ImGuiTableFlags_SizingStretchProp))
         return false;
     float px = ImGui::GetFontSize();
-    ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("key", ImGuiTableColumnFlags_WidthFixed,
-                            px * 8.0f);
-    ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed,
+    ImGui::TableSetupColumn(pad ? "Action" : "action",
+                            ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn(pad ? "Keys" : "key",
+                            ImGuiTableColumnFlags_WidthFixed, px * 8.0f);
+    ImGui::TableSetupColumn("##reset", ImGuiTableColumnFlags_WidthFixed,
                             ImGui::GetFrameHeight());
+    if (pad) {
+        ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed,
+                                px * 10.5f);
+        ImGui::TableSetupColumn("##pad_reset", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::GetFrameHeight());
+        ImGui::TableHeadersRow();
+    }
     return true;
+}
+
+static bool story_modern(void)
+{
+    return strcmp(settings_get("story_scheme"), "modern") == 0;
+}
+
+static unsigned saved_bind(int action, bool modern)
+{
+    const char *key = pad_binds_key(action, modern);
+    unsigned b = key ? pad_binds_parse(settings_get(key)) : 0u;
+    return b == ~0u ? 0u : b;
+}
+
+/* One action's controller button (to-do 39): another action with that button
+ * at the same moment swaps to this one's old button; one that can't take it
+ * (it clashes there too, or this one had none) is left with none; Pause can't
+ * be left with none (refused). s_bind_msg says what happened. */
+static void set_pad_bind(int action, bool modern, unsigned button)
+{
+    const unsigned old = saved_bind(action, modern);
+    int c[PADB_ACTIONS], n, to[PADB_ACTIONS];
+    char what[160];
+    size_t len = 0;
+
+    s_bind_msg[0] = what[0] = '\0';
+    if (button == old)
+        return;
+    if (!button && pad_binds_required(action)) {
+        snprintf(s_bind_msg, sizeof(s_bind_msg), "%s needs a button",
+                 pad_binds_label(action, modern));
+        return;
+    }
+    n = pad_binds_clashes(action, modern, button, c, PADB_ACTIONS);
+    if (n > PADB_ACTIONS)
+        n = PADB_ACTIONS;
+    for (int i = 0; i < n; i++) {
+        int other[PADB_ACTIONS], m;
+        bool clean = old != 0;
+        m = clean ? pad_binds_clashes(c[i], modern, old, other, PADB_ACTIONS) : 0;
+        for (int k = 0; k < m && k < PADB_ACTIONS && clean; k++)
+            clean = other[k] == action;     /* it is moving away */
+        to[i] = clean ? 1 : 0;
+        if (!clean && pad_binds_required(c[i])) {
+            snprintf(s_bind_msg, sizeof(s_bind_msg), "%s is %s's, and %s needs a "
+                     "button: give %s another first", pad_binds_button_label(button),
+                     pad_binds_label(c[i], modern), pad_binds_label(c[i], modern),
+                     pad_binds_label(c[i], modern));
+            return;
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        save(pad_binds_key(c[i], modern), pad_binds_button_name(to[i] ? old : 0u));
+        snprintf(what + len, sizeof(what) - len, "%s%s %s", len ? "; " : "",
+                 pad_binds_label(c[i], modern),
+                 to[i] ? "takes" : "has no button now:");
+        len = strlen(what);
+        if (to[i])
+            snprintf(what + len, sizeof(what) - len, " %s",
+                     pad_binds_button_label(old));
+        else
+            snprintf(what + len, sizeof(what) - len, " pick one");
+        len = strlen(what);
+    }
+    save(pad_binds_key(action, modern), pad_binds_button_name(button));
+    controls_apply();
+    if (what[0])
+        snprintf(s_bind_msg, sizeof(s_bind_msg), "%s", what);
+    fprintf(stderr, "[OVERLAY] controller bind: %s %s = %s%s%s%s\n",
+            modern ? "modern" : "classic", pad_binds_name(action),
+            pad_binds_button_name(button), what[0] ? " (" : "", what,
+            what[0] ? ")" : "");
+}
+
+/* "Press a button" for s_bind_capture's action: a modal over the menu. The
+ * pad is capture_bind's meanwhile; a drop-down for the mouse. */
+static void ask_pad_bind(void)
+{
+    const char *id = "Set a controller button";
+
+    if (s_bind_capture < 0)
+        return;
+    if (!ImGui::IsPopupOpen(id))
+        ImGui::OpenPopup(id);
+    if (!ImGui::BeginPopupModal(id, NULL, ImGuiWindowFlags_AlwaysAutoResize
+                                | ImGuiWindowFlags_NoSavedSettings))
+        return;
+    s_popup_open = true;
+    const int act = s_bind_capture;
+    const bool modern = story_modern();
+    const unsigned cur = saved_bind(act, modern);
+    bool done = false;
+    char item[96];
+
+    ImGui::Text("On slot 1's controller, press the button for:");
+    ImGui::Text("    %s (%s)", pad_binds_label(act, modern),
+                modern ? "Modern" : "Classic");
+    ImGui::Text("Button now: %s", cur ? pad_binds_button_label(cur) : "none");
+    note("A button another action uses at the same moment swaps with this one. "
+         "Back, Esc or Cancel: no change. Back and the D-pad can't be bound.");
+    if (s_bind_cap_got) {
+        unsigned b = s_bind_cap_got;
+        s_bind_cap_got = 0;
+        set_pad_bind(act, modern, b);
+        done = saved_bind(act, modern) == b;
+    }
+    if (s_bind_msg[0])
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s", s_bind_msg);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+    if (ImGui::BeginCombo("##pad_pick", cur ? pad_binds_button_label(cur) : "None",
+                          ImGuiComboFlags_HeightLarge)) {
+        if (!pad_binds_required(act) && ImGui::Selectable("None", !cur) && cur) {
+            set_pad_bind(act, modern, 0u);
+            done = saved_bind(act, modern) == 0u;
+        }
+        for (int i = 0; i < pad_binds_choices(); i++) {
+            const unsigned b = pad_binds_choice(i);
+            int c[4];
+            int n = pad_binds_clashes(act, modern, b, c, 4);
+            if (n > 0)
+                snprintf(item, sizeof(item), "%s  (%s's)##b%d",
+                         pad_binds_button_label(b), pad_binds_label(c[0], modern), i);
+            else
+                snprintf(item, sizeof(item), "%s##b%d", pad_binds_button_label(b), i);
+            if (ImGui::Selectable(item, b == cur) && b != cur) {
+                set_pad_bind(act, modern, b);
+                done = saved_bind(act, modern) == b;
+            }
+            if (b == cur)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::Button("Cancel") || s_bind_cap_cancel
+        || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        done = true;
+        s_bind_msg[0] = '\0';
+    }
+    if (done) {
+        s_bind_capture = -1;
+        s_bind_cap_cancel = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+/* The row's button for the clash colours: the game's button it presses (the
+ * table's), the photo table's chords as set. */
+static const char *game_button(int set, int i)
+{
+    return set == CONTROLS_PHOTO ? controls_button(set, i)
+                                 : controls_action(set, i)->button;
 }
 
 /* Swimming and the bat show no button (user 2026-10-29): there the button
@@ -4394,7 +5154,8 @@ static void dump_keys(int set)
         }
         dump_item("key", a->label, a->key);
         fputs(", \"button\": ", s_dump);
-        settings_json_string(s_dump, a->button);
+        settings_json_string(s_dump, set == CONTROLS_PHOTO ? controls_button(set, i)
+                                                           : a->button);
         if (!shows_button(a))
             fputs(", \"button_shown\": false", s_dump);
         if (a->section) {
@@ -4403,6 +5164,9 @@ static void dump_keys(int set)
         }
         if (scheme_name[scheme])
             fprintf(s_dump, ", \"scheme\": \"%s\"", scheme_name[scheme]);
+        if (controls_table_pad(set, i) >= 0)
+            fprintf(s_dump, ", \"pad\": \"%s\"",
+                    pad_binds_name(controls_table_pad(set, i)));
         if (set == CONTROLS_PHOTO && i <= PHOTO_ANYWHERE_LAST)
             fputs(", \"clashes_all\": true", s_dump);
         fputs(" }", s_dump);
@@ -4414,6 +5178,43 @@ static void dump_keys(int set)
  * the same table that presses another button shows orange; a section's keys
  * work elsewhere (in the water), so sharing a key with the main list is no
  * clash, and the bat's Launch and Fly up are both B. */
+/* The controller binds for --dump-settings (to-do 39): the buttons one can
+ * pick, and each action: its name (pad_<scheme>_<name> in settings.ini),
+ * where it works (0 the main list, else a section's place), and whether it
+ * needs a button. Two may share a button when they never act at once: Crouch
+ * and Attack, a section's and the main list's, two places. */
+static void dump_pad_binds(void)
+{
+    if (!dump_item("pad_binds", "Controller buttons", NULL))
+        return;
+    fputs(", \"buttons\": [", s_dump);
+    for (int i = 0; i < pad_binds_choices(); i++) {
+        fprintf(s_dump, "%s{ \"name\": ", i ? ", " : "");
+        settings_json_string(s_dump, pad_binds_button_name(pad_binds_choice(i)));
+        fputs(", \"label\": ", s_dump);
+        settings_json_string(s_dump, pad_binds_button_label(pad_binds_choice(i)));
+        fputs(" }", s_dump);
+    }
+    fputs("], \"actions\": [", s_dump);
+    for (int a = 0; a < PADB_ACTIONS; a++) {
+        fprintf(s_dump, "%s{ \"name\": ", a ? ", " : "");
+        settings_json_string(s_dump, pad_binds_name(a));
+        fprintf(s_dump, ", \"place\": %d, \"required\": %s, \"shares\": ",
+                pad_binds_place(a), pad_binds_required(a) ? "true" : "false");
+        settings_json_string(s_dump, a == PADB_CROUCH ? "attack"
+                                     : a == PADB_ATTACK ? "crouch" : "");
+        for (int m = 0; m < 2; m++) {
+            fprintf(s_dump, ", \"%s\": ", m ? "modern" : "classic");
+            if (pad_binds_key(a, m))
+                settings_json_string(s_dump, pad_binds_label(a, m));
+            else
+                fputs("null", s_dump);
+        }
+        fputs(" }", s_dump);
+    }
+    fputs("] }", s_dump);
+}
+
 static void keys_table(int set)
 {
     char id[160];
@@ -4421,12 +5222,16 @@ static void keys_table(int set)
     float gap = ImGui::GetStyle().ItemInnerSpacing.x;
 
     if (s_dump) {
+        if (set == CONTROLS_STORY)
+            dump_pad_binds();
         dump_keys(set);
         return;
     }
     {
         const char *section = NULL;
-        bool open = begin_keys("##keys");
+        const bool pad = set == CONTROLS_STORY;
+        const bool modern = story_modern();
+        bool open = begin_keys("##keys", pad);
         for (int i = 0; i < n; i++) {
             const ControlAction *a = controls_action(set, i);
             if (row_hidden(set, i))
@@ -4437,7 +5242,7 @@ static void keys_table(int set)
                 section = a->section;
                 ImGui::SeparatorText(section);
                 snprintf(id, sizeof(id), "##keys_%s", section);
-                open = begin_keys(id);
+                open = begin_keys(id, pad);
             }
             if (!open)
                 continue;
@@ -4459,8 +5264,8 @@ static void keys_table(int set)
                              * (to-do 184). */
                             && !(i == PHOTO_BULLET && j > PHOTO_ANYWHERE_LAST)
                             && !(j == PHOTO_BULLET && i > PHOTO_ANYWHERE_LAST)))
-                    && (strcmp(controls_action(set, j)->button, a->button)
-                        || !strcmp(a->button, "none"))) {
+                    && (strcmp(game_button(set, j), game_button(set, i))
+                        || !strcmp(game_button(set, i), "none"))) {
                     ControlKeys other = controls_keys(set, j);
                     const char *lj = controls_action(set, j)->label;
                     if (shares_key(keys, other))
@@ -4473,9 +5278,9 @@ static void keys_table(int set)
             /* The button beside the action when both fit, else under it:
              * the menu may be narrow. */
             char btn[48];
-            snprintf(btn, sizeof(btn), "(%s)", a->button);
+            snprintf(btn, sizeof(btn), "(%s)", controls_button(set, i));
             ImGui::AlignTextToFramePadding();
-            if (!shows_button(a)) {
+            if (pad || !shows_button(a)) {
                 ImGui::TextWrapped("%s", row_label(set, i, a));
             } else if (ImGui::CalcTextSize(a->label).x + gap
                 + ImGui::CalcTextSize(btn).x
@@ -4523,9 +5328,102 @@ static void keys_table(int set)
                 if (reset_icon(id, tip))
                     set_key(set, i, def);
             }
+            if (!pad)
+                continue;
+            /* The controller (to-do 39): the bind's button for the scheme,
+             * or the fixed one (the sticks, Back, the D-pad, the camera
+             * zoom) greyed. */
+            ImGui::TableNextColumn();
+            const int pa = controls_pad_action(set, i);
+            if (pa < 0) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle()
+                                      .Colors[ImGuiCol_TextDisabled]);
+                ImGui::TextWrapped("%s", a->button);
+                ImGui::PopStyleColor();
+                ImGui::SetItemTooltip("The controller's own: not rebindable");
+                ImGui::TableNextColumn();
+                continue;
+            }
+            const unsigned cur = saved_bind(pa, modern);
+            snprintf(id, sizeof(id), "%s##pad_%s", pad_binds_button_label(cur),
+                     pad_binds_key(pa, modern));
+            if (ImGui::Button(id, ImVec2(-FLT_MIN, 0.0f))) {
+                s_bind_capture = pa;
+                s_bind_cap_got = 0;
+                s_bind_cap_ready = false;
+                s_bind_cap_cancel = false;
+                s_bind_msg[0] = '\0';
+            }
+            ImGui::SetItemTooltip("Click, then press a button on slot 1's "
+                                  "controller (or pick one)");
+            ImGui::TableNextColumn();
+            const unsigned pdef = pad_binds_default(pa, modern);
+            if (cur != pdef) {
+                char tip[96];
+                snprintf(id, sizeof(id), "##pad_reset_%s", pad_binds_key(pa, modern));
+                snprintf(tip, sizeof(tip), "Back to the default (%s)",
+                         pdef ? pad_binds_button_label(pdef) : "none");
+                if (reset_icon(id, tip))
+                    set_pad_bind(pa, modern, pdef);
+            }
         }
         if (open)
             ImGui::EndTable();
+        if (pad && s_bind_msg[0] && s_bind_capture < 0)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s", s_bind_msg);
+    }
+}
+
+/* "Reset the controller buttons": the scheme shown's binds back to the
+ * user's defaults (to-do 39), after a Yes beside it. The dump: a reset item
+ * with both schemes' keys (the launcher resets the scheme shown). */
+static void reset_binds_button(void)
+{
+    const bool modern = story_modern();
+    const char *scheme = modern ? "Modern" : "Classic";
+    char q[96];
+
+    snprintf(q, sizeof(q), "Put every %s controller button back to its default?",
+             scheme);
+    if (s_dump) {
+        char keys[2 * PADB_ACTIONS][48];
+        const char *list[2 * PADB_ACTIONS];
+        int n = 0;
+        for (int m = 0; m < 2; m++)
+            for (int a = 0; a < PADB_ACTIONS; a++)
+                if (pad_binds_key(a, m)) {
+                    snprintf(keys[n], sizeof(keys[0]), "%s", pad_binds_key(a, m));
+                    list[n] = keys[n];
+                    n++;
+                }
+        dump_item("reset_pad", "Reset the controller buttons", NULL);
+        fputs(", \"question\": ", s_dump);
+        settings_json_string(s_dump, "Put every controller button of this scheme "
+                                     "back to its default?");
+        dump_list("keys", list, n);
+        fputs(" }", s_dump);
+        return;
+    }
+    if (s_binds_ask_reset) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(q);
+        ImGui::SameLine();
+        if (ImGui::Button("Yes##binds_reset")) {
+            for (int a = 0; a < PADB_ACTIONS; a++)
+                if (pad_binds_key(a, modern))
+                    save(pad_binds_key(a, modern),
+                         settings_default(pad_binds_key(a, modern)));
+            controls_apply();
+            s_bind_msg[0] = '\0';
+            fprintf(stderr, "[OVERLAY] %s controller buttons reset\n", scheme);
+            s_binds_ask_reset = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("No##binds_reset"))
+            s_binds_ask_reset = false;
+    } else if (ImGui::Button("Reset the controller buttons")) {
+        s_binds_ask_reset = true;
     }
 }
 
@@ -4573,11 +5471,21 @@ static void controls_tab(int set)
     snprintf(key, sizeof(key), "%s_invert_y", prefix[set]);
     checkbox("Invert up and down", key, true);
 
-    section("Keys");
-    info("Click an action's keys to add or remove one (up to 3). In brackets: "
-         "the controller button it presses.");
+    section(set == CONTROLS_STORY ? "Keys and controller" : "Keys");
+    if (set == CONTROLS_STORY)
+        info("Click an action's keys to add or remove one (up to 3). Click its "
+             "controller button to change it: slot 1's controller, for the "
+             "scheme above (Classic and Modern each have their own). Button "
+             "names are an Xbox controller's: on a PlayStation controller "
+             "A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / "
+             "RT = L1 / R1 / L2 / R2, Start = Options.");
+    else
+        info("Click an action's keys to add or remove one (up to 3). In "
+             "brackets: the controller button it presses.");
     keys_table(set);
     reset_button(set);
+    if (set == CONTROLS_STORY)
+        reset_binds_button();
 }
 
 /* Photo mode's tab (SPEC 10.1): its keys only; in brackets the controller
@@ -4681,8 +5589,8 @@ static void fixed_keys(int set, const char *section, const char *id,
  * its number when another connected one has the same name ("Xbox
  * Controller (2)"); "Controller 2" when it has no name, "Controller 3 (not
  * connected)" when it is gone (user 2026-10-28: numbers alone do not say
- * which controller is which). PlayStation pads count on their own:
- * "PlayStation controller 1". */
+ * which controller is which). PlayStation and Switch pads (SDL's) count on
+ * their own: "PlayStation / Switch controller 1". */
 static void pad_label(int pad, char *out, size_t size)
 {
     char other[96], num[48];
@@ -4691,7 +5599,7 @@ static void pad_label(int pad, char *out, size_t size)
     if (pad < CONTROLS_XINPUT_PADS)
         snprintf(num, sizeof(num), "Controller %d", pad + 1);
     else
-        snprintf(num, sizeof(num), "PlayStation controller %d",
+        snprintf(num, sizeof(num), "PlayStation / Switch controller %d",
                  pad - CONTROLS_XINPUT_PADS + 1);
     if (!controls_pad_connected(pad)) {
         snprintf(out, size, "%s (not connected)", num);
@@ -4732,6 +5640,450 @@ static void port_source_name(int src, int port, char *out, size_t size)
     }
 }
 
+/* One slot's controller settings, F3 > Slots > Options (user 2026-11-15):
+ * rumble and the sticks (to-do 29; in the Slots tab itself before) and gyro
+ * aiming (to-do 35). Drawn in the Options window, and once a slot by the
+ * dump (s_dump_slot), without the live parts (Calibrate, the meter). */
+static void slot_options(int p)
+{
+    char rk[16], sk[24], dk[24], cs[24], gs[16], gm[16], gx[24], gy[24], gi[24];
+    float yaw = 0.0f, pitch = 0.0f;
+    int gyro = s_dump ? CONTROLS_GYRO_HAS : controls_gyro_rate(p, &yaw, &pitch);
+
+    snprintf(rk, sizeof(rk), "rumble%d", p + 1);
+    snprintf(sk, sizeof(sk), "rumble_strength%d", p + 1);
+    snprintf(dk, sizeof(dk), "stick_dead_zone%d", p + 1);
+    snprintf(cs, sizeof(cs), "mp_camera_speed%d", p + 1);
+    snprintf(gs, sizeof(gs), "gyro_story%d", p + 1);
+    snprintf(gm, sizeof(gm), "gyro_mp%d", p + 1);
+    snprintf(gx, sizeof(gx), "gyro_speed_x%d", p + 1);
+    snprintf(gy, sizeof(gy), "gyro_speed_y%d", p + 1);
+    snprintf(gi, sizeof(gi), "gyro_invert_y%d", p + 1);
+
+    section("Rumble");
+    checkbox("Rumble", rk, true,
+             "This controller rumbles (when the game's own Vibration option "
+             "is on too); off: never");
+    /* The strength shown while rumble is on (as the Pop-in Fix's parts);
+     * the dump lists it under its parent. */
+    if (s_dump || strcmp(settings_get(rk), "0")) {
+        ImGui::Indent();
+        s_dump_parent = rk;
+        slider("Rumble strength", sk, 0.0f, 200.0f, "100", "%.0f %%",
+               "Back to the default (100 %: as the game asks)");
+        s_dump_parent = NULL;
+        ImGui::Unindent();
+    }
+
+    section("Sticks");
+    info("How far a stick tilts before it moves anything: lower responds "
+         "sooner, higher helps a stick that drifts (14 % is the game's "
+         "own).");
+    /* Resets to the default 10 (user 2026-11-07), not the game's 14. */
+    slider("Stick dead zone", dk, 0.0f, 40.0f, "10", "%.0f %%",
+           "Back to the default (10 %)");
+    /* User 2026-11-15: the right stick's camera speed per controller, single
+     * player (slot 1's alone) and multiplayer apart. */
+    if (p == 0)
+        slider("Single player camera speed", "story_camera_speed1", 25.0f,
+               300.0f, "100", "%.0f %%", "Back to the default (100 %)");
+    slider("Multiplayer camera speed", cs, 25.0f, 300.0f, "100", "%.0f %%",
+           "Back to the default (100 %)");
+
+    section("Gyro aiming");
+    if (!(gyro & CONTROLS_GYRO_HAS))
+        note("This controller has no gyro. PlayStation controllers "
+             "(DualShock 4, DualSense) and Switch controllers have one: "
+             "these settings are used when one is in this slot.");
+    checkbox("Aim with the gyro in single player", gs, true,
+             "Turning the controller aims while a weapon is out and the "
+             "left trigger is held");
+    checkbox("Aim with the gyro in multiplayer", gm, true,
+             "Turning the controller aims all match long");
+    slider("Gyro speed left / right", gx, 25.0f, 1000.0f, "200", "%.0f %%",
+           "Back to the default (200 %: the aim turns twice as far as the "
+           "controller)");
+    slider("Gyro speed up / down", gy, 25.0f, 1000.0f, "200", "%.0f %%",
+           "Back to the default (200 %: the aim turns twice as far as the "
+           "controller)");
+    checkbox("Invert gyro up / down", gi, true,
+             "Tilting the controller up aims down");
+    checkbox("Correct gyro drift automatically", "gyro_auto_calibrate", true,
+             "While a controller is held still, its gyro's slow drift is "
+             "measured and taken off (every controller). Off: only the "
+             "Calibrate button does it.");
+    if (s_dump)
+        return;
+
+    /* Live: Calibrate and a meter (a dot that follows the turn, square
+     * root scale so a slow drift shows too). */
+    bool has = (gyro & CONTROLS_GYRO_HAS) != 0;
+    ImGui::BeginDisabled(!has);
+    if (ImGui::Button("Calibrate")) {
+        controls_gyro_calibrate(p);
+        fprintf(stderr, "[OVERLAY] slot %d gyro calibrate\n", p + 1);
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("Lay the controller down, still, and press: its "
+                          "gyro is measured for 2 seconds");
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(!has ? ""
+                           : gyro & CONTROLS_GYRO_CALIBRATING
+                           ? "Calibrating: keep it still..."
+                           : gyro & CONTROLS_GYRO_STILL
+                           ? "Held still" : "Turn the controller: the dot "
+                                            "follows");
+    if (has) {
+        float s = ImGui::GetFontSize() * 4.0f;
+        ImVec2 a = ImGui::GetCursorScreenPos();
+        ImVec2 c(a.x + s * 0.5f, a.y + s * 0.5f);
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        ImU32 frame = ImGui::GetColorU32(ImGuiCol_Border);
+        ImU32 dot = ImGui::GetColorU32(ImGuiCol_SliderGrabActive);
+        float v[2] = { yaw, pitch };
+        for (int i = 0; i < 2; i++) {
+            float m = fabsf(v[i]) > 360.0f ? 1.0f : sqrtf(fabsf(v[i]) / 360.0f);
+            v[i] = v[i] < 0.0f ? -m : m;
+        }
+        dl->AddRect(a, ImVec2(a.x + s, a.y + s), frame);
+        dl->AddLine(ImVec2(c.x, a.y), ImVec2(c.x, a.y + s), frame);
+        dl->AddLine(ImVec2(a.x, c.y), ImVec2(a.x + s, c.y), frame);
+        dl->AddCircleFilled(ImVec2(c.x + v[0] * s * 0.5f,
+                                   c.y - v[1] * s * 0.5f),
+                            ImGui::GetFontSize() * 0.25f, dot);
+        ImGui::Dummy(ImVec2(s, s));
+        ImGui::SameLine();
+        ImGui::Text("%.0f\xC2\xB0/s %s\n%.0f\xC2\xB0/s %s", fabsf(yaw),
+                    yaw < 0.0f ? "left" : "right", fabsf(pitch),
+                    pitch < 0.0f ? "down" : "up");
+    }
+}
+
+/* The Options window of s_slot_opts's slot: a modal over F3, its state
+ * here (not ImGui's popup stack, as ask_quit), so it is gone when the menu
+ * opens again. Close, Esc or B close it (modals ignore them otherwise). */
+static void slot_options_window(void)
+{
+    char id[48], name[160];
+
+    if (s_slot_opts < 0)
+        return;
+    snprintf(id, sizeof(id), "Slot %d controller###slot_opts",
+             s_slot_opts + 1);
+    if (!ImGui::IsPopupOpen(id))
+        ImGui::OpenPopup(id);
+    float px = ImGui::GetFontSize();
+    ImGui::SetNextWindowSizeConstraints(
+        ImVec2(px * 24.0f, 0.0f),
+        ImVec2(px * 40.0f, ImGui::GetIO().DisplaySize.y * 0.85f));
+    if (!ImGui::BeginPopupModal(id, NULL, ImGuiWindowFlags_AlwaysAutoResize
+                                | ImGuiWindowFlags_NoSavedSettings)) {
+        s_slot_opts = -1;
+        return;
+    }
+    s_popup_open = true;
+    port_source_name(controls_port_source(s_slot_opts), s_slot_opts, name,
+                     sizeof(name));
+    ImGui::TextDisabled("%s", name);
+    slot_options(s_slot_opts);
+    ImGui::Separator();
+    bool close = ImGui::Button("Close");
+    if (close || (!s_item_active
+                  && (ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+                      || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight,
+                                             false)))) {
+        s_slot_opts = -1;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+/* ---- F3 Slots > Chords (to-do 39; the user's plan 2026-11-17) -------------- */
+
+/* A function's chord saved and in effect (chords_apply), c -1 = none. */
+static void set_chord(int fn, int c)
+{
+    save(chords_fn_key(fn), c >= 0 ? chords_name(c) : "none");
+    chords_apply();
+    fprintf(stderr, "[OVERLAY] chord: %s = %s\n", chords_fn_label(fn),
+            chords_fn_chord_label(fn));
+}
+
+/* "Press the chord" for s_chord_capture's function: a modal over the Chords
+ * window. The pad is capture_chord's meanwhile; its buttons are for the
+ * mouse and the keyboard. */
+static void ask_chord(void)
+{
+    const char *id = "Set a chord";
+
+    if (s_chord_capture < 0)
+        return;
+    if (!ImGui::IsPopupOpen(id))
+        ImGui::OpenPopup(id);
+    if (!ImGui::BeginPopupModal(id, NULL, ImGuiWindowFlags_AlwaysAutoResize
+                                | ImGuiWindowFlags_NoSavedSettings))
+        return;
+    s_popup_open = true;
+    const int fn = s_chord_capture;
+    bool done = false;
+    ImGui::Text("On slot 1's controller, hold two buttons together for:");
+    ImGui::Text("    %s", chords_fn_label(fn));
+    ImGui::Text("Chord now: %s", chords_fn_chord_label(fn));
+    note("Hold one button and press the other: Back or RB with another button, "
+         "a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both "
+         "sticks clicked. B alone, Esc or Cancel: no change.");
+    if (s_chord_cap_got >= 0) {
+        const int c = s_chord_cap_got;
+        const int o = chords_taken_by(fn, c);
+        s_chord_cap_got = -1;
+        if (c == chords_fn_chord(fn)) {
+            done = true;
+        } else if (o >= 0) {
+            snprintf(s_chord_msg, sizeof(s_chord_msg), "%s is %s's: pick another",
+                     chords_label(c), chords_fn_label(o));
+        } else {
+            set_chord(fn, c);
+            done = true;
+        }
+    }
+    if (s_chord_msg[0])
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s", s_chord_msg);
+    if (!chords_fn_required(fn)) {
+        if (ImGui::Button("No chord")) {
+            set_chord(fn, -1);
+            done = true;
+        }
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Cancel") || s_chord_cap_cancel
+        || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        done = true;
+    if (done) {
+        s_chord_capture = -1;
+        s_chord_cap_cancel = false;
+        s_chord_msg[0] = '\0';
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+/* The chords and the functions for --dump-settings: the launcher's Slots
+ * table has the same Chords button (the rows that show now: --debug, the
+ * cheat unlocked; a shown function may not take a chord another shown one
+ * has unless one is Photo Mode's and the other Cheats / Debug's). */
+static void dump_chords(void)
+{
+    if (!dump_item("chords", "Chords", NULL))
+        return;
+    fputs(", \"chords\": [", s_dump);
+    for (int c = 0; c < chords_count(); c++) {
+        fprintf(s_dump, "%s{ \"name\": ", c ? ", " : "");
+        settings_json_string(s_dump, chords_name(c));
+        fputs(", \"label\": ", s_dump);
+        settings_json_string(s_dump, chords_label(c));
+        fputs(" }", s_dump);
+    }
+    fputs("], \"groups\": [", s_dump);
+    for (int g = 0; g < CHORD_GROUPS; g++) {
+        fprintf(s_dump, "%s{ \"name\": ", g ? ", " : "");
+        settings_json_string(s_dump, chords_group_name(g));
+        fputs(", \"tip\": ", s_dump);
+        settings_json_string(s_dump, chords_group_tip(g));
+        fputs(" }", s_dump);
+    }
+    fputs("], \"functions\": [", s_dump);
+    bool first = true;
+    for (int fn = 0; fn < CHORD_FNS; fn++) {
+        if (!chords_fn_shown(fn))
+            continue;
+        fprintf(s_dump, "%s{ \"key\": ", first ? "" : ", ");
+        first = false;
+        settings_json_string(s_dump, chords_fn_key(fn));
+        fputs(", \"label\": ", s_dump);
+        settings_json_string(s_dump, chords_fn_label(fn));
+        fputs(", \"tip\": ", s_dump);
+        settings_json_string(s_dump, chords_fn_tip(fn));
+        fprintf(s_dump, ", \"group\": %d, \"required\": %s }",
+                chords_fn_group(fn), chords_fn_required(fn) ? "true" : "false");
+    }
+    fputs("] }", s_dump);
+}
+
+/* One function's row: its name, a drop-down of the chords (one another
+ * function has and may not share: greyed, with its name), Press, reset. */
+static void chord_row(int fn)
+{
+    char id[96], item[96];
+    const int cur = chords_fn_chord(fn);
+    const bool req = chords_fn_required(fn) != 0;
+
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(chords_fn_label(fn));
+    ImGui::SetItemTooltip("%s", chords_fn_tip(fn));
+    if (req) {
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::TextDisabled("(required)");
+        ImGui::SetItemTooltip("%s", chords_fn_tip(fn));
+    }
+
+    ImGui::TableNextColumn();
+    snprintf(id, sizeof(id), "##chord_%s", chords_fn_key(fn));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo(id, cur >= 0 ? chords_label(cur) : "None",
+                          ImGuiComboFlags_HeightLarge)) {
+        s_popup_open = true;
+        if (!req && ImGui::Selectable("None", cur < 0) && cur >= 0)
+            set_chord(fn, -1);
+        for (int c = 0; c < chords_count(); c++) {
+            const int o = chords_taken_by(fn, c);
+            if (o >= 0)
+                snprintf(item, sizeof(item), "%s  (%s)##c%d", chords_label(c),
+                         chords_fn_label(o), c);
+            else
+                snprintf(item, sizeof(item), "%s##c%d", chords_label(c), c);
+            if (ImGui::Selectable(item, c == cur,
+                                  o >= 0 ? ImGuiSelectableFlags_Disabled : 0)
+                && c != cur)
+                set_chord(fn, c);
+            if (c == cur)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::TableNextColumn();
+    snprintf(id, sizeof(id), "Press##press_%s", chords_fn_key(fn));
+    if (ImGui::Button(id)) {
+        s_chord_capture = fn;
+        s_chord_cap_got = -1;
+        s_chord_cap_held = 0;
+        s_chord_cap_ready = false;
+        s_chord_cap_cancel = false;
+        s_chord_msg[0] = '\0';
+    }
+    ImGui::SetItemTooltip("Set it by holding the chord on slot 1's controller");
+
+    ImGui::TableNextColumn();
+    const int def = chords_find(settings_default(chords_fn_key(fn)));
+    if (cur != def) {
+        char tip[96];
+        snprintf(id, sizeof(id), "##chord_reset_%s", chords_fn_key(fn));
+        snprintf(tip, sizeof(tip), "Back to the default (%s)",
+                 def >= 0 ? chords_label(def) : "none");
+        if (reset_icon(id, tip)) {
+            if (chords_taken_by(fn, def) >= 0)
+                snprintf(s_chord_msg, sizeof(s_chord_msg), "%s is %s's now: "
+                         "change that one first", chords_label(def),
+                         chords_fn_label(chords_taken_by(fn, def)));
+            else
+                set_chord(fn, def);
+        }
+    }
+}
+
+/* The Chords window: a modal over F3 like a slot's Options, its state here.
+ * The functions by group (Universal, Photo Mode, Cheats / Debug), the rows
+ * that show now. Close, Esc or B close it. */
+static void chords_window(void)
+{
+    const char *id = "Controller chords###chords";
+
+    if (!s_chords_open)
+        return;
+    if (!ImGui::IsPopupOpen(id))
+        ImGui::OpenPopup(id);
+    float px = ImGui::GetFontSize();
+    ImGui::SetNextWindowSizeConstraints(
+        ImVec2(px * 30.0f, 0.0f),
+        ImVec2(px * 44.0f, ImGui::GetIO().DisplaySize.y * 0.85f));
+    if (!ImGui::BeginPopupModal(id, NULL, ImGuiWindowFlags_AlwaysAutoResize
+                                | ImGuiWindowFlags_NoSavedSettings)) {
+        s_chords_open = false;
+        return;
+    }
+    s_popup_open = true;
+    /* The columns as wide as their longest text, so nothing is cut. */
+    const ImGuiStyle &style = ImGui::GetStyle();
+    float w_fn = 0.0f, w_chord = 0.0f;
+    for (int fn = 0; fn < CHORD_FNS; fn++) {
+        float w = ImGui::CalcTextSize(chords_fn_label(fn)).x;
+        if (chords_fn_required(fn))
+            w += style.ItemInnerSpacing.x + ImGui::CalcTextSize("(required)").x;
+        w_fn = w > w_fn ? w : w_fn;
+    }
+    for (int c = 0; c < chords_count(); c++) {
+        float w = ImGui::CalcTextSize(chords_label(c)).x;
+        w_chord = w > w_chord ? w : w_chord;
+    }
+    w_chord += style.FramePadding.x * 2.0f + ImGui::GetFrameHeight();
+    note("Two buttons held together for our own extras, on slot 1's "
+         "controller; one set for every controller, apart from its normal "
+         "controls. Button names are an Xbox controller's: on a PlayStation "
+         "controller Back = Share / Create, Start = Options, LB / RB = "
+         "L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle.");
+    for (int g = 0; g < CHORD_GROUPS; g++) {
+        int fn, shown = 0;
+        for (fn = 0; fn < CHORD_FNS; fn++)
+            shown += chords_fn_group(fn) == g && chords_fn_shown(fn);
+        if (!shown)
+            continue;
+        ImGui::SeparatorText(chords_group_name(g));
+        note(chords_group_tip(g));
+        char tid[32];
+        snprintf(tid, sizeof(tid), "##chords%d", g);
+        if (!ImGui::BeginTable(tid, 4, ImGuiTableFlags_RowBg
+                               | ImGuiTableFlags_SizingFixedFit))
+            continue;
+        ImGui::TableSetupColumn("fn", ImGuiTableColumnFlags_WidthFixed, w_fn);
+        ImGui::TableSetupColumn("chord", ImGuiTableColumnFlags_WidthFixed, w_chord);
+        ImGui::TableSetupColumn("press", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::GetFrameHeight());
+        for (fn = 0; fn < CHORD_FNS; fn++)
+            if (chords_fn_group(fn) == g && chords_fn_shown(fn))
+                chord_row(fn);
+        ImGui::EndTable();
+    }
+    if (s_chord_msg[0] && s_chord_capture < 0)
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s", s_chord_msg);
+    ImGui::Separator();
+    if (s_chords_ask_reset) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Put every chord back to its default?");
+        ImGui::SameLine();
+        if (ImGui::Button("Yes##chords_reset")) {
+            for (int fn = 0; fn < CHORD_FNS; fn++)
+                save(chords_fn_key(fn), settings_default(chords_fn_key(fn)));
+            chords_apply();
+            s_chord_msg[0] = '\0';
+            fprintf(stderr, "[OVERLAY] chords reset\n");
+            s_chords_ask_reset = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("No##chords_reset"))
+            s_chords_ask_reset = false;
+    } else if (ImGui::Button("Reset all chords")) {
+        s_chords_ask_reset = true;
+    }
+    bool close = ImGui::Button("Close");
+    ImGui::SetItemDefaultFocus();
+    if (s_chord_capture < 0
+        && (close || (!s_item_active
+                      && (ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+                          || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight,
+                                                 false))))) {
+        s_chords_open = false;
+        s_chords_ask_reset = false;
+        s_chord_msg[0] = '\0';
+        ImGui::CloseCurrentPopup();
+    }
+    ask_chord();
+    ImGui::EndPopup();
+}
+
 /* The Slots tab: the game's four players, each with a list of
  * controllers and a box for the keyboard and mouse (user 2026-10-28). A
  * controller is one port's at a time: picking one another port has puts
@@ -4748,10 +6100,16 @@ static void ports_tab(void)
     int kb = controls_keyboard_port();
     char key[32], name[160], id[32];
 
+    if (!s_dump && s_goto_slot_opts >= 0) {     /* Back + Start's way in */
+        s_slot_opts = s_goto_slot_opts;
+        s_goto_slot_opts = -1;
+    }
+
     info("Which controller is each player: slot 1 is player 1 (controller "
          "port 1 on the Xbox). The list shows the connected controllers by "
          "the names in Windows' game controller list; PlayStation "
-         "controllers (DualShock 4, DualSense) work without other "
+         "controllers (DualShock 4, DualSense) and Switch controllers "
+         "(Pro Controller, a pair of Joy-Cons) work without other "
          "programs. A slot with "
          "no controller and no keyboard is empty, as if nothing were "
          "plugged in there; the game sees the change after a second.");
@@ -4765,11 +6123,12 @@ static void ports_tab(void)
         dump_list("values", values, (int)(sizeof(values) / sizeof(values[0])));
         fputs(" }", s_dump);
     }
-    if (!ImGui::BeginTable("##ports", 3, ImGuiTableFlags_SizingFixedFit))
+    if (!ImGui::BeginTable("##ports", 4, ImGuiTableFlags_SizingFixedFit))
         return;
     ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthFixed);
     ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed);
     ImGui::TableHeadersRow();
     for (int p = 0; p < 4; p++) {
         int cur = controls_port_source(p);
@@ -4832,8 +6191,29 @@ static void ports_tab(void)
         }
         ImGui::SetItemTooltip(on ? "The keyboard and mouse are this player"
                                  : "Make the keyboard and mouse this player");
+
+        /* User 2026-11-15: each slot's controller settings behind its own
+         * Options button (rumble, sticks, gyro). */
+        ImGui::TableNextColumn();
+        snprintf(id, sizeof(id), "Options##opts%d", p + 1);
+        if (ImGui::Button(id)) {
+            s_slot_opts = p;
+            fprintf(stderr, "[OVERLAY] slot %d options\n", p + 1);
+        }
+        ImGui::SetItemTooltip("Rumble, sticks and gyro aiming for slot %d's "
+                              "controller", p + 1);
     }
     ImGui::EndTable();
+    slot_options_window();
+    /* User 2026-11-17: one Chords button for every controller. */
+    dump_chords();
+    if (ImGui::Button("Chords")) {
+        s_chords_open = true;
+        fprintf(stderr, "[OVERLAY] chords window\n");
+    }
+    ImGui::SetItemTooltip("Two buttons held together for the menus, photo mode "
+                          "and cheats (every controller)");
+    chords_window();
     /* Always shown: a note coming and going moved the boxes under the
      * pointer. */
     info("The mouse turns the camera directly only on slot 1; on another "
@@ -4842,40 +6222,14 @@ static void ports_tab(void)
              "Controllers keep playing the game while another window is in "
              "front. Off: they do nothing until the game window is in front "
              "again (the keyboard always waits).");
-    /* To-do 29 (per slot, user 2026-11-07): the toolkit scales the game's
-     * motor speeds and reshapes the sticks (xinput_device.c); shown for
-     * the slots with a controller, all four in the dump. */
-    section("Rumble and sticks");
-    info("Each slot's controller: rumble (when the game's own Vibration "
-         "option is on too), how strong it is, and how far a stick tilts "
-         "before it moves anything (default 10 %; 14 % is the game's own, "
-         "lower responds sooner, higher helps a stick that drifts).");
-    for (int p = 0; p < 4; p++) {
-        char rk[16], sk[24], dk[24], lr[40], ls[48], ld[48];
-        snprintf(key, sizeof(key), "controller_slot%d", p + 1);
-        if (!s_dump && !strcmp(settings_get(key), "none"))
-            continue;
-        snprintf(rk, sizeof(rk), "rumble%d", p + 1);
-        snprintf(sk, sizeof(sk), "rumble_strength%d", p + 1);
-        snprintf(dk, sizeof(dk), "stick_dead_zone%d", p + 1);
-        snprintf(lr, sizeof(lr), "Slot %d rumble", p + 1);
-        snprintf(ls, sizeof(ls), "Slot %d rumble strength", p + 1);
-        snprintf(ld, sizeof(ld), "Slot %d stick dead zone", p + 1);
-        checkbox(lr, rk, true, "This slot's controller rumbles (off: never)");
-        /* The strength shown while rumble is on (as the Pop-in Fix's
-         * parts); the dump lists it under its parent. */
-        if (s_dump || strcmp(settings_get(rk), "0")) {
-            ImGui::Indent();
-            s_dump_parent = rk;
-            slider(ls, sk, 0.0f, 200.0f, "100", "%.0f %%",
-                   "Back to the default (100 %: as the game asks)");
-            s_dump_parent = NULL;
-            ImGui::Unindent();
+    /* The dump: every slot's Options entries, each marked with its slot
+     * (the launcher puts them behind that slot's Options button). */
+    if (s_dump)
+        for (int p = 0; p < 4; p++) {
+            s_dump_slot = p + 1;
+            slot_options(p);
+            s_dump_slot = 0;
         }
-        /* Resets to the default 10 (user 2026-11-07), not the game's 14. */
-        slider(ld, dk, 0.0f, 40.0f, "10", "%.0f %%",
-               "Back to the default (10 %)");
-    }
 }
 
 static void story_tab(void)
@@ -5019,7 +6373,11 @@ static void build_controls(unsigned w, unsigned h, bool *close)
         }
     } else if (ImGui::BeginTabBar("##sets")) {
         for (const ControlsTab &t : s_controls_tabs)
-            if (ImGui::BeginTabItem(t.name)) {
+            /* Back + Start's Controller Options: the Slots tab chosen
+             * (ports_tab then opens the slot's window). */
+            if (ImGui::BeginTabItem(t.name, NULL,
+                                    s_goto_slot_opts >= 0 && t.body == ports_tab
+                                    ? ImGuiTabItemFlags_SetSelected : 0)) {
                 t.body();
                 ImGui::EndTabItem();
             }
@@ -5034,6 +6392,7 @@ static void build_controls(unsigned w, unsigned h, bool *close)
     ImGui::SameLine();
     note("(F3, Esc, B or Start)");
     ask_key();
+    ask_pad_bind();
     ask_reset();
     s_item_active = ImGui::IsAnyItemActive();
     remember_window("controls_window", w, h);
@@ -5898,7 +7257,7 @@ static void build_photo(unsigned w, unsigned h, bool *close)
                 ImGui::TextWrapped("%s", a->label);
                 ImGui::TableNextColumn();
                 ImGui::TextWrapped("%s%s%s", k[0] ? k : "", k[0] ? " / " : "",
-                                   a->button);
+                                   controls_button(CONTROLS_PHOTO, i));
             }
             ImGui::EndTable();
         }
@@ -6233,13 +7592,15 @@ static void pause_label(unsigned h, bool photo)
     if (photo && !s_paused) {
         char msg[160];
         ImGui::Text("Photo mode   Photo: %s / A   Settings: %s / Start   "
-                    "Leave: %s / Back + RB",
+                    "Leave: %s / %s",
                     controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_TAKE)),
                     controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_PANEL)),
-                    controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_LEAVE)));
+                    controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_LEAVE)),
+                    chords_fn_chord_label(CHORD_PHOTO));
         if (photo_world_resumed())
-            ImGui::Text("The world is running   Pause it: %s / Back + A",
-                        controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_RESUME)));
+            ImGui::Text("The world is running   Pause it: %s / %s",
+                        controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_RESUME)),
+                        chords_fn_chord_label(CHORD_PHOTO_PAUSE));
         if (shot_message_now(msg, sizeof(msg)))
             ImGui::TextUnformatted(msg);
     } else
@@ -6468,12 +7829,23 @@ static void fps_label(unsigned h)
                     s_fps_long);
     if (s_fps == 3) {
         if (s_lim_have) {
-            ImGui::Text("game %.1f ms  graphics %.1f ms  GPU %.1f ms",
-                        s_lim_game, s_lim_exec, s_lim_gpu);
+            if (s_lim_busy >= 0.0)
+                ImGui::Text("game %.1f ms  graphics %.1f ms  GPU %.1f ms,"
+                            " %.0f %% busy", s_lim_game, s_lim_exec,
+                            s_lim_gpu, 100.0 * s_lim_busy);
+            else
+                ImGui::Text("game %.1f ms  graphics %.1f ms  GPU %.1f ms",
+                            s_lim_game, s_lim_exec, s_lim_gpu);
             ImGui::Text("limited by: %s", s_lim_verdict);
             ImGui::TextDisabled("%s", s_lim_hint);
         } else {
             ImGui::TextUnformatted("limited by: measuring...");
+        }
+        if (ar_on() && s_ar_cur) {
+            char a[16], b[16];
+            ImGui::Text("automatic resolution: %s (at most %s)",
+                        ar_x(s_ar_cur, a, sizeof a),
+                        ar_x(s_ar_top, b, sizeof b));
         }
     }
     if (s_fps >= 2 && settings_debug())

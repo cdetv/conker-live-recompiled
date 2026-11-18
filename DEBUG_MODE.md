@@ -23,8 +23,12 @@ extra choices in the settings menu.
 | Debug menu | F8 | Back + Start, then **Debug** |
 | Console | `~` (the key left of 1, on any keyboard layout) | |
 | Noclip on / off | Z | RB + A |
+| Freecam on, from gameplay | | Back + X |
 | Freecam: control the camera or Conker | G | Back + X |
 | Mark (a numbered note in the log + a screenshot) | F7 | |
+
+The controller's button pairs are the defaults: F3 > Slots > Chords changes them (in debug mode
+No-clip, Free Camera and the freecam swap are listed there too).
 
 - Every cheat is available without its code (the Debug menu's **Cheats** row).
 - The settings menu (F2) gets a few extra choices, marked "(debug)": see
@@ -90,15 +94,15 @@ these.
 | Command | What it does |
 |---|---|
 | `warp list` | Lists the levels you can warp to, by number and name. |
-| `warp <level>` | Goes to the level's first checkpoint. The level is its number or the start of its name (`warp Windy`). |
+| `warp <level>` | Goes to the level's first checkpoint. The level is its number or the start of its name (`warp Windmill`). |
 | `warp soak <level>` | Loads the level as the soak test does: progress wiped, nothing started yet. Its exits don't work. |
 | `warp cp list [level]` | Lists the checkpoints, all or one level's. |
 | `warp cp <number>` | Starts a new game at that checkpoint, with only the progress before it. |
 | `warp scene <level> <scene>` | Starts at the level's first checkpoint and plays that cutscene; the story carries on from there. |
 | `cutscene list [level]` | Lists the levels with cutscenes and their scene numbers. |
 | `cutscene <level> <scene>` | Plays that scene, then brings you back where you were. Nothing is saved. |
-| `noclip [on\|off]` | Fly through walls and floors (left stick, RT / LT up and down; keyboard W, Space, Ctrl). Nothing can kill Conker; turning it off in the air lands him safely. Stays on across warps. |
-| `freecam [on\|off]` | Photo mode's fly camera while the world keeps running. G (Back + X) swaps between the camera and Conker. |
+| `noclip [on\|off]` | Fly through walls and floors (left stick, A up, B or RT down; keyboard W, Space, Ctrl). Nothing can kill Conker; turning it off in the air lands him safely. Stays on across warps. |
+| `freecam [on\|off]` | Photo mode's fly camera while the world keeps running. G (Back + X) swaps between the camera and Conker; Back + X also turns it on from gameplay. |
 | `pos` | Says where Conker is (x y z) and in which level. |
 | `tp <x> <y> <z>` | Puts Conker at those coordinates. A drop from there does no damage. |
 | `tp <number>` | Puts Conker beside a character (numbers from `chars`). |
@@ -140,7 +144,7 @@ only, except Multiplayer unlocks.
 | `inflives` | Infinite lives | Losing a life doesn't lower the count. |
 | `mpunlocks` | Multiplayer unlocks | Potty Mouth, Flame Fire and Purple Streak available; your real profile is not changed. |
 | `glass` | Glass Squirrel | One hit and Conker dies. God mode wins if both are on. |
-| `bullettime` | Bullet time | Then B (or both sticks clicked) switches slow motion on and off. |
+| `bullettime` | Bullet time | Then B (or its controller chord, both sticks clicked by default) switches slow motion on and off. |
 | `moonjump` | Moon Jump | A third of the gravity in the air: jumps go about 2.5 times as high and float down; falls don't hurt. |
 | `superspeed` | Super Speed | Conker covers twice the distance walking, running and in the air. |
 | `bighead` | Big Head | Conker's head drawn twice as big. |
@@ -215,7 +219,7 @@ run in debug mode, the second one's log names its own pipe.
 
 | Command | What it does |
 |---|---|
-| `bind <key> <command>` | That key runs the command (`bind f5 warp Windy`, `bind f6 noclip`). Key names are the F3 menu's. Saved in `settings.ini`. |
+| `bind <key> <command>` | That key runs the command (`bind f5 warp Windmill`, `bind f6 noclip`). Key names are the F3 menu's. Saved in `settings.ini`. |
 | `bind list` | Lists the bound keys. |
 | `bind reset` | Removes every bind. |
 | `unbind <key>` / `unbind all` | Removes one bind, or all. |

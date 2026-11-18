@@ -38,6 +38,7 @@
 
 #include "settings.h"
 #include "controls.h"
+#include "chords.h"
 
 typedef enum { OPT_BOOL, OPT_CHOICE, OPT_RES, OPT_PATH, OPT_RECT, OPT_NUM,
                OPT_KEY, OPT_WIN } OptKind;
@@ -94,6 +95,15 @@ static const Option s_options[] = {
       "finer detail, but slower. Below 100 it is drawn smaller and stretched\n"
       "by the upscaler: faster, but softer. Sizes too big for the graphics\n"
       "card's memory (or above 10240x7680) are capped." },
+    /* To-do 220 (#22; user 2026-11-16: off by default, render_scale the
+     * highest, 50 the lowest). Read by the overlay. */
+    { "display", "auto_resolution", OPT_BOOL, "0", "0", "RECOMP_AUTO_RES",
+      NULL,
+      "Automatic resolution: 1 = the render scale lowers itself when the\n"
+      "graphics card can't keep up with the frame rate, down to 50, and\n"
+      "rises again when it can, never above render_scale; 0 = off\n"
+      "(default). Helps only when the graphics card is what slows the game\n"
+      "(F1 pressed three times shows what does). Applies at once." },
     { "display", "upscaler", OPT_CHOICE, "fsr", "bilinear",
       "RECOMP_UPSCALER", "bilinear fsr",
       "How a render scale below 100 is stretched to fit: bilinear\n"
@@ -513,8 +523,9 @@ static const Option s_options[] = {
       "none any 1 2 3 4 ps1 ps2 ps3 ps4",
       "Which controller is each player (controller port 1-4): any = the\n"
       "controller used last that no other port has (player 1's default),\n"
-      "1-4 = Windows' controller 1-4, ps1-ps4 = PlayStation controller 1-4\n"
-      "(DualShock 4 / DualSense, read directly), none = no controller (the\n"
+      "1-4 = Windows' controller 1-4, ps1-ps4 = PlayStation / Switch\n"
+      "controller 1-4 (DualShock 4 / DualSense / Switch Pro / Joy-Con pair,\n"
+      "read directly), none = no controller (the\n"
       "default for ports 2-4). A port with no controller and no keyboard is\n"
       "empty, as if nothing were plugged in there. F3 > Slots." },
     { "controls", "controller_slot2", OPT_CHOICE, "none", "none", NULL,
@@ -560,8 +571,94 @@ static const Option s_options[] = {
       0.0f, 200.0f },
     { "controls", "stick_dead_zone4", OPT_NUM, "10", "10", NULL, NULL, NULL,
       0.0f, 40.0f },
+    /* To-do 35 (user 2026-11-15): gyro aiming per slot, F3 > Slots >
+     * Options; applied by controls_apply_gyro. */
+    { "controls", "gyro_story1", OPT_BOOL, "1", "1", NULL, NULL,
+      "Gyro aiming, per slot 1-4 (controllers with a gyro: PlayStation and\n"
+      "Switch controllers), F3 > Slots > Options:\n"
+      "gyro_storyN: single player, 1 = on (default): turning the controller\n"
+      "aims while a weapon is out and the left trigger is held; 0 = off.\n"
+      "gyro_mpN: multiplayer, 1 = the gyro aims all match long, 0 = off\n"
+      "(default).\n"
+      "gyro_speed_xN / gyro_speed_yN: how far the aim turns left / right and\n"
+      "up / down, percent of the controller's own turn (25 to 1000, default\n"
+      "200: twice as far).\n"
+      "gyro_invert_yN: 1 = tilting the controller up aims down (default 0)." },
+    { "controls", "gyro_mp1", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "gyro_speed_x1", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_speed_y1", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_invert_y1", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "gyro_story2", OPT_BOOL, "1", "1", NULL, NULL, NULL },
+    { "controls", "gyro_mp2", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "gyro_speed_x2", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_speed_y2", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_invert_y2", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "gyro_story3", OPT_BOOL, "1", "1", NULL, NULL, NULL },
+    { "controls", "gyro_mp3", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "gyro_speed_x3", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_speed_y3", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_invert_y3", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "gyro_story4", OPT_BOOL, "1", "1", NULL, NULL, NULL },
+    { "controls", "gyro_mp4", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "gyro_speed_x4", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_speed_y4", OPT_NUM, "200", "200", NULL, NULL, NULL,
+      25.0f, 1000.0f },
+    { "controls", "gyro_invert_y4", OPT_BOOL, "0", "0", NULL, NULL, NULL },
+    { "controls", "story_camera_speed1", OPT_NUM, "100", "100", NULL, NULL,
+      "Camera speed, how fast the right stick turns the camera and aims, 25 to\n"
+      "300 percent (default 100), F3 > Slots > Options:\n"
+      "story_camera_speed1: single player (slot 1's controller; the camera and\n"
+      "aiming with a weapon).\n"
+      "mp_camera_speedN: multiplayer, per slot 1-4 (that player's aim).",
+      25.0f, 300.0f },
+    { "controls", "mp_camera_speed1", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      25.0f, 300.0f },
+    { "controls", "mp_camera_speed2", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      25.0f, 300.0f },
+    { "controls", "mp_camera_speed3", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      25.0f, 300.0f },
+    { "controls", "mp_camera_speed4", OPT_NUM, "100", "100", NULL, NULL, NULL,
+      25.0f, 300.0f },
+    { "controls", "gyro_auto_calibrate", OPT_BOOL, "1", "1", NULL, NULL,
+      "Gyro drift: 1 = corrected automatically while the controller is held\n"
+      "still (default), 0 = only by the Calibrate button (F3 > Slots >\n"
+      "Options)." },
     { "controls", "controls_window", OPT_RECT, "", "", NULL, NULL,
       "Where the F3 controls menu sits and its size, like menu_window." },
+    /* To-do 39 (the user's plan 2026-11-17): chords.c. */
+    { "chords", "chord_menu", OPT_CHOICE, "back+start", "back+start", NULL,
+      CHORDS_CHOICES,
+      "Controller chords (F3 > Slots > Chords): two buttons held together\n"
+      "for our own extras, on slot 1's controller, one set for every\n"
+      "controller. Values: none or two button names joined by + (back,\n"
+      "start, a, b, x, y, lb, rb, dpad_up / _down / _left / _right; ls+rs =\n"
+      "both sticks clicked), the pairs F3 offers. chord_menu (the Recomp\n"
+      "Menu, Back + Start's list; can't be none), chord_settings (F2),\n"
+      "chord_photo (photo mode on / off) work anywhere and share a chord\n"
+      "with nothing; chord_photo_pause and chord_freecam_swap only in photo\n"
+      "mode; chord_noclip, chord_bullet and chord_freecam only in gameplay\n"
+      "(those two lists may share chords)." },
+    { "chords", "chord_settings", OPT_CHOICE, "back+lb", "back+lb", NULL,
+      CHORDS_CHOICES, NULL },
+    { "chords", "chord_photo", OPT_CHOICE, "back+rb", "back+rb", NULL,
+      CHORDS_CHOICES, NULL },
+    { "chords", "chord_photo_pause", OPT_CHOICE, "back+a", "back+a", NULL,
+      CHORDS_CHOICES, NULL },
+    { "chords", "chord_freecam_swap", OPT_CHOICE, "back+x", "back+x", NULL,
+      CHORDS_CHOICES, NULL },
+    { "chords", "chord_noclip", OPT_CHOICE, "rb+a", "rb+a", NULL,
+      CHORDS_CHOICES, NULL },
+    { "chords", "chord_bullet", OPT_CHOICE, "ls+rs", "ls+rs", NULL,
+      CHORDS_CHOICES, NULL },
+    { "chords", "chord_freecam", OPT_CHOICE, "back+x", "back+x", NULL,
+      CHORDS_CHOICES, NULL },
     { "controls_story", "story_mouse_x", OPT_NUM, "100", "100", NULL, NULL,
       "Keys and mouse in single player (story); F3 changes them.\n"
       "Mouse sensitivity left and right, 10 to 400 percent (default 100).",
@@ -604,6 +701,9 @@ static const Option s_options[] = {
     { "controls_story", "story_aim", OPT_KEY, "mouse2", "mouse2", NULL, NULL, NULL },
     { "controls_story", "story_attack", OPT_KEY, "mouse1", "mouse1", NULL, NULL, NULL },
     { "controls_story", "story_reload", OPT_KEY, "r", "r", NULL, NULL, NULL },
+    { "controls_story", "story_head_cam_hold", OPT_KEY, "none", "none", NULL, NULL,
+      "story_head_cam_hold: the head-cam while held; story_head_cam: a tap on, a\n"
+      "tap off." },
     { "controls_story", "story_head_cam", OPT_KEY, "c", "c", NULL, NULL, NULL },
     { "controls_story", "story_zoom", OPT_KEY, "v", "v", NULL, NULL, NULL },
     { "controls_story", "story_cam_zoom_in", OPT_KEY, "wheelup", "wheelup", NULL, NULL,
@@ -630,11 +730,63 @@ static const Option s_options[] = {
     { "controls_story", "story_bat_launch", OPT_KEY, "space", "space", NULL, NULL,
       "The bat (Count Batula): launch from the ground; fly up and down, poop and\n"
       "aim in the air. They take over as the bat: in the air only these press\n"
-      "A, B and the triggers. Aim: Classic toggles, Modern aims while held." },
+      "A, B and the triggers. story_bat_aim: Classic toggles (a tap on, a tap\n"
+      "off), Modern aims while held; story_bat_aim_alt: the other way (Classic\n"
+      "while held, Modern a toggle)." },
     { "controls_story", "story_bat_up", OPT_KEY, "space", "space", NULL, NULL, NULL },
     { "controls_story", "story_bat_down", OPT_KEY, "ctrl", "ctrl", NULL, NULL, NULL },
     { "controls_story", "story_bat_poop", OPT_KEY, "mouse1", "mouse1", NULL, NULL, NULL },
     { "controls_story", "story_bat_aim", OPT_KEY, "mouse2", "mouse2", NULL, NULL, NULL },
+    { "controls_story", "story_bat_aim_alt", OPT_KEY, "none", "none", NULL, NULL, NULL },
+#define PADB_CHOICES "none a b x y lb rb lt rt ls rs start"
+    /* Controller binds (to-do 39; the user's defaults 2026-11-17): pad_binds.c. */
+    { "controller_story", "pad_classic_jump", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES,
+      "Single player on slot 1's controller (F3 > Controls: the Controller\n"
+      "column), one set per scheme: pad_classic_* for Classic, pad_modern_* for\n"
+      "Modern. Each action presses the game's own button for it. Buttons: a, b,\n"
+      "x, y, lb, rb, lt, rt (triggers), ls, rs (stick clicks), start, none.\n"
+      "Swimming (dive, swim_*) and the bat (bat_*) work only there and take\n"
+      "their buttons there; crouch and attack may share one (a weapon out says\n"
+      "which). Back and the D-pad are not rebindable; pause can't be none." },
+    { "controller_story", "pad_classic_crouch", OPT_CHOICE, "rt", "rt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_context", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_attack", OPT_CHOICE, "rt", "rt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_reload", OPT_CHOICE, "x", "x", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_head_cam_hold", OPT_CHOICE, "lt", "lt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_head_cam_toggle", OPT_CHOICE, "none", "none", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_zoom", OPT_CHOICE, "rs", "rs", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_pause", OPT_CHOICE, "start", "start", NULL,
+      "a b x y lb rb lt rt ls rs start", NULL },
+    { "controller_story", "pad_classic_dive", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_swim_up", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_swim_down", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_bat_launch", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_bat_up", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_bat_down", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_bat_poop", OPT_CHOICE, "rt", "rt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_bat_aim_toggle", OPT_CHOICE, "lt", "lt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_classic_bat_aim_hold", OPT_CHOICE, "none", "none", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_jump", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_crouch", OPT_CHOICE, "rt", "rt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_context", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_aim", OPT_CHOICE, "lt", "lt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_attack", OPT_CHOICE, "rt", "rt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_reload", OPT_CHOICE, "x", "x", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_head_cam_hold", OPT_CHOICE, "none", "none", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_head_cam_toggle", OPT_CHOICE, "lb", "lb", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_zoom", OPT_CHOICE, "rs", "rs", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_pause", OPT_CHOICE, "start", "start", NULL,
+      "a b x y lb rb lt rt ls rs start", NULL },
+    { "controller_story", "pad_modern_dive", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_swim_up", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_swim_down", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_bat_launch", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_bat_up", OPT_CHOICE, "a", "a", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_bat_down", OPT_CHOICE, "b", "b", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_bat_poop", OPT_CHOICE, "rt", "rt", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_bat_aim_toggle", OPT_CHOICE, "none", "none", NULL, PADB_CHOICES, NULL },
+    { "controller_story", "pad_modern_bat_aim_hold", OPT_CHOICE, "lt", "lt", NULL, PADB_CHOICES, NULL },
+#undef PADB_CHOICES
     { "controls_multiplayer", "mp_mouse_x", OPT_NUM, "100", "100", NULL, NULL,
       "Keys and mouse in multiplayer (the game's Emily layout); F3 changes them.\n"
       "Mouse sensitivity left and right, 10 to 400 percent (default 100).",
@@ -690,8 +842,7 @@ static const Option s_options[] = {
       "cheats_key work everywhere (pause_key freezes the game, report_key\n"
       "opens Report Bug, cheats_key opens the Debug menu with --debug); the\n"
       "rest only in photo mode. Key names as for single player; the\n"
-      "controller's photo buttons are fixed (Back + RB turns photo mode on /\n"
-      "off)." },
+      "controller's photo buttons are fixed, its chords in [chords] above." },
     { "controls_photo", "pause_key", OPT_KEY, "p", "p", NULL, NULL, NULL },
     { "controls_photo", "report_key", OPT_KEY, "f10", "f10", NULL, NULL, NULL },
     { "controls_photo", "cheats_key", OPT_KEY, "f8", "f8", NULL, NULL, NULL },
@@ -769,6 +920,9 @@ static const struct {
     { "cutscene_blur",        { "original", "updated", "updated", "updated" } },
     { "texture_filter",       { "original", "aniso4",  "aniso8", "aniso16" } },
     { "hrtf",                 { "0",        "1",       "1",      "1"       } },
+    /* User 2026-11-17: Low turns Automatic resolution (to-do 220) on, the
+     * others off. */
+    { "auto_resolution",      { "1",        "0",       "0",      "0"       } },
 };
 #define NUM_PRESET_KEYS ((int)(sizeof(s_presets) / sizeof(s_presets[0])))
 
