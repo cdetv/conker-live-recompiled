@@ -1,0 +1,1732 @@
+# Japanese (日本語): the menus of this port (to-do 229). "en:" is the English in the code (the key, never change it), "ja:" the translation
+# (empty = English). \n = a line break. Keep every %s, %d, %.0f etc. in the same order. scripts/check_lang.py checks it.
+# Draft 2026-11-18: machine translation, using the game's own words where it has them. Corrections by native speakers are welcome (GitHub).
+
+## chords.c
+en: D-pad Up
+ja: 方向パッド 上
+
+en: D-pad Down
+ja: 方向パッド 下
+
+en: D-pad Left
+ja: 方向パッド 左
+
+en: D-pad Right
+ja: 方向パッド 右
+
+## build_table
+en: Both sticks clicked
+ja: 左右スティック押し込み
+
+## chords_of_buttons
+en: Recomp Menu
+ja: Recomp メニュー
+
+en: The list of menus: Settings, Controls, Controller Options, Photo Mode, Report Bug. Every controller needs a way to it, so it can't be unbound
+ja: メニュー一覧:設定、操作、コントローラ設定、フォトモード、バグ報告。どのコントローラにも呼び出し方法が必要なため、割り当てを外せません
+
+en: Settings Menu
+ja: 設定メニュー
+
+en: F2's settings. Also on the Recomp Menu
+ja: F2の設定。Recomp メニューからも開けます
+
+en: Photo Mode
+ja: フォトモード
+
+en: Photo mode on and off (in photo mode or freecam: leave). Also on the Recomp Menu
+ja: フォトモードの入/切(フォトモードやフリーカメラ中は終了)。Recomp メニューからも開けます
+
+en: Pause / Resume
+ja: ポーズ / 再開
+
+en: In photo mode: the world frozen or running
+ja: フォトモード中:世界の停止/動作
+
+en: Freecam: camera or Conker
+ja: フリーカメラ:カメラ / Conker
+
+en: In freecam: the controller flies the camera or plays Conker
+ja: フリーカメラ中:コントローラでカメラを動かすか、Conkerを操作するか
+
+en: No-clip
+ja: ノークリップ
+
+en: Conker flies through walls (debug mode)
+ja: Conkerが壁をすり抜けて飛びます(デバッグモード)
+
+en: Bullet Time
+ja: バレットタイム
+
+en: Bullet time on and off, while its cheat is on
+ja: チートが入のとき、バレットタイムの入/切
+
+en: Free Camera
+ja: フリーカメラ
+
+en: Freecam on from gameplay (debug mode): photo mode's camera with the world running. The Photo Mode chord leaves it
+ja: ゲームプレイ中にフリーカメラを入にします(デバッグモード):世界が動いたままのフォトモードのカメラ。フォトモードの同時押しで終了します
+
+en: Universal
+ja: 共通
+
+en: Cheats / Debug
+ja: チート / デバッグ
+
+en: Anywhere. A chord used here can't be used for anything else
+ja: どこでも使えます。ここで使う同時押しは他に使えません
+
+en: In photo mode only. May share a chord with a Cheats / Debug function, not with a Universal one
+ja: フォトモード中のみ。チート / デバッグの機能とは同じ同時押しにできますが、共通の機能とはできません
+
+en: In gameplay only. May share a chord with a Photo Mode function, not with a Universal one
+ja: ゲームプレイ中のみ。フォトモードの機能とは同じ同時押しにできますが、共通の機能とはできません
+
+## chords_apply
+en: (none)
+ja: (なし)
+
+## list_combos
+en: Swimming
+ja: 水泳
+
+en: Bat (Count Batula)
+ja: コウモリ(Count Batula)
+
+en: Move forward
+ja: 前に移動
+
+en: Left stick up
+ja: 左スティック上
+
+en: Move back
+ja: 後ろに移動
+
+en: Left stick down
+ja: 左スティック下
+
+en: Move left
+ja: 左に移動
+
+en: Left stick left
+ja: 左スティック左
+
+en: Move right
+ja: 右に移動
+
+en: Left stick right
+ja: 左スティック右
+
+en: Walk (hold)
+ja: 歩く(押し続ける)
+
+en: Left stick half way
+ja: 左スティック半分
+
+en: Jump
+ja: ジャンプ
+
+en: Crouch (hold)
+ja: しゃがむ(押し続ける)
+
+en: Right trigger
+ja: 右トリガー
+
+en: Weapon out / away, context action
+ja: 武器を出す / しまう、アクション
+
+en: Context action (on a B pad)
+ja: アクション(Bパッド上)
+
+en: Aim weapon (hold)
+ja: 武器を構える(押し続ける)
+
+en: Left trigger
+ja: 左トリガー
+
+en: Attack (while aiming)
+ja: 攻撃(構え中)
+
+en: Reload
+ja: リロード
+
+en: Head-cam (hold)
+ja: ヘッドカメラ(押し続ける)
+
+en: Head-cam (toggle)
+ja: ヘッドカメラ(切り替え)
+
+en: Zoom (Unlocked Camera: reset camera)
+ja: ズーム(アンロックカメラ:カメラリセット)
+
+en: Right stick click
+ja: 右スティック押し込み
+
+en: Camera zoom in (Unlocked Camera)
+ja: カメラ ズームイン(アンロックカメラ)
+
+en: D-pad up + right stick up
+ja: 方向パッド上 + 右スティック上
+
+en: Camera zoom out (Unlocked Camera)
+ja: カメラ ズームアウト(アンロックカメラ)
+
+en: D-pad up + right stick down
+ja: 方向パッド上 + 右スティック下
+
+en: Pause
+ja: ポーズ
+
+en: Back button
+ja: Backボタン
+
+en: D-pad up
+ja: 方向パッド上
+
+en: D-pad down
+ja: 方向パッド下
+
+en: D-pad left
+ja: 方向パッド左
+
+en: D-pad right
+ja: 方向パッド右
+
+en: Look up (keys)
+ja: 上を向く(キー)
+
+en: Right stick up
+ja: 右スティック上
+
+en: Look down (keys)
+ja: 下を向く(キー)
+
+en: Right stick down
+ja: 右スティック下
+
+en: Look left (keys)
+ja: 左を向く(キー)
+
+en: Right stick left
+ja: 右スティック左
+
+en: Look right (keys)
+ja: 右を向く(キー)
+
+en: Right stick right
+ja: 右スティック右
+
+en: Dive Under
+ja: 潜る
+
+en: Swim up
+ja: 上に泳ぐ
+
+en: Swim down
+ja: 下に泳ぐ
+
+en: Launch (on the ground)
+ja: 飛び立つ(地上)
+
+en: Fly up
+ja: 上に飛ぶ
+
+en: Fly down
+ja: 下に飛ぶ
+
+en: Poop
+ja: フン
+
+en: Aim (toggle)
+ja: 狙う(切り替え)
+
+en: Aim (hold)
+ja: 狙う(押し続ける)
+
+en: Left trigger held
+ja: 左トリガー押し続け
+
+en: Left stick click
+ja: 左スティック押し込み
+
+en: Fire
+ja: 発射
+
+en: Zoom
+ja: ズーム
+
+en: Interact (terminals)
+ja: 操作する(端末)
+
+en: Weapon mode
+ja: 武器モード
+
+en: Abilities (tap) / abilities wheel (hold, aim with the mouse)
+ja: アビリティ(タップ) / アビリティホイール(押し続けてマウスで選択)
+
+en: Next weapon (tap) / weapon wheel (hold, aim with the mouse)
+ja: 次の武器(タップ) / 武器ホイール(押し続けてマウスで選択)
+
+en: Crouch / prone
+ja: しゃがむ / 伏せる
+
+en: Vote
+ja: 投票
+
+en: Radio mode
+ja: 無線モード
+
+en: Pause / options
+ja: ポーズ / オプション
+
+en: Multiplayer menu
+ja: マルチプレイヤーメニュー
+
+en: Navigate
+ja: 選択移動
+
+en: Choose
+ja: 決定
+
+en: Go back
+ja: 戻る
+
+en: Map options
+ja: マップオプション
+
+en: Close the menu
+ja: メニューを閉じる
+
+en: Resume
+ja: 再開する
+
+en: Quit
+ja: 終了する
+
+en: Confirm quit
+ja: 終了の確認
+
+en: Open / close options
+ja: オプションを開く / 閉じる
+
+en: Left stick
+ja: 左スティック
+
+en: Skip
+ja: スキップ
+
+en: Toggle
+ja: 切り替え
+
+en: In photo mode
+ja: フォトモード中
+
+en: Photo mode on / off
+ja: フォトモード 入 / 切
+
+en: Pause (hold the picture)
+ja: ポーズ(画面を止める)
+
+en: Report Bug
+ja: バグ報告
+
+en: Debug menu
+ja: デバッグメニュー
+
+en: Noclip
+ja: ノークリップ
+
+en: Bullet time (cheat)
+ja: バレットタイム(チート)
+
+en: LS + RS click
+ja: LS + RS 押し込み
+
+en: Mark (log line + shot)
+ja: マーク(ログ行 + スクリーンショット)
+
+en: Fly forward
+ja: 前に飛ぶ
+
+en: Fly back
+ja: 後ろに飛ぶ
+
+en: Fly left
+ja: 左に飛ぶ
+
+en: Fly right
+ja: 右に飛ぶ
+
+en: Roll left (anticlockwise)
+ja: 左にロール(反時計回り)
+
+en: Roll right (clockwise)
+ja: 右にロール(時計回り)
+
+en: Fly slower (hold)
+ja: ゆっくり飛ぶ(押し続ける)
+
+en: Fly faster (hold)
+ja: 速く飛ぶ(押し続ける)
+
+en: Zoom in
+ja: ズームイン
+
+en: Zoom out
+ja: ズームアウト
+
+en: Take a photo
+ja: 写真を撮る
+
+en: Leave photo mode
+ja: フォトモードを終了
+
+en: Camera back to the start
+ja: カメラを最初に戻す
+
+en: Show / hide the HUD and speech bubbles
+ja: HUDと吹き出しの表示 / 非表示
+
+en: Show / hide Conker
+ja: Conkerの表示 / 非表示
+
+en: Frame step (one frame; hold: normal speed)
+ja: コマ送り(1コマ。押し続け:通常速度)
+
+en: Pause / resume the world
+ja: 世界のポーズ / 再開
+
+en: Photo settings
+ja: 写真の設定
+
+en: Cutscene blur on / off
+ja: カットシーンのぼかし 入 / 切
+
+## lim_window
+en: a lower frame rate helps most; a lower resolution a little
+ja: フレームレートを下げるのが最も効果的です。解像度を下げると少し効果があります
+
+en: a lower resolution won't help; a lower frame rate will
+ja: 解像度を下げても効果はありません。フレームレートを下げると効果があります
+
+en: nothing (frame rate cap / VSync)
+ja: なし(フレームレート上限 / VSync)
+
+en: the PC keeps up with this frame rate
+ja: PCはこのフレームレートに対応できています
+
+en: CPU (game logic)
+ja: CPU(ゲームロジック)
+
+en: CPU (graphics translation)
+ja: CPU(グラフィックス変換)
+
+en: GPU
+ja: GPU
+
+en: a lower render scale, resolution or the Low preset helps
+ja: レンダースケール、解像度を下げるか、低プリセットが効果的です
+
+en: CPU (game and graphics in turn)
+ja: CPU(ゲームとグラフィックスが交互)
+
+## option_note
+en: %s is set, so this is not used
+ja: %s が設定されているため、これは使われません
+
+en: applies when the game is started again
+ja: ゲームの再起動後に反映されます
+
+## save
+en: Could not save %s = %s (see the log)
+ja: %s = %s を保存できませんでした(ログを参照)
+
+## apply_resolution
+en: Could not work out a size for %s
+ja: %s のサイズを計算できませんでした
+
+en: %ux%u is too small or too big
+ja: %ux%u は小さすぎるか大きすぎます
+
+## apply_render_scale
+en: Render scale %s %% not taken
+ja: レンダースケール %s %% は使えませんでした
+
+## slider
+en: Mute
+ja: ミュート
+
+en: Mute %s
+ja: %s をミュート
+
+## ask_quit
+en: Close game
+ja: ゲームを閉じる
+
+en: Do you want to close the game?
+ja: ゲームを閉じますか?
+
+en: Yes
+ja: はい
+
+en: No
+ja: いいえ
+
+## display_tab
+en: Auto (monitor shape, max 1440p)
+ja: 自動(モニターの形、最大1440p)
+
+en: Auto 4:3 (max 1440p)
+ja: 自動 4:3(最大1440p)
+
+en: Native (monitor size)
+ja: ネイティブ(モニターのサイズ)
+
+en: 640x480 (original Xbox)
+ja: 640x480(オリジナルXbox)
+
+en: 3840x2160 (16:9, slow)
+ja: 3840x2160(16:9、低速)
+
+en: Windowed
+ja: ウィンドウ
+
+en: Borderless (instant Alt+Tab)
+ja: ボーダーレス(すぐにAlt+Tab可)
+
+en: Full screen (exclusive)
+ja: フルスクリーン(専有)
+
+en: On (no tearing)
+ja: 入(ティアリングなし)
+
+en: Off (lowest delay, may tear)
+ja: 切(最小遅延、ティアリングあり)
+
+en: G-Sync / FreeSync (VRR)
+ja: G-Sync / FreeSync (VRR)
+
+en: 30 fps (original)
+ja: 30 fps(オリジナル)
+
+en: Same as Text language
+ja: テキスト言語と同じ
+
+en: Display mode
+ja: 表示モード
+
+en: Render resolution
+ja: レンダー解像度
+
+en: Frame rate
+ja: フレームレート
+
+en: Off = original (runs fast when the frame rate dips)
+ja: 切 = オリジナル(フレームレートが落ちると速くなる)
+
+en: VSync
+ja: VSync
+
+en: Text language
+ja: テキスト言語
+
+en: Voices are English in every language
+ja: ボイスはどの言語でも英語です
+
+en: Menu language
+ja: メニュー言語
+
+en: The language of this port's own menus: F2, F3, photo mode and the F1 line (the game's own menus follow Text language)
+ja: このポートの独自メニューの言語:F2、F3、フォトモード、F1の行(ゲーム本来のメニューはテキスト言語に従います)
+
+en: No Japanese font found in Windows: shown in English
+ja: Windowsに日本語フォントが見つかりません:英語で表示します
+
+en: On screen
+ja: 画面表示
+
+en: Hide HUD
+ja: HUDを隠す
+
+en: Energy, lives, money, the counters and the weapon sight hidden while playing
+ja: プレイ中、エネルギー、ライフ、お金、カウンター、武器の照準を隠します
+
+en: Hide Speech Bubbles
+ja: 吹き出しを隠す
+
+en: Speech bubbles hidden, in cutscenes and in play (photo mode's HUD key hides them anyway)
+ja: カットシーンでもプレイ中でも吹き出しを隠します(フォトモードのHUDキーでも隠れます)
+
+en: Speedrun Timer
+ja: スピードランタイマー
+
+en: Game time without loads from a new game, in the top right corner: the total and the current chapter's part
+ja: ニューゲームからのロードなしのゲーム時間を右上に表示:合計と現在のチャプターのパート
+
+en: Time cutscenes
+ja: カットシーンも計測
+
+en: The timer runs while a cutscene plays (off: it stops for them)
+ja: カットシーン中もタイマーが動きます(切:止まります)
+
+en: Input Display
+ja: 入力表示
+
+en: Controller 1 drawn in the bottom left corner: buttons, sticks and triggers as you press them (keys bound to it show as the buttons they press)
+ja: コントローラ1を左下に表示:押したボタン、スティック、トリガーが分かります(割り当てたキーは、押すボタンとして表示されます)
+
+## character_foliage_detail_choice
+en: Low (faster)
+ja: 低(高速)
+
+en: Original (as on the Xbox)
+ja: オリジナル(Xboxと同じ)
+
+en: Extended (no pop-in)
+ja: 拡張(ポップインなし)
+
+en: Character & foliage detail
+ja: キャラクターと植物の描画距離
+
+en: How far away characters, grass and fur keep their detail. Low: characters hide, fur and grass thin out and far characters switch to a simpler model sooner than on the Xbox (faster, but far enemies are harder to see). Original: as on the Xbox. Extended: no pop-in (grass, fur and characters at full detail at any distance), and far characters keep their full model twice as far
+ja: キャラクター、草、毛皮が細部を保つ距離。低:キャラクターが隠れ、毛皮と草がまばらになり、遠くのキャラクターがXboxより早く簡易モデルに切り替わります(高速ですが、遠くの敵が見えにくくなります)。オリジナル:Xboxと同じ。拡張:ポップインなし(草、毛皮、キャラクターがどの距離でも完全な細部)、遠くのキャラクターも2倍の距離まで完全なモデルのままです
+
+en: Grass & flowers
+ja: 草と花
+
+en: Grass keeps waving and flowers never thin out or vanish with distance
+ja: 草が揺れ続け、花は距離で減ったり消えたりしません
+
+en: Characters
+ja: キャラクター
+
+en: Characters no longer fade out far from the camera
+ja: キャラクターがカメラから遠くでも消えなくなります
+
+en: Fur
+ja: 毛皮
+
+en: Fur stays full at any distance instead of thinning out
+ja: 毛皮がまばらにならず、どの距離でも密なままです
+
+en: Ambient Particles (experimental)
+ja: 環境パーティクル(実験的)
+
+en: Falling leaves, fluff and dust fill the whole area instead of only a small box around the camera
+ja: 落ち葉、綿毛、ほこりが、カメラ周りの小さな範囲だけでなく全域に広がります
+
+en: Particle density
+ja: パーティクル密度
+
+en: Back to the default (15 %)
+ja: デフォルトに戻す(15 %)
+
+## graphics_tab
+en: Off (sharpest, shimmers far away)
+ja: 切(最もシャープ、遠くがちらつく)
+
+en: Anisotropic 2x
+ja: 異方性 2x
+
+en: Anisotropic 4x
+ja: 異方性 4x
+
+en: Anisotropic 8x
+ja: 異方性 8x
+
+en: Anisotropic 16x (sharpest steady)
+ja: 異方性 16x(最もシャープで安定)
+
+en: 0.5x (fastest, softest)
+ja: 0.5x(最速、最もソフト)
+
+en: 1x (default)
+ja: 1x(デフォルト)
+
+en: 4x (sharpest, slowest)
+ja: 4x(最もシャープ、最も低速)
+
+en: Bilinear (plain, soft)
+ja: バイリニア(シンプル、ソフト)
+
+en: AMD FSR 1 (sharper edges)
+ja: AMD FSR 1(エッジがシャープ)
+
+en: Off (original)
+ja: 切(オリジナル)
+
+en: FXAA (quick, slightly soft)
+ja: FXAA(高速、ややソフト)
+
+en: SMAA (cleaner edges, sharper)
+ja: SMAA(エッジがきれい、シャープ)
+
+en: Scanlines
+ja: スキャンライン
+
+en: CRT (scanlines, curve, glow)
+ja: CRT(スキャンライン、湾曲、グロー)
+
+en: Original (soft, blocky)
+ja: オリジナル(ソフト、ブロック状)
+
+en: 4x (sharper)
+ja: 4x(シャープ)
+
+en: 8x (very sharp)
+ja: 8x(とてもシャープ)
+
+en: 16x (sharpest, more GPU)
+ja: 16x(最もシャープ、GPU負荷大)
+
+en: Off (always sharp)
+ja: 切(常にシャープ)
+
+en: Original (blocky at high resolutions)
+ja: オリジナル(高解像度でブロック状)
+
+en: Updated (original look, smooth)
+ja: アップデート(オリジナルの見た目、滑らか)
+
+en: Cinematic (stronger, bokeh)
+ja: シネマティック(強め、ボケ)
+
+en: Render scale
+ja: レンダースケール
+
+en: Automatic resolution
+ja: 自動解像度
+
+en: Lowers the render scale by itself when the graphics card can't keep up with the frame rate, and raises it again when it can: never above the render scale chosen here, never below 0.5x. Helps only when the graphics card is what slows the game (F1 pressed three times shows what does)
+ja: グラフィックスカードがフレームレートに追いつかないときレンダースケールを自動で下げ、余裕があれば再び上げます:ここで選んだレンダースケールを超えず、0.5x未満にもなりません。ゲームの遅さの原因がグラフィックスカードのときだけ効果があります(F1を3回押すと原因が分かります)
+
+en: Drawn at %ux%u now: lowered to %s by Automatic resolution
+ja: 現在 %ux%u で描画中:自動解像度により %s に低下
+
+en: Drawn at %ux%u: capped at %.2gx, the largest the renderer and this graphics card take here
+ja: %ux%u で描画中:%.2gx に制限(レンダラーとこのグラフィックスカードが扱える最大値)
+
+en: Drawn at %ux%u
+ja: %ux%u で描画中
+
+en: Upscaler (render scale below 1x)
+ja: アップスケーラー(レンダースケール 1x 未満)
+
+en: Texture filtering
+ja: テクスチャフィルタリング
+
+en: Anti-aliasing
+ja: アンチエイリアス
+
+en: Shadows
+ja: 影
+
+en: Shadow softness
+ja: 影のやわらかさ
+
+en: Back to off (0 %: as sharp as Shadows draws them)
+ja: 切に戻す(0 %:影の設定どおりのシャープさ)
+
+en: Smooth world shadows
+ja: なめらかなワールドの影
+
+en: The shadows baked into the levels (fences, plants, buildings) read smoothly instead of as blocky steps. Off = as the original
+ja: レベルに焼き込まれた影(フェンス、植物、建物)が、ブロック状の段差ではなくなめらかに見えます。切 = オリジナルのまま
+
+en: Back to the original (1.00)
+ja: オリジナルに戻す(1.00)
+
+en: Gamma
+ja: ガンマ
+
+en: Contrast
+ja: コントラスト
+
+en: Saturation
+ja: 彩度
+
+en: Sharpening
+ja: シャープネス
+
+en: Back to off (0 %)
+ja: 切に戻す(0 %)
+
+en: Glow (the game's own)
+ja: グロー(ゲーム本来のもの)
+
+en: Back to the original (100 %)
+ja: オリジナルに戻す(100 %)
+
+en: Fog
+ja: フォグ
+
+en: The distance fog that fades far scenery into the level's colour. Off = far scenery as clear as near (the level's far end may show). Under water, Underwater Fog decides
+ja: 遠くの景色をレベルの色に溶け込ませる距離フォグ。切 = 遠くも近くと同じくくっきり(レベルの端が見えることがあります)。水中は水中フォグで決まります
+
+en: Underwater Fog
+ja: 水中フォグ
+
+en: The murky water colour while the camera is under water. Off = clear water
+ja: カメラが水中にあるときの濁った水の色。切 = 澄んだ水
+
+en: Haze
+ja: もや
+
+en: The mist or colour wash in some levels. Off = a clear view (e.g. no green gas in Chemical Warfare)
+ja: 一部のレベルのもやや色のかかり。切 = クリアな視界(例:Chemical Warfareの緑のガスが出ません)
+
+en: Vignette
+ja: ビネット
+
+en: The dark corners round the picture in some levels. Off = the picture as bright at the edges as in the middle
+ja: 一部のレベルで画面の周囲が暗くなる効果。切 = 端も中央と同じ明るさ
+
+en: Screen drops
+ja: 画面の水滴
+
+en: Water and blood drops on the screen and the streaks they leave. Off = a clean screen
+ja: 画面につく水や血のしずくと、その跡。切 = きれいな画面
+
+en: Stretch FMV
+ja: FMVを引き伸ばす
+
+en: The movies (boot intro, idle demo, multiplayer briefings) stretched to the window. Off = their own 4:3 shape with black bars at the sides. Story cutscenes: Cutscenes in 4:3
+ja: ムービー(起動イントロ、アイドルデモ、マルチプレイヤーのブリーフィング)をウィンドウに合わせて引き伸ばします。切 = 本来の4:3で、左右に黒帯が入ります。ストーリーのカットシーン:4:3カットシーン
+
+en: Cutscenes in 4:3
+ja: 4:3カットシーン
+
+en: Story cutscenes in the original 4:3 shape with black bars at the sides. Off = they fill the window as gameplay does
+ja: ストーリーのカットシーンを本来の4:3で表示し、左右に黒帯が入ります。切 = ゲームプレイと同じくウィンドウいっぱいに表示
+
+en: Underwater Shimmer
+ja: 水中のゆらぎ
+
+en: The shimmering haze round Conker under water, which shows as a band at eye level. Off = a clear view under water
+ja: 水中のConker周りのゆらめくもや。目の高さに帯として見えます。切 = 水中でクリアな視界
+
+en: Cutscene blur
+ja: カットシーンのぼかし
+
+en: CRT / scanlines
+ja: CRT / スキャンライン
+
+en: CRT strength
+ja: CRTの強さ
+
+en: Back to the default (50 %)
+ja: デフォルトに戻す(50 %)
+
+## sound_tab
+en: xemu (default)
+ja: xemu(デフォルト)
+
+en: speakers (wider stereo)
+ja: スピーカー(ワイドステレオ)
+
+en: Back to full (100 %)
+ja: 最大に戻す(100 %)
+
+en: Master volume
+ja: マスターボリューム
+
+en: Music
+ja: BGM
+
+en: Effects
+ja: 効果音
+
+en: Dialogue
+ja: 会話
+
+en: Other (ambience, menu sounds)
+ja: その他(環境音、メニュー音)
+
+en: Cutscene volume
+ja: カットシーンのボリューム
+
+en: Mix
+ja: ミックス
+
+en: 3D sound (HRTF)
+ja: 3Dサウンド(HRTF)
+
+en: Silence sound while paused
+ja: ポーズ中は音を消す
+
+## fixes_tab
+en: Uncensored
+ja: 無修正
+
+en: Uncensored audio
+ja: 無修正オーディオ
+
+en: Cutscene voices and songs without the bleeps (decensor patch). Changes when the game is started again
+ja: カットシーンのボイスと歌のピー音をなくします(デセンサーパッチ)。ゲームの再起動後に反映されます
+
+en: Uncensored text
+ja: 無修正テキスト
+
+en: Subtitles and other text without the censoring (decensor patch). Changes from the next level that loads
+ja: 字幕などのテキストの検閲をなくします(デセンサーパッチ)。次にロードされるレベルから反映されます
+
+en: Needs the decensor patch in a "decensor" folder next to the game (or paths.decensor_dir in settings.ini)
+ja: ゲームの隣の「decensor」フォルダにデセンサーパッチが必要です(またはsettings.iniのpaths.decensor_dir)
+
+en: Cutscenes
+ja: カットシーン
+
+en: Skippable Cutscenes
+ja: スキップできるカットシーン
+
+en: Every story cutscene can be skipped, also the ones the game does not let you skip; a scene in parts skips one part at a time
+ja: ゲームが許可しないものも含め、すべてのストーリーカットシーンをスキップできます。複数パートのシーンは1パートずつスキップされます
+
+en: Hold to Skip
+ja: 長押しでスキップ
+
+en: Scenes the game does not let you skip need the skip button held for 3 seconds (off: a press skips them)
+ja: ゲームがスキップを許可しないシーンは、スキップボタンを3秒間押し続ける必要があります(切:押すだけでスキップ)
+
+en: The hold-to-skip ring drawn as Conker's curled-up tail
+ja: 長押しスキップのリングを、Conkerの丸まったしっぽで表示
+
+en: Camera
+ja: カメラ
+
+en: Unlocked Camera
+ja: アンロックカメラ
+
+en: Single player: tilt the camera from straight down on Conker to looking up, zoom smoothly with the mouse wheel or D-pad up + right stick, and reset it with the zoom button (right stick click / V). Off: the original camera, where the zoom button switches between near and far
+ja: シングルプレイヤー:カメラをConkerの真上から見上げる角度まで傾け、マウスホイールまたは方向パッド上 + 右スティックで滑らかにズームし、ズームボタン(右スティック押し込み / V)でリセットします。切:オリジナルのカメラで、ズームボタンが近景と遠景を切り替えます
+
+en: %%.0f° (%.0f° across)
+ja: %%.0f° (横 %.0f°)
+
+en: Field of view
+ja: 視野角
+
+en: Back to the original (50°)
+ja: オリジナルに戻す(50°)
+
+en: Main Menu Speed
+ja: メインメニューの速度
+
+en: Above 60 fps the main menu turns between its boards and zooms into them at the original speed (off: faster, twice as fast at 120)
+ja: 60 fps超でも、メインメニューのボード間の回転とズームがオリジナルの速度になります(切:速くなり、120では2倍)
+
+en: Sub-menu Speed
+ja: サブメニューの速度
+
+en: Above 60 fps game select and the chapter list fade at the original speed (off: faster, twice as fast at 120)
+ja: 60 fps超でも、ゲーム選択とチャプター一覧のフェードがオリジナルの速度になります(切:速くなり、120では2倍)
+
+en: Idle Demo
+ja: アイドルデモ
+
+en: The demo movie after about 2 minutes on the main menu without a press, as the original (off: it never starts)
+ja: メインメニューで約2分間何も押さないとデモムービーが流れます。オリジナルと同じ(切:流れません)
+
+en: Skip Intro
+ja: イントロをスキップ
+
+en: Start straight at the main menu, without the logo and the intro movie. From the next start
+ja: ロゴとイントロムービーなしで、すぐにメインメニューから始めます。次回起動から
+
+en: Skip Walk In
+ja: ウォークインをスキップ
+
+en: With Skip Intro: no walk into the bar either, straight to the menu as when the movie is skipped (off: Conker walks in). From the next start
+ja: イントロをスキップと併用:バーへの入場もなく、ムービーをスキップしたときと同じようにすぐメニューへ(切:Conkerが歩いて入ります)。次回起動から
+
+en: Loading Screen
+ja: ロード画面
+
+en: The game's loading screen while a level loads (off: black, then the level fades in). From the next load
+ja: レベルのロード中にゲームのロード画面を表示します(切:黒画面のあと、レベルがフェードイン)。次のロードから
+
+en: Fast Load
+ja: 高速ロード
+
+en: Loads don't wait for the old music to fade out, so a load from the main menu takes about half a second instead of 3 or more; the music stops at once when a load starts (off: the original wait). From the next load
+ja: ロード時に古いBGMのフェードアウトを待たないため、メインメニューからのロードが3秒以上ではなく約0.5秒で済みます。ロード開始時にBGMはすぐ止まります(切:オリジナルの待ち時間)。次のロードから
+
+en: Poo Fix
+ja: ウンチ修正
+
+en: Under the poo after the Bull fight, the haze is brown to match instead of a blue band. Off = the original. Normal water is never changed. Needs Underwater Shimmer (Picture) on
+ja: Bull戦のあと、ウンチの中では青い帯ではなく、茶色のもやになります。切 = オリジナル。通常の水は変わりません。水中のゆらぎ(画質)が入であることが必要です
+
+en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
+ja: 30 fps超でも、しっぽ、ラグドール、布がオリジナルの速度で動きます(切:速くなり、120では4倍)
+
+en: Display
+ja: ディスプレイ
+
+en: Graphics
+ja: グラフィックス
+
+en: Sound
+ja: サウンド
+
+en: Fixes
+ja: 修正
+
+## preset_tip
+en: Upscaler
+ja: アップスケーラー
+
+en: on
+ja: 入
+
+en: off
+ja: 切
+
+## presets_choice
+en: Quality preset
+ja: クオリティプリセット
+
+en: Custom
+ja: カスタム
+
+en: Could not save the %s preset (see the log)
+ja: %s プリセットを保存できませんでした(ログを参照)
+
+en: Sets the options below and the frame rate and 3D sound at once. High is the default; Low suits a weak PC.
+ja: 下のオプションとフレームレート、3Dサウンドをまとめて設定します。デフォルトは高です。低は性能の低いPC向けです。
+
+en: 3D sound applies when the game is started again
+ja: 3Dサウンドはゲームの再起動後に反映されます
+
+## build_menu
+en: Settings
+ja: 設定
+
+en: Pause the game (%s)
+ja: ゲームをポーズ(%s)
+
+en: Controller: the game. Click this menu (or F2 twice) to use it.
+ja: コントローラ:ゲーム用。このメニューをクリック(またはF2を2回)すると使えます。
+
+en: Controls
+ja: 操作
+
+en: Keyboard and mouse (F3)
+ja: キーボードとマウス(F3)
+
+en: Back to the game
+ja: ゲームに戻る
+
+en: (F2, Esc, B or Start)
+ja: (F2、Esc、B、またはStart)
+
+en: Report Bug...
+ja: バグ報告...
+
+## build_pad_menu
+en: Menu
+ja: メニュー
+
+en: Controller Options
+ja: コントローラ設定
+
+en: Cheats
+ja: チート
+
+## combo_notes
+en: %s is also %s: that happens too
+ja: %s は %s でもあります:そちらも実行されます
+
+en: While %s is held, %s is this, not %s
+ja: %s を押している間、%s はこの動作ではなく %s になります
+
+en: %s also starts %s (%s): this happens too
+ja: %s は %s(%s)も開始します:そちらも実行されます
+
+en: While %s is held, %s is %s, not this
+ja: %s を押している間、%s は %s になり、この動作にはなりません
+
+## ask_key
+en: Set a key
+ja: キーを設定
+
+en: Press a key or a mouse button for:
+ja: キーまたはマウスボタンを押してください:
+
+en: Keys now: %s
+ja: 現在のキー:%s
+
+en: none
+ja: なし
+
+en: A key it doesn't have is added (up to 3), a key it has is taken off. For a combo hold one key and press another. Clicking here (not on a button) is that mouse button. Esc cancels.
+ja: 持っていないキーは追加され(最大3個)、持っているキーは外れます。組み合わせは、1つのキーを押したまま別のキーを押します。ここ(ボタン以外)をクリックするとそのマウスボタンになります。Escでキャンセル。
+
+en: Holding %s: press another key for a combo, or let go
+ja: %s を押し中:別のキーを押すと組み合わせ、離すと単独キー
+
+en: Already 3 keys: press one to remove it first
+ja: すでに3個:先に1個を押して外してください
+
+en: No key
+ja: キーなし
+
+en: Cancel
+ja: キャンセル
+
+en: multiplayer
+ja: マルチプレイヤー
+
+en: photo mode
+ja: フォトモード
+
+en: single player
+ja: シングルプレイヤー
+
+## ask_reset
+en: Reset controls
+ja: 操作をリセット
+
+en: Put every %s key back to the defaults?
+ja: %s のキーをすべてデフォルトに戻しますか?
+
+en: Put every %s key and the mouse back to the defaults?
+ja: %s のキーとマウスをすべてデフォルトに戻しますか?
+
+## begin_keys
+en: Action
+ja: アクション
+
+en: Keys
+ja: キー
+
+en: Controller
+ja: コントローラ
+
+## set_pad_bind
+en: %s needs a button
+ja: %s にはボタンが必要です
+
+en: %s is %s's, and %s needs a button: give %s another first
+ja: %s は %s のもので、%s にはボタンが必要です:先に %s に別のボタンを割り当ててください
+
+en: takes
+ja: は次のボタンを使用中:
+
+en: has no button now:
+ja: は現在ボタンがありません:
+
+en: pick one
+ja: 選んでください
+
+## ask_pad_bind
+en: Set a controller button
+ja: コントローラのボタンを設定
+
+en: On slot 1's controller, press the button for:
+ja: スロット1のコントローラで、次のボタンを押してください:
+
+en: Modern
+ja: モダン
+
+en: Classic
+ja: クラシック
+
+en: Button now: %s
+ja: 現在のボタン:%s
+
+en: A button another action uses at the same moment swaps with this one. Back, Esc or Cancel: no change. Back and the D-pad can't be bound.
+ja: 同時に使われる別の動作のボタンは、このボタンと入れ替わります。Back、Esc、キャンセル:変更なし。Backと方向パッドは割り当てできません。
+
+en: None
+ja: なし
+
+en: %s  (%s's)
+ja: %s  (%s のもの)
+
+## row_hidden
+en: Cheat menu
+ja: チートメニュー
+
+## keys_table
+en: Also used for: %s
+ja: ほかの用途:%s
+
+en: Back to the default (%s)
+ja: デフォルトに戻す(%s)
+
+en: The controller's own: not rebindable
+ja: コントローラ固有:変更できません
+
+en: Click, then press a button on slot 1's controller (or pick one)
+ja: クリックしてから、スロット1のコントローラのボタンを押します(または選びます)
+
+## reset_binds_button
+en: Put every %s controller button back to its default?
+ja: %s のコントローラのボタンをすべてデフォルトに戻しますか?
+
+en: Yes##binds_reset
+ja: はい##binds_reset
+
+en: No##binds_reset
+ja: いいえ##binds_reset
+
+en: Reset the controller buttons
+ja: コントローラのボタンをリセット
+
+## reset_button
+en: Reset all %s controls
+ja: %s の操作をすべてリセット
+
+## controls_tab
+en: Mouse (looking around)
+ja: マウス(見回し)
+
+en: Sensitivity left and right
+ja: 左右の感度
+
+en: Back to the default (100 %)
+ja: デフォルトに戻す(100 %)
+
+en: Sensitivity up and down
+ja: 上下の感度
+
+en: Invert up and down
+ja: 上下反転
+
+en: Keys and controller
+ja: キーとコントローラ
+
+en: Click an action's keys to add or remove one (up to 3). Click its controller button to change it: slot 1's controller, for the scheme above (Classic and Modern each have their own). Button names are an Xbox controller's: on a PlayStation controller A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options.
+ja: アクションのキーをクリックすると追加または削除できます(最大3個)。コントローラのボタンをクリックすると変更できます:スロット1のコントローラで、上の操作方式用です(クラシックとモダンは別々)。ボタン名はXboxコントローラのものです:PlayStationコントローラでは A / B / X / Y = ×/○/□/△、LB / RB / LT / RT = L1 / R1 / L2 / R2、Start = Options です。
+
+en: Click an action's keys to add or remove one (up to 3). In brackets: the controller button it presses.
+ja: アクションのキーをクリックすると追加または削除できます(最大3個)。括弧内は、押されるコントローラのボタンです。
+
+## photo_tab
+en: Click an action's keys to add or remove one (up to 3). In brackets: the controller button that does the same.
+ja: アクションのキーをクリックすると追加または削除できます(最大3個)。括弧内は、同じ動作をするコントローラのボタンです。
+
+## key_list
+en: or arrow keys
+ja: または矢印キー
+
+en: Arrow keys
+ja: 矢印キー
+
+## pad_label
+en: Controller %d
+ja: コントローラ %d
+
+en: PlayStation / Switch controller %d
+ja: PlayStation / Switch コントローラ %d
+
+en: %s (not connected)
+ja: %s(未接続)
+
+## port_source_name
+en: No input
+ja: 入力なし
+
+en: Any controller (%s)
+ja: 任意のコントローラ(%s)
+
+en: Any controller
+ja: 任意のコントローラ
+
+## slot_options
+en: Rumble
+ja: 振動
+
+en: This controller rumbles (when the game's own Vibration option is on too); off: never
+ja: このコントローラが振動します(ゲーム側の振動オプションも入のとき)。切:振動しません
+
+en: Rumble strength
+ja: 振動の強さ
+
+en: Back to the default (100 %: as the game asks)
+ja: デフォルトに戻す(100 %:ゲームの指定どおり)
+
+en: Sticks
+ja: スティック
+
+en: How far a stick tilts before it moves anything: lower responds sooner, higher helps a stick that drifts (14 % is the game's own).
+ja: スティックがどれだけ傾くと反応するか:低いほど早く反応し、高いとスティックのドリフトに効果があります(14 %はゲーム本来の値)。
+
+en: Stick dead zone
+ja: スティックのデッドゾーン
+
+en: Back to the default (10 %)
+ja: デフォルトに戻す(10 %)
+
+en: Single player camera speed
+ja: シングルプレイヤーのカメラ速度
+
+en: Multiplayer camera speed
+ja: マルチプレイヤーのカメラ速度
+
+en: Gyro aiming
+ja: ジャイロ照準
+
+en: This controller has no gyro. PlayStation controllers (DualShock 4, DualSense) and Switch controllers have one: these settings are used when one is in this slot.
+ja: このコントローラにはジャイロがありません。PlayStationコントローラ(DualShock 4、DualSense)とSwitchコントローラにはあり、このスロットに接続するとこれらの設定が使われます。
+
+en: Aim with the gyro in single player
+ja: シングルプレイヤーでジャイロで狙う
+
+en: Turning the controller aims while a weapon is out and the left trigger is held
+ja: 武器を出して左トリガーを押している間、コントローラを傾けて狙います
+
+en: Aim with the gyro in multiplayer
+ja: マルチプレイヤーでジャイロで狙う
+
+en: Turning the controller aims all match long
+ja: コントローラを傾けて、試合中ずっと狙います
+
+en: Gyro speed left / right
+ja: ジャイロ速度 左 / 右
+
+en: Back to the default (200 %: the aim turns twice as far as the controller)
+ja: デフォルトに戻す(200 %:照準がコントローラの2倍動きます)
+
+en: Gyro speed up / down
+ja: ジャイロ速度 上 / 下
+
+en: Invert gyro up / down
+ja: ジャイロ上下反転
+
+en: Tilting the controller up aims down
+ja: コントローラを上に傾けると下を狙います
+
+en: Correct gyro drift automatically
+ja: ジャイロのドリフトを自動補正
+
+en: While a controller is held still, its gyro's slow drift is measured and taken off (every controller). Off: only the Calibrate button does it.
+ja: コントローラを静止させている間、ジャイロの緩やかなドリフトを測定して除去します(すべてのコントローラ)。切:キャリブレーションボタンのときのみ。
+
+en: Calibrate
+ja: キャリブレーション
+
+en: Lay the controller down, still, and press: its gyro is measured for 2 seconds
+ja: コントローラを静止させて置き、押してください:ジャイロを2秒間測定します
+
+en: Calibrating: keep it still...
+ja: キャリブレーション中:動かさないでください...
+
+en: Held still
+ja: 静止中
+
+en: Turn the controller: the dot follows
+ja: コントローラを動かすと、点が追従します
+
+en: left
+ja: 左
+
+en: right
+ja: 右
+
+en: down
+ja: 下
+
+en: up
+ja: 上
+
+## slot_options_window
+en: Slot %d controller
+ja: スロット%dのコントローラ
+
+en: Close
+ja: 閉じる
+
+## ask_chord
+en: Set a chord
+ja: 同時押しを設定
+
+en: On slot 1's controller, hold two buttons together for:
+ja: スロット1のコントローラで、次の動作用に2つのボタンを同時に押し続けてください:
+
+en: Chord now: %s
+ja: 現在の同時押し:%s
+
+en: Hold one button and press the other: Back or RB with another button, a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both sticks clicked. B alone, Esc or Cancel: no change.
+ja: 1つのボタンを押したままもう1つを押します:BackまたはRBと別のボタン、方向パッドの方向とA、B、X、Y、LB、Start、RB、Backのいずれか、または両スティックの押し込み。Bのみ、Esc、キャンセル:変更なし。
+
+en: %s is %s's: pick another
+ja: %s は %s のものです:別のものを選んでください
+
+en: No chord
+ja: 同時押しなし
+
+## chord_row
+en: (required)
+ja: (必須)
+
+en: Press
+ja: 押す
+
+en: Set it by holding the chord on slot 1's controller
+ja: スロット1のコントローラで同時押しを押し続けて設定します
+
+en: %s is %s's now: change that one first
+ja: %s は現在 %s のものです:先にそちらを変更してください
+
+## chords_window
+en: Controller chords###chords
+ja: コントローラ同時押し###chords
+
+en: Two buttons held together for our own extras, on slot 1's controller; one set for every controller, apart from its normal controls. Button names are an Xbox controller's: on a PlayStation controller Back = Share / Create, Start = Options, LB / RB = L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle.
+ja: 独自の追加機能用に2つのボタンを同時に押し続けます。スロット1のコントローラ用で、通常の操作とは別に、すべてのコントローラ共通の設定です。ボタン名はXboxコントローラのものです:PlayStationコントローラでは Back = Share / Create、Start = Options、LB / RB = L1 / R1、A / B / X / Y = ×/○/□/△ です。
+
+en: Put every chord back to its default?
+ja: 同時押しをすべてデフォルトに戻しますか?
+
+en: Yes##chords_reset
+ja: はい##chords_reset
+
+en: No##chords_reset
+ja: いいえ##chords_reset
+
+en: Reset all chords
+ja: 同時押しをすべてリセット
+
+## ports_tab
+en: Which controller is each player: slot 1 is player 1 (controller port 1 on the Xbox). The list shows the connected controllers by the names in Windows' game controller list; PlayStation controllers (DualShock 4, DualSense) and Switch controllers (Pro Controller, a pair of Joy-Cons) work without other programs. A slot with no controller and no keyboard is empty, as if nothing were plugged in there; the game sees the change after a second.
+ja: 各プレイヤーのコントローラの割り当て:スロット1はプレイヤー1(Xboxのコントローラポート1)です。リストには、Windowsのゲームコントローラ一覧の名前で接続中のコントローラが表示されます。PlayStationコントローラ(DualShock 4、DualSense)とSwitchコントローラ(Proコントローラ、Joy-Consのペア)は、ほかのプログラムなしで使えます。コントローラもキーボードもないスロットは、何も接続していない状態と同じ空きになります。ゲームには約1秒後に反映されます。
+
+en: Slot
+ja: スロット
+
+en: Keyboard
+ja: キーボード
+
+en: Slot %d
+ja: スロット %d
+
+en: The keyboard and mouse are this player
+ja: キーボードとマウスがこのプレイヤーです
+
+en: Make the keyboard and mouse this player
+ja: キーボードとマウスをこのプレイヤーにする
+
+en: Options
+ja: オプション
+
+en: Rumble, sticks and gyro aiming for slot %d's controller
+ja: スロット%dのコントローラの振動、スティック、ジャイロ照準
+
+en: Chords
+ja: 同時押し
+
+en: Two buttons held together for the menus, photo mode and cheats (every controller)
+ja: メニュー、フォトモード、チート用に2つのボタンを同時に押し続けます(すべてのコントローラ)
+
+en: The mouse turns the camera directly only on slot 1; on another slot it works as that player's right stick.
+ja: マウスがカメラを直接動かすのはスロット1のみ。ほかのスロットでは、そのプレイヤーの右スティックとして動作します。
+
+en: Control when out of focus
+ja: フォーカス外でも操作
+
+en: Controllers keep playing the game while another window is in front. Off: they do nothing until the game window is in front again (the keyboard always waits).
+ja: ほかのウィンドウが前面にあっても、コントローラでゲームを操作できます。切:ゲームのウィンドウが前面に戻るまで何も起こりません(キーボードは常に待機)。
+
+## story_tab
+en: Scheme
+ja: 操作方式
+
+en: Hold
+ja: 押し続け
+
+en: Slingshot Aim
+ja: スリングショットの照準
+
+## mp_tab
+en: Toggle (press to zoom in, press again to zoom out)
+ja: 切り替え(押すとズームイン、もう一度押すとズームアウト)
+
+en: Hold (zoomed in while the key is held)
+ja: 押し続け(キーを押している間ズームイン)
+
+en: These keys follow the game's "Emily" control scheme: choose Emily in the multiplayer controller options.
+ja: これらのキーはゲームの「Emily」操作方式に従います:マルチプレイヤーのコントローラオプションでEmilyを選んでください。
+
+en: Zoom key
+ja: ズームキー
+
+## menus_tab
+en: Mouse in menus
+ja: メニューでのマウス
+
+en: The mouse in the game's menus: the pointer shows when the mouse moves; on the main menu the arrows at the sides (or a drag) turn, a click in the middle opens; right click goes back, the wheel moves up and down.
+ja: ゲームのメニューでのマウス:マウスを動かすとポインタが表示されます。メインメニューでは、両側の矢印(またはドラッグ)で回転し、中央をクリックすると開きます。右クリックで戻り、ホイールで上下に移動します。
+
+en: Fixed keys, the same in every menu: the main menu, the multiplayer menus and pause menu. Esc goes back on the main menu and the multiplayer menus, and closes the multiplayer pause menu.
+ja: すべてのメニューで共通の固定キー:メインメニュー、マルチプレイヤーメニュー、ポーズメニュー。Escはメインメニューとマルチプレイヤーメニューでは戻り、マルチプレイヤーのポーズメニューでは閉じます。
+
+en: Menus
+ja: メニュー
+
+en: Single player pause screen
+ja: シングルプレイヤーのポーズ画面
+
+en: Single player
+ja: シングルプレイヤー
+
+en: Multiplayer
+ja: マルチプレイヤー
+
+en: Photo mode
+ja: フォトモード
+
+en: Slots
+ja: スロット
+
+## build_controls
+en: Use keyboard and mouse
+ja: キーボードとマウスを使う
+
+en: In use now: the single player keys.
+ja: 現在使用中:シングルプレイヤーのキー。
+
+en: In use now: the multiplayer keys (the game is in multiplayer).
+ja: 現在使用中:マルチプレイヤーのキー(ゲームはマルチプレイヤー中)。
+
+en: In use now: the menu keys (see Menus).
+ja: 現在使用中:メニューのキー(メニューを参照)。
+
+en: In use now: the pause screen keys (see Menus).
+ja: 現在使用中:ポーズ画面のキー(メニューを参照)。
+
+en: In use now: the menu keys, Esc closes the menu (see Menus).
+ja: 現在使用中:メニューのキー、Escでメニューを閉じます(メニューを参照)。
+
+en: In use now: the cutscene keys (see Menus).
+ja: 現在使用中:カットシーンのキー(メニューを参照)。
+
+en: In use now: the single player keys, swimming at the surface.
+ja: 現在使用中:シングルプレイヤーのキー、水面での水泳。
+
+en: In use now: the single player keys, underwater.
+ja: 現在使用中:シングルプレイヤーのキー、水中。
+
+en: In use now: the single player keys on the beehive gun (Forward aims up, Back aims down).
+ja: 現在使用中:ハチの巣ガンでのシングルプレイヤーのキー(前で上向き、後ろで下向きに狙います)。
+
+en: In use now: the multiplayer keys in the Mule 52's gun seat (Forward aims up, Back aims down).
+ja: 現在使用中:Mule 52の砲手席でのマルチプレイヤーのキー(前で上向き、後ろで下向きに狙います)。
+
+en: In use now: the single player keys, the bat on the ground.
+ja: 現在使用中:シングルプレイヤーのキー、地上のコウモリ。
+
+en: In use now: the single player keys, the bat flying.
+ja: 現在使用中:シングルプレイヤーのキー、飛行中のコウモリ。
+
+en: In use now: the photo mode keys.
+ja: 現在使用中:フォトモードのキー。
+
+en: (F3, Esc, B or Start)
+ja: (F3、Esc、B、またはStart)
+
+## write_png
+en: Photo saved: %s
+ja: 写真を保存しました:%s
+
+en: The photo could not be saved (%s)
+ja: 写真を保存できませんでした(%s)
+
+## take_shot
+en: The photo could not be taken (%s)
+ja: 写真を撮れませんでした(%s)
+
+## build_photo_picture
+en: Off
+ja: 切
+
+en: CRT
+ja: CRT
+
+en: Low
+ja: 低
+
+en: Original
+ja: オリジナル
+
+en: Extended
+ja: 拡張
+
+en: Picture
+ja: 画質
+
+en: Only in photo mode: your own settings stay as they are.
+ja: フォトモードのみ:ふだんの設定は変わりません。
+
+en: Save photo settings
+ja: フォト設定を保存
+
+en: Photo mode starts with these from now on, also after a restart. Off: it starts from your settings.
+ja: 今後、再起動後もフォトモードはこの設定で始まります。切:ふだんの設定で始まります。
+
+## build_photo
+en: Change Photo Directory
+ja: フォトフォルダを変更
+
+en: Open Photo Directory
+ja: フォトフォルダを開く
+
+en: Back to the default (Photos in the save folder)
+ja: デフォルトに戻す(セーブフォルダ内のPhotos)
+
+en: Photos go to %s
+ja: 写真の保存先:%s
+
+en: Zoom (field of view)
+ja: ズーム(視野角)
+
+en: %.0f degrees
+ja: %.0f 度
+
+en: Back to the game's (%.0f degrees)
+ja: ゲームの値に戻す(%.0f 度)
+
+en: Roll
+ja: ロール
+
+en: Level (0 degrees)
+ja: 水平(0度)
+
+en: Fly speed
+ja: 飛行速度
+
+en: Show
+ja: 表示
+
+en: HUD and speech bubbles
+ja: HUDと吹き出し
+
+en: Hide Conker
+ja: Conkerを隠す
+
+en: Cutscene blur (the game's own)
+ja: カットシーンのぼかし(ゲーム本来のもの)
+
+en: Depth of field
+ja: 被写界深度
+
+en: Depth of field (blur away from the focus)
+ja: 被写界深度(ピントから離れるとぼかし)
+
+en: Focus distance
+ja: ピント距離
+
+en: Focus on Conker
+ja: Conkerにピントを合わせる
+
+en: Game units: Conker is about 60 tall.
+ja: ゲーム単位:Conkerの身長は約60です。
+
+en: Blur strength
+ja: ぼかしの強さ
+
+en: F3 > Photo mode changes the keys.
+ja: F3 > フォトモードでキーを変更できます。
+
+en: Start, Tab, B or Esc closes the panel.
+ja: Start、Tab、B、またはEscでパネルを閉じます。
+
+## build_report
+en: Makes a .zip to attach to a GitHub issue: this picture, the game's last logs, its settings, the saves when ticked and the PC's details (Windows, graphics card, processor). The Windows user name is left out.
+ja: GitHubのIssueに添付する.zipを作成します:この画面、ゲームの最新ログ、設定、チェック時はセーブデータ、PCの情報(Windows、グラフィックスカード、プロセッサ)が含まれます。Windowsのユーザー名は含まれません。
+
+en: Open GitHub Issue opens a new issue with its text filled in and copies that text too: if the page comes up empty, paste it there (Ctrl+V). Then drag the zip into the issue. Posting needs a free GitHub account.
+ja: 「GitHub Issueを開く」は、本文入力済みの新しいIssueを開き、その本文もコピーします:ページが空の場合はそこに貼り付けてください(Ctrl+V)。その後、zipをIssueにドラッグしてください。投稿には無料のGitHubアカウントが必要です。
+
+## pause_label
+en: Photo mode   Photo: %s / A   Settings: %s / Start   Leave: %s / %s
+ja: フォトモード   写真:%s / A   設定:%s / Start   終了:%s / %s
+
+en: The world is running   Pause it: %s / %s
+ja: 世界は動いています   ポーズ:%s / %s
+
+en: Paused (%s to resume)
+ja: ポーズ中(%s で再開)
+
+## overlay_drag
+en: Drag to move (kept when let go)
+ja: ドラッグで移動(離すと位置を保持)
+
+## speedrun_label
+en: starts with a game
+ja: ゲームで開始
+
+## fps_label
+en: %.1f fps  %.1f ms  (max %.1f)
+ja: %.1f fps  %.1f ms  (最大 %.1f)
+
+en: game %.1f ms  graphics %.1f ms  GPU %.1f ms, %.0f %% busy
+ja: ゲーム %.1f ms  グラフィックス %.1f ms  GPU %.1f ms、使用率 %.0f %%
+
+en: game %.1f ms  graphics %.1f ms  GPU %.1f ms
+ja: ゲーム %.1f ms  グラフィックス %.1f ms  GPU %.1f ms
+
+en: limited by: %s
+ja: 制限要因:%s
+
+en: limited by: measuring...
+ja: 制限要因:測定中...
+
+en: automatic resolution: %s (at most %s)
+ja: 自動解像度:%s(最大 %s)
+
+## precompile_screen
+en: Precompiling shaders (continuing where the last run stopped)
+ja: シェーダーをプリコンパイル中(前回の続きから)
+
+en: Precompiling shaders
+ja: シェーダーをプリコンパイル中
+
+en: Starting the game, then skipping to where it stopped...
+ja: ゲームを起動し、停止した位置までスキップ中...
+
+en: Starting the game...
+ja: ゲームを起動中...
+
+en: Levels: %d of %d
+ja: レベル:%d / %d
+
+en: Chapters: %d of %d (part %d of %d)%s
+ja: チャプター:%d / %d(パート %d / %d)%s
+
+en: , skipping to where it stopped
+ja: 、停止した位置までスキップ中
+
+en: Finishing the last shaders...
+ja: 最後のシェーダーを仕上げ中...
+
+en: Shaders compiled: %u    Time: %u:%02u
+ja: コンパイル済みシェーダー:%u    時間:%u:%02u
+
+en: The game runs every level and chapter behind this screen with the sound off, so their shaders are ready before you play. The game closes by itself when it is done. Esc or B on a controller stops it; what is compiled so far is kept, and the next run continues from there.
+ja: この画面の裏でゲームがサウンドを切ったまま全レベルとチャプターを実行し、プレイ前にシェーダーを準備します。完了するとゲームは自動的に閉じます。EscまたはコントローラのBで中止でき、それまでにコンパイルされた分は保持され、次回はそこから再開します。
+
+## pad_binds_parse
+en: Context action
+ja: コンテキストアクション
+
+en: Zoom (Unlocked Camera: reset)
+ja: ズーム(アンロックカメラ:リセット)
+
+en: Dive under
+ja: 潜る
+
+en: Launch
+ja: 飛び立つ
+
+## settings.c
+en: Medium
+ja: 中
+
+en: High
+ja: 高
+
+en: Ultra
+ja: 最高

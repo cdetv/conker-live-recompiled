@@ -57,6 +57,7 @@ int cheat_of_command(const char *name);    /* -1 for none */
 /* The menu can be opened: --debug, or the unlock code was entered. */
 int cheats_menu_ok(void);
 int cheat_unlocked(int id);                /* every cheat with --debug */
+int cheat_unlocked_saved(int id);          /* by the player (settings.ini), --debug aside */
 int cheat_is_set(int id);                  /* its box in the menu */
 void cheat_set(int id, int on);
 

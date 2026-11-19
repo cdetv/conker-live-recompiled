@@ -40,6 +40,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             Files.PrecompileShadersCommand.NotifyCanExecuteChanged();
             Files.AskDeleteShadersCommand.NotifyCanExecuteChanged();
+            Files.AskDeleteAssetsCommand.NotifyCanExecuteChanged();
             PlayCommand.NotifyCanExecuteChanged();
             UpdateCommand.NotifyCanExecuteChanged();
             OpenUpdatePromptCommand.NotifyCanExecuteChanged();
@@ -315,6 +316,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         ShowImportPrompt = false;
         await Files.ImportGameCommand.ExecuteAsync(null);
+    }
+
+    /// <summary>The Welcome pop-up's Import Xbox Store version (shown when one is installed; to-do 37).</summary>
+    [RelayCommand]
+    private async Task ImportStoreFromPromptAsync()
+    {
+        ShowImportPrompt = false;
+        if (Files.ImportStoreVersionCommand.CanExecute(null))
+        {
+            await Files.ImportStoreVersionCommand.ExecuteAsync(null);
+        }
     }
 
     /// <summary>Play: with <c>--debug</c> when the Debug tab's Debug Mode is on (to-do 144).</summary>

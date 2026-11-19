@@ -286,6 +286,9 @@
                 <TextBlock Text="{Binding GameFilesText}" TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button Content="{Binding ImportButtonText}" Command="{Binding ImportGameCommand}" />
+                  <!-- An installed Xbox Store version found on this PC (to-do 37): imported in one click. -->
+                  <Button Content="Import Xbox Store version" Command="{Binding ImportStoreVersionCommand}"
+                          IsVisible="{Binding StoreVersionFound}" />
                 </StackPanel>
 
                 <ContentControl Content="{Binding}" ContentTemplate="{StaticResource JobProgress}" IsVisible="{Binding GameJobVisible}" />
@@ -320,6 +323,21 @@
                 </StackPanel>
                 <TextBlock Text="{Binding PrecompileError}" TextWrapping="Wrap" Classes="error"
                            IsVisible="{Binding PrecompileError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                <!-- Game assets: conker.exe carve makes them from the game files (to-do 43, SPEC 9.3). -->
+                <TextBlock Classes="section" Text="Game assets" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding AssetsText}" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !ConfirmDeleteAssets}">
+                  <Button Content="Delete Assets" Command="{Binding AskDeleteAssetsCommand}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmDeleteAssets}">
+                  <TextBlock Text="Delete the prepared game assets? The launcher prepares them again the next time it starts."
+                             TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="480" />
+                  <Button Content="Yes" Command="{Binding DeleteAssetsCommand}" />
+                  <Button Classes="safe" Content="No" Command="{Binding CancelDeleteAssetsCommand}" />
+                </StackPanel>
+                <TextBlock Text="{Binding AssetsError}" TextWrapping="Wrap" Classes="error"
+                           IsVisible="{Binding AssetsError, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
                 <!-- User files: where they are kept (SPEC 9.3); a change moves them. -->
                 <TextBlock Classes="section" Text="User files" Margin="0,8,0,0" />
@@ -472,12 +490,19 @@
     <!-- Not over the user files pop-ups: those come first. -->
     <Panel IsVisible="{Binding !UserFiles.IsBusy}">
     <Border x:Name="WelcomeOverlay" Background="#B0000000" IsVisible="{Binding ShowImportPrompt}">
-      <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
-              CornerRadius="10" Padding="28,24" Width="480" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <Border x:Name="WelcomeBox" Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
+              CornerRadius="10" Padding="28,24" Width="560" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="16">
           <TextBlock Classes="section" Text="Welcome" FontSize="22" />
           <TextBlock TextWrapping="Wrap"
-                     Text="To play, the launcher needs the game files from your own Conker: Live &amp; Reloaded disc (PAL or USA): a disc image (.iso), an archive holding it (.zip, .7z, .rar), or a copied game folder." />
+                     Text="To play, the launcher needs the game files from your own copy of Conker: Live &amp; Reloaded: a disc image (.iso, PAL or USA), an archive holding it (.zip, .7z, .rar), a copied game folder, or the Xbox Store version." />
+          <!-- An installed Xbox Store version found on this PC (to-do 37): one click imports it. -->
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" IsVisible="{Binding Files.StoreVersionFound}">
+            <TextBlock TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{StaticResource XboxGreenBrush}"
+                       Text="Xbox Store version found on this PC." />
+            <Button Grid.Column="1" Classes="play" Content="Import Xbox Store version" FontSize="16"
+                    Command="{Binding ImportStoreFromPromptCommand}" />
+          </Grid>
           <!-- A file dropped here is imported at once (to-do 122); a drag it won't take says why while it hovers. -->
           <Panel>
             <TextBlock Text="or drag your disc image here" FontSize="13" Foreground="{StaticResource DimTextBrush}"

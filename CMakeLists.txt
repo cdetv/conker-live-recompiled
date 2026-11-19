@@ -121,7 +121,15 @@ set(GAME_SOURCES
     src/dev_logs.c
     src/speedrun.c
     src/gpu_busy.c
+    src/caff.c
+    src/caff_guest.c
+    src/caff_tool.c
+    src/caff_redirect.c
+    src/caff_cache.c
+    src/caff_inventory.c
+    src/caff_guard.c
     src/overlay.cpp
+    src/ui_text.cpp
     src/menu_mouse.cpp
     # Add game-specific sources here, e.g.:
     # src/asset_loader.c
@@ -174,6 +182,9 @@ else()
 endif()
 configure_file(src/conker.rc.in "${CMAKE_CURRENT_BINARY_DIR}/conker.rc" @ONLY)
 target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/conker.rc")
+# A UTF-8 process code page (to-do 262): folder names with any letters. CMake
+# merges a .manifest source into the manifest the linker embeds.
+target_sources(${PROJECT_NAME} PRIVATE src/conker.manifest)
 
 # The version, for what the game writes for the launcher (src/precompile.c)
 # and the bug report (src/bug_report.c).
@@ -220,6 +231,15 @@ if(CONKER_GAME_DIR)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/link_game_dir.cmake
         VERBATIM)
 endif()
+
+# The menus' translations (to-do 229): lang\ next to the .exe, copied on
+# every build, also when only a translation changed (our own text,
+# shipped in the release; SPEC 10.1).
+add_custom_target(lang_files ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/lang
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/lang
+    VERBATIM)
+add_dependencies(lang_files ${PROJECT_NAME})
 
 # Windows SDK libraries needed at link time
 target_link_libraries(${PROJECT_NAME} PRIVATE

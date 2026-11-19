@@ -23,28 +23,23 @@ public static class SaveFolder
 
     public static string SettingsIni => Path.Combine(Root, "settings.ini");
 
-    public static string Photos => ReadSetting("photo_folder") is { Length: > 0 } folder ? folder : Path.Combine(Root, "Photos");
+    public static string Photos => ReadSetting("photo_folder") is { Length: > 0 } folder ? Unquoted(folder) : Path.Combine(Root, "Photos");
 
-    /// <summary>A <c>key = value</c> from settings.ini (the keys are unique across sections).</summary>
+    /// <summary>A path without the quotes the game allows around it (<c>normalize</c> in <c>src/settings.c</c>).</summary>
+    private static string Unquoted(string path) =>
+        path.Length >= 2 && path[0] == '"' && path[^1] == '"' ? path[1..^1] : path;
+
+    /// <summary>
+    /// A <c>key = value</c> from settings.ini (the keys are unique across sections), read as the
+    /// game reads it (<see cref="SettingsFile.Read"/>: UTF-8, else the PC's own code page).
+    /// </summary>
     public static string? ReadSetting(string key)
     {
         try
         {
-            if (!File.Exists(SettingsIni))
-            {
-                return null;
-            }
-
-            foreach (string line in File.ReadLines(SettingsIni))
-            {
-                int eq = line.IndexOf('=');
-                if (eq > 0 && !line.TrimStart().StartsWith(';') && line[..eq].Trim().Equals(key, StringComparison.OrdinalIgnoreCase))
-                {
-                    return line[(eq + 1)..].Trim();
-                }
-            }
+            return SettingsFile.Read(SettingsIni).TryGetValue(key, out string? value) ? value : null;
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
         }
 

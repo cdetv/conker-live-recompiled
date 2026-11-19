@@ -8,6 +8,7 @@
 #include "chords.h"
 #include "settings.h"
 #include "cheats.h"
+#include "ui_text.h"   /* N_(): the menus' text (to-do 229) */
 
 /* ---- the chords one can pick -------------------------------------------- */
 
@@ -27,10 +28,10 @@ static const struct {
     { CHORD_LB, "lb", "LB" },
     { CHORD_START, "start", "Start" },
     { CHORD_BACK, "back", "Back" },
-    { CHORD_UP, "dpad_up", "D-pad Up" },
-    { CHORD_DOWN, "dpad_down", "D-pad Down" },
-    { CHORD_LEFT, "dpad_left", "D-pad Left" },
-    { CHORD_RIGHT, "dpad_right", "D-pad Right" },
+    { CHORD_UP, "dpad_up", N_("D-pad Up") },
+    { CHORD_DOWN, "dpad_down", N_("D-pad Down") },
+    { CHORD_LEFT, "dpad_left", N_("D-pad Left") },
+    { CHORD_RIGHT, "dpad_right", N_("D-pad Right") },
     { CHORD_LS, "ls", "LS" },
     { CHORD_RS, "rs", "RS" },
 };
@@ -98,7 +99,7 @@ static void build_table(void)
     /* Both sticks clicked: "Click both sticks" in the user's list. */
     add_chord(CHORD_LS, CHORD_RS);
     snprintf(s_chords[s_count - 1].label, sizeof(s_chords[0].label),
-             "Both sticks clicked");
+             N_("Both sticks clicked"));
 
     /* settings.c's allowed values come from CHORDS_CHOICES: the same list. */
     strcpy_s(check, sizeof(check), "none");
@@ -168,44 +169,44 @@ static const struct {
     const char *key, *label, *tip;
     int group, required;
 } s_fns[CHORD_FNS] = {
-    { "chord_menu", "Recomp Menu",
-      "The list of menus: Settings, Controls, Controller Options, Photo Mode, "
-      "Report Bug. Every controller needs a way to it, so it can't be unbound",
+    { "chord_menu", N_("Recomp Menu"),
+      N_("The list of menus: Settings, Controls, Controller Options, Photo Mode, "
+         "Report Bug. Every controller needs a way to it, so it can't be unbound"),
       CHORD_GROUP_UNIVERSAL, 1 },
-    { "chord_settings", "Settings Menu",
-      "F2's settings. Also on the Recomp Menu",
+    { "chord_settings", N_("Settings Menu"),
+      N_("F2's settings. Also on the Recomp Menu"),
       CHORD_GROUP_UNIVERSAL, 0 },
-    { "chord_photo", "Photo Mode",
-      "Photo mode on and off (in photo mode or freecam: leave). Also on the "
-      "Recomp Menu",
+    { "chord_photo", N_("Photo Mode"),
+      N_("Photo mode on and off (in photo mode or freecam: leave). Also on the "
+         "Recomp Menu"),
       CHORD_GROUP_UNIVERSAL, 0 },
-    { "chord_photo_pause", "Pause / Resume",
-      "In photo mode: the world frozen or running",
+    { "chord_photo_pause", N_("Pause / Resume"),
+      N_("In photo mode: the world frozen or running"),
       CHORD_GROUP_PHOTO, 0 },
-    { "chord_freecam_swap", "Freecam: camera or Conker",
-      "In freecam: the controller flies the camera or plays Conker",
+    { "chord_freecam_swap", N_("Freecam: camera or Conker"),
+      N_("In freecam: the controller flies the camera or plays Conker"),
       CHORD_GROUP_PHOTO, 0 },
-    { "chord_noclip", "No-clip",
-      "Conker flies through walls (debug mode)",
+    { "chord_noclip", N_("No-clip"),
+      N_("Conker flies through walls (debug mode)"),
       CHORD_GROUP_CHEATS, 0 },
-    { "chord_bullet", "Bullet Time",
-      "Bullet time on and off, while its cheat is on",
+    { "chord_bullet", N_("Bullet Time"),
+      N_("Bullet time on and off, while its cheat is on"),
       CHORD_GROUP_CHEATS, 0 },
-    { "chord_freecam", "Free Camera",
-      "Freecam on from gameplay (debug mode): photo mode's camera with the "
-      "world running. The Photo Mode chord leaves it",
+    { "chord_freecam", N_("Free Camera"),
+      N_("Freecam on from gameplay (debug mode): photo mode's camera with the "
+         "world running. The Photo Mode chord leaves it"),
       CHORD_GROUP_CHEATS, 0 },
 };
 
 static const char *const s_group_names[CHORD_GROUPS] = {
-    "Universal", "Photo Mode", "Cheats / Debug",
+    N_("Universal"), N_("Photo Mode"), N_("Cheats / Debug"),
 };
 static const char *const s_group_tips[CHORD_GROUPS] = {
-    "Anywhere. A chord used here can't be used for anything else",
-    "In photo mode only. May share a chord with a Cheats / Debug function, "
-    "not with a Universal one",
-    "In gameplay only. May share a chord with a Photo Mode function, not "
-    "with a Universal one",
+    N_("Anywhere. A chord used here can't be used for anything else"),
+    N_("In photo mode only. May share a chord with a Cheats / Debug function, "
+       "not with a Universal one"),
+    N_("In gameplay only. May share a chord with a Photo Mode function, not "
+       "with a Universal one"),
 };
 
 const char *chords_fn_key(int fn)
@@ -321,7 +322,7 @@ void chords_apply(void)
             int c = chords_find(v);
             if (c < 0 && (!v || _stricmp(v, "none"))) {
                 fprintf(stderr, "[CHORDS] %s = %s is not a chord: %s\n",
-                        s_fns[fn].key, v ? v : "(none)",
+                        s_fns[fn].key, v ? v : N_("(none)"),
                         s_fns[fn].required ? "the default" : "unbound");
                 c = s_fns[fn].required ? chords_find(settings_default(s_fns[fn].key))
                                        : -1;

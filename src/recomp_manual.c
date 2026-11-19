@@ -572,6 +572,87 @@ void sub_000645C0_enter(void)
         g_xmm1.f[0] *= widen;
 }
 
+/* ── Character & foliage detail (to-do 219, #22) ────────────────────────
+ *
+ * One choice for how far away characters, grass and fur keep their detail
+ * (settings.ini character_foliage_detail, F2 Graphics "Character & foliage
+ * detail"; RECOMP_CHARACTER_FOLIAGE_DETAIL = low | original | extended; the
+ * old RECOMP_GRASS_FULL=0 still means original). Not a world draw distance:
+ * the world is to-do 260. Extended (default) is the Pop-in Fix below
+ * (grass, characters, fur at full detail anywhere; its parts popin_*), plus
+ * the model-detail pick's distances x2 (far characters keep their full
+ * model twice as far: to-do 65's part). Original = the Xbox's distances.
+ * Low (the Low preset; faster on a weak PC): the hide distance +0xCA, the
+ * fur distance and the grass distance x0.6, the pick's first distance x0.5
+ * (the second one, to the crude LOD 2 stand-in, never moves; the viewer's
+ * own character keeps the original pair and fur), and multiplayer's pose skip by
+ * on-screen size x2 (0x002C5260's 15 / 12 / 10 at 0x0075E9E0 / 0x0075E9DC /
+ * 0x0075E9D8, read only there). Low leaves the front end (level 0x1D) and
+ * 0x46 alone: the pub crew would vanish in the main menu. Research:
+ * docs/research/r4-0.3.4-detail-distance.md. */
+enum { DETAIL_LOW, DETAIL_ORIGINAL, DETAIL_EXTENDED };
+static int xact_va_ok(uint32_t va);
+static volatile int g_detail = -1;
+static int s_fur_own;     /* the fur count asked is for the camera's own character */
+static const char *const k_detail_names[] = { "low", "original", "extended" };
+
+#define DETAIL_LOW_NEAR  0.6f     /* hide, fur and grass distances */
+#define DETAIL_LOW_LOD   0.5f     /* the model pick's first distance */
+#define DETAIL_EXT_LOD   2.0f     /* both of the pick's distances */
+
+static int detail_level(void)
+{
+    if (g_detail < 0) {
+        const char *e = getenv("RECOMP_CHARACTER_FOLIAGE_DETAIL");
+        int d = DETAIL_EXTENDED, i;
+        if (e && *e) {
+            for (i = 0; i < 3; i++)
+                if (!_stricmp(e, k_detail_names[i]))
+                    d = i;
+        } else if ((e = getenv("RECOMP_GRASS_FULL")) && *e) {
+            d = *e == '0' ? DETAIL_ORIGINAL : DETAIL_EXTENDED;
+        }
+        g_detail = d;
+        fprintf(stderr, "[DETAIL] character & foliage detail %s\n",
+                k_detail_names[d]);
+    }
+    return g_detail;
+}
+
+/* For the F2 menu (overlay.cpp), in k_detail_names' order: from the next
+ * frame. */
+void conker_SetDetailDistance(int level)
+{
+    if (level < DETAIL_LOW || level > DETAIL_EXTENDED)
+        level = DETAIL_EXTENDED;
+    if (level != g_detail)
+        fprintf(stderr, "[DETAIL] character & foliage detail %s\n",
+                k_detail_names[level]);
+    g_detail = level;
+}
+
+/* Low, and not in the front end. */
+static int detail_low_here(void)
+{
+    uint32_t lv = MEM32(0x007FA1F8u);
+    return detail_level() == DETAIL_LOW && lv != 0x1Du && lv != 0x46u;
+}
+
+/* Multiplayer's pose skip thresholds by on-screen size (every 2nd / 4th /
+ * 8th frame at or below them), written when the choice changes. */
+static void detail_pose_skip(void)
+{
+    static int written = -1;
+    int low = detail_level() == DETAIL_LOW;
+    float k = low ? 2.0f : 1.0f;
+    if (written == low)
+        return;
+    written = low;
+    MEMF(0x0075E9E0u) = 15.0f * k;
+    MEMF(0x0075E9DCu) = 12.0f * k;
+    MEMF(0x0075E9D8u) = 10.0f * k;
+}
+
 /* ── Field of view and the character model-detail pick (to-do 257) ────────
  *
  * 0x0007F1E0 (cdecl: character index, viewport index as a short) picks a
@@ -589,7 +670,10 @@ void sub_000645C0_enter(void)
  * pair sits on the guest stack well below the call's frame (the function
  * reads it before it calls anything) and +0x514 points at it during the
  * call, the old value back after. A viewport whose +0x260 is no longer ours
- * (another camera set it) is left alone. RECOMP_FOV_LOD_FIX=0 = original. */
+ * (another camera set it) is left alone. RECOMP_FOV_LOD_FIX=0 = original.
+ * The character & foliage detail (above) scales the same pair: Extended
+ * x2, Low the first one x0.5 except for the character the viewport's camera follows
+ * (camera record [0x008470DC] + viewport x 0x770, +0x3E0). */
 extern void sub_0007F1E0_gen(void);
 
 static int fov_lod_on(void)
@@ -614,23 +698,35 @@ static float fov_lod_tan(float across)     /* as the pick: clamped, full angle *
 
 void sub_0007F1E0(void)
 {
-    int vi = (int16_t)MEM16(g_esp + 8u);
-    uint32_t ci = MEM32(g_esp + 4u), chr, vp, old, pair;
-    float x1, t0, f, a, b;
+    int vi = (int16_t)MEM16(g_esp + 8u), detail = detail_level();
+    uint32_t ci = MEM32(g_esp + 4u), chr, vp, old, pair, cams;
+    float x1, t0, f = 1.0f, a, b, m0 = 1.0f, m1 = 1.0f;
     static float logged_fov = -1.0f;
 
-    if (!fov_lod_on() || vi < 0 || vi > 3 || !((x1 = s_fov_lod_x1[vi]) > 0.0f)) {
-        sub_0007F1E0_gen();
-        return;
-    }
-    vp = MEM32(0x0084A13Cu) + (uint32_t)vi * 0x2B0u;
-    t0 = fov_lod_tan(s_fov_lod_x0[vi]);
-    f = t0 > 0.0f ? fov_lod_tan(x1) / t0 : 1.0f;
-    if (MEMF(vp + 0x260u) != x1 || !(f > 1.0001f || f < 0.9999f) || !(f < 1000.0f)) {
+    detail_pose_skip();
+    if (vi < 0 || vi > 3) {
         sub_0007F1E0_gen();
         return;
     }
     chr = MEM32(0x0084A5F8u) + ci * 0x6D0u;
+    if (fov_lod_on() && (x1 = s_fov_lod_x1[vi]) > 0.0f) {
+        vp = MEM32(0x0084A13Cu) + (uint32_t)vi * 0x2B0u;
+        t0 = fov_lod_tan(s_fov_lod_x0[vi]);
+        f = t0 > 0.0f ? fov_lod_tan(x1) / t0 : 1.0f;
+        if (MEMF(vp + 0x260u) != x1 || !(f < 1000.0f) || !(f > 0.001f))
+            f = 1.0f;
+    }
+    if (detail == DETAIL_EXTENDED) {
+        m0 = m1 = DETAIL_EXT_LOD;
+    } else if (detail_low_here()) {
+        cams = MEM32(0x008470DCu);
+        if (!xact_va_ok(cams) || MEM32(cams + (uint32_t)vi * 0x770u + 0x3E0u) != chr)
+            m0 = DETAIL_LOW_LOD;
+    }
+    if (!(f > 1.0001f || f < 0.9999f) && m0 == 1.0f && m1 == 1.0f) {
+        sub_0007F1E0_gen();
+        return;
+    }
     old = MEM32(chr + 0x514u);
     if (old) {
         a = MEMF(old);
@@ -642,14 +738,14 @@ void sub_0007F1E0(void)
         a = MEMF(0x005A0060u);              /* story: 500 / 730 */
         b = MEMF(0x00649D80u);
     }
-    if (logged_fov != g_fov) {
+    if (f != 1.0f && logged_fov != g_fov) {
         logged_fov = g_fov;
         fprintf(stderr, "[FOV] model detail kept at the original distances "
                 "(field of view %.0f: x%.2f here)\n", g_fov, f);
     }
     pair = (g_esp - 0x400u) & ~7u;
-    MEMF(pair) = a * f;
-    MEMF(pair + 4u) = b * f;
+    MEMF(pair) = a * f * m0;
+    MEMF(pair + 4u) = b * f * m1;
     MEM32(chr + 0x514u) = pair;
     sub_0007F1E0_gen();
     MEM32(chr + 0x514u) = old;
@@ -2033,8 +2129,8 @@ float conker_LoadCover(void)
  * before level_change), its last call, the audio "NewGame" 0x000187C0 ->
  * 0x0001E570 (every tune; XACT log callers, run_20261107_113938).
  *
- * RECOMP_FAST_LOADS (= settings fast_loads, default off, user 2026-11-07;
- * 1 = on): inside level_unload, level_load_run 0x002AADC0 and the tips
+ * RECOMP_FAST_LOADS (= settings fast_loads, on by default from 0.3.4, user
+ * 2026-11-18, off before; unset here = off, settings.c sets it): inside level_unload, level_load_run 0x002AADC0 and the tips
  * wait every stop is the immediate kind (ecx = 1 at 0x00400B80), the path
  * the game itself takes for a stop without a fade. Not the stop that
  * audioSoundBankFreeCue 0x00400C00 makes of a cue freed while playing
@@ -2549,6 +2645,10 @@ void sub_002AADC0(void)
     s_fl_forced = 0;
     s_ls_edge_fixed = s_ls_edge_missed = 0;
     s_fl_unload_ms = 0.0;
+    {
+        extern void caff_guard_after_load(uint32_t level);
+        caff_guard_after_load(to);      /* pool line / bundle test (to-do 43) */
+    }
     fflush(stderr);
 }
 
@@ -3659,10 +3759,17 @@ static int berri_fix_on(void)
 
 static long s_berri_ms = -10000;
 
+static void size_frame(void);           /* to-do 212 / 263, "Conker the Mouse" below */
+
 void sub_000808F0_enter(void)
 {
     char cur[96];
     uint32_t base = MEM32(0x0084A5F8u), idx = MEM32(g_esp + 4), c, tbl, anim;
+    /* Conker's size again right before his matrix is built (to-do 263): the
+     * bar scenes (level 0x1D) place him every frame with the scene's own
+     * scale (sub_000532D0), after the draw-top and frame-end size_frame. */
+    if (idx == 0)
+        size_frame();
     if (!berri_fix_on() || !xact_va_ok(base) || idx > 0x80)
         return;
     c = base + idx * 0x6D0;
@@ -8701,14 +8808,15 @@ void sub_00537360_enter(void)
  *                             out as the camera backs away;
  *   past 2500 ([0x00649234])  not drawn.
  * Both limits are float constants shared with many other functions, so they
- * stay; instead, with grass_full_detail on, the patch's centre is put on the
- * camera for the distance test (entry hook below) and back before anything
+ * stay; instead, with character_foliage_detail extended, the patch's
+ * centre is put on the camera for the distance test (entry hook below) and back before anything
  * else reads it: the function's next read of it is the position pushed for
  * the patch matrix, 0x004288F5 (D3DX translation, returns to 0x001A96A4),
  * whose entry hook writes the real centre back to the patch and to the
  * pushed arguments. Every patch in range of the level's own culling is then
- * drawn as if near. RECOMP_GRASS_FULL=0 (or grass_full_detail = 0) = the
- * original; conker_SetGrassFull from the F2 menu.
+ * drawn as if near. Character & foliage detail original = the original
+ * (the Pop-in Fix was grass_full_detail, its own switch in F2 Fixes until 0.3.4; Low
+ * moves the centre the other way, see detail_level above).
  * Each part of the fix (grass, characters, fur, ambient particles below)
  * also has its own switch under that one (user 2026-10-31):
  * RECOMP_POPIN_GRASS, _CHARACTERS, _FUR = 0 (popin_* in settings.ini)
@@ -8717,7 +8825,6 @@ void sub_00537360_enter(void)
  * conker_SetPopinPart from the F2 menu. */
 enum { POPIN_GRASS, POPIN_CHARACTERS, POPIN_FUR, POPIN_PARTICLES,
        POPIN_PARTS };
-static volatile int g_grass_full = -1;
 static volatile int g_popin_part[POPIN_PARTS] = { -1, -1, -1, -1 };
 static const char *const k_popin_env[POPIN_PARTS] = {
     "RECOMP_POPIN_GRASS", "RECOMP_POPIN_CHARACTERS", "RECOMP_POPIN_FUR",
@@ -8734,21 +8841,13 @@ static int env_on(const char *name, int def)
     return e && *e ? *e != '0' : def;
 }
 
-/* The pop-in fix's part (POPIN_*) is on: the main switch and its own. */
+/* The pop-in fix's part (POPIN_*) is on: Extended and its own switch. */
 static int popin_on(int part)
 {
-    if (g_grass_full < 0)
-        g_grass_full = env_on("RECOMP_GRASS_FULL", 1);
     if (g_popin_part[part] < 0)
         g_popin_part[part] = env_on(k_popin_env[part],
                                     part != POPIN_PARTICLES);
-    return g_grass_full && g_popin_part[part];
-}
-
-/* For the F2 menu (overlay.cpp): applies from the next frame. */
-void conker_SetGrassFull(int on)
-{
-    g_grass_full = on != 0;
+    return detail_level() == DETAIL_EXTENDED && g_popin_part[part];
 }
 
 /* part: 0 grass, 1 characters, 2 fur, 3 particles (POPIN_*). */
@@ -8772,20 +8871,35 @@ void sub_001A9540_enter(void)
 {
     uint32_t patch = MEM32(g_esp + 4), players = MEM32(0x008470DCu), cam;
     int16_t player = (int16_t)MEM16(g_esp + 8);
+    int low;
     grass_put_back();                   /* never left moved by a missed call */
     s_grass_fog = 0;
     s_grass_fog_draw = 0;
-    if (!popin_on(POPIN_GRASS) || !xact_va_ok(patch) || !xact_va_ok(players)
-        || player < 0 || player > 3)
+    low = detail_low_here();
+    if ((!popin_on(POPIN_GRASS) && !low) || !xact_va_ok(patch)
+        || !xact_va_ok(players) || player < 0 || player > 3)
         return;
     cam = MEM32(players + (uint32_t)player * 0x770u + 0x3E0u);
     if (!xact_va_ok(cam))
         return;
-    grass_fog_measure(patch, player);   /* before the centre moves */
+    if (!low)
+        grass_fog_measure(patch, player);   /* before the centre moves */
     s_grass_patch = patch;
     s_grass_pos[0] = MEM32(patch + 0x2C);
     s_grass_pos[1] = MEM32(patch + 0x30);
     s_grass_pos[2] = MEM32(patch + 0x34);
+    if (low) {
+        /* Character & foliage detail low: the centre pushed out from the
+         * point the function measures from, 1 / 0.6 as far: full blades to 480,
+         * thinned to 1500. */
+        int i;
+        for (i = 0; i < 3; i++) {
+            float p = MEMF(cam + 0x78u + 4u * (uint32_t)i);
+            float c = MEMF(patch + 0x2Cu + 4u * (uint32_t)i);
+            MEMF(patch + 0x2Cu + 4u * (uint32_t)i) = p + (c - p) / DETAIL_LOW_NEAR;
+        }
+        return;
+    }
     MEM32(patch + 0x2C) = MEM32(cam + 0x78);
     MEM32(patch + 0x30) = MEM32(cam + 0x7C);
     MEM32(patch + 0x34) = MEM32(cam + 0x80);
@@ -8799,21 +8913,31 @@ void sub_001A9540_enter(void)
  * camera backs away. +0xCA is 1000 for every character in the front end's
  * pub. A limit of 0 means none, which is what the function itself uses
  * while the cutscene camera runs ([0x0076F0E0] == 1): then a character in
- * the frustum is shown at full opacity at once. With grass_full_detail on,
- * +0xCA reads 0 for the call and is put back after it. The frustum and the
- * GPU occlusion box still apply. */
+ * the frustum is shown at full opacity at once. With character & foliage detail
+ * Extended, +0xCA reads 0 for the call and is put back after it. The
+ * frustum and the GPU occlusion box still apply. Low: +0xCA x0.6 for the
+ * call (3000 -> 1800, 5000 -> 3000; 0 stays none; the sniper scope's
+ * 100000 is the function's own). */
 extern void sub_00080DA0_gen(void);
 void sub_00080DA0(void)
 {
     uint32_t c = MEM32(g_esp + 4);
     uint16_t lim;
+    int low = 0;
 
-    if (!popin_on(POPIN_CHARACTERS) || !xact_va_ok(c)) {
+    if (!xact_va_ok(c) || (!popin_on(POPIN_CHARACTERS)
+                           && !(low = detail_low_here()))) {
         sub_00080DA0_gen();
         return;
     }
     lim = MEM16(c + 0xCAu);
-    MEM16(c + 0xCAu) = 0;
+    if (low && !lim) {
+        sub_00080DA0_gen();
+        return;
+    }
+    MEM16(c + 0xCAu) = low ? (uint16_t)(lim * DETAIL_LOW_NEAR + 0.5f) : 0;
+    if (low && !MEM16(c + 0xCAu))
+        MEM16(c + 0xCAu) = 1;
     sub_00080DA0_gen();
     MEM16(c + 0xCAu) = lim;
 }
@@ -8826,8 +8950,9 @@ void sub_00080DA0(void)
  * xmm0, returns to 0x0008210C), against R in xmm3 (1000; 3000 for model
  * 0x6D). Up to 0.4 R every shell (at most 8; +0xCF caps it), the shells
  * 1 to 2 times as long from 100 to 0.4 R; past that fewer shells, down to
- * one (no fur) at about R. With grass_full_detail on the distance reads at
- * most 0.4 R there: full fur at any distance, as long as at 0.4 R. */
+ * one (no fur) at about R. With character & foliage detail extended the
+ * distance reads at most 0.4 R there: full fur at any distance, as long as at 0.4 R. Low:
+ * the distance / 0.6 (thinning from 240, gone at about 600 for R 1000). */
 extern void sub_003E1EE0_gen(void);
 void sub_003E1EE0(void)
 {
@@ -8835,8 +8960,13 @@ void sub_003E1EE0(void)
     int fur = MEM32(g_esp) == 0x0008210Cu;
 
     sub_003E1EE0_gen();
-    if (!fur || !popin_on(POPIN_FUR))
+    if (!fur)
         return;
+    if (!popin_on(POPIN_FUR)) {
+        if (!s_fur_own && detail_low_here())
+            g_xmm0.f[0] /= DETAIL_LOW_NEAR;
+        return;
+    }
     full = g_xmm3.f[0] > 0.0f ? g_xmm3.f[0] * 0.4f : 400.0f;
     if (g_xmm0.f[0] > full)
         g_xmm0.f[0] = full;
@@ -16084,6 +16214,7 @@ int conker_Warped(void)
  * the floor from, z. Out of the level's own exits; a cutscene trigger there may fire,
  * which is what comes next in the story. */
 #define WSPOT_MAINMENU 255              /* above every checkpoint number */
+#define WSPOT_SOAK_TRE 254              /* the Soak warp to ThroneRoomExtended (to-do 261) */
 #define MENU_WALK_SCALE 1.1875f         /* his size there: 1 = the menu's characters' scale;
                                            1 and 1.125 a little small beside them, 1.25 a little big (user 2026-11-12) */
 static const struct { uint8_t cp; int16_t x, y, z; } s_cp_spots[] = {
@@ -16135,6 +16266,13 @@ static const struct { uint8_t cp; int16_t x, y, z; } s_cp_spots[] = {
      * (camera yaw 0 = -z); the place the user picked (2026-11-12). Not in the hall:
      * at the menu characters' size (below) its walls hold the camera ~70 behind him. */
     { WSPOT_MAINMENU, 22,  60,    793 },
+    /* Not a checkpoint: the Soak warp to ThroneRoomExtended (level 0x48, to-do 261).
+     * The soak test's start in this multiplayer-style map is a coin flip: the room's
+     * middle (~0 -386 0) or far outside it (21632 335 21728, 26496 335 26752 ...), in
+     * every version since 0.3.0. The user's spot (2026-11-17): in front of the 15
+     * soldiers, facing them (-z, as the MainMenu spot). A little above the floor
+     * (-377): no floor is found there (+0x228 reads -10000), so he drops onto it. */
+    { WSPOT_SOAK_TRE, 37, -370,   390 },
 };
 static int s_cv_pend_scene;              /* the cutscene viewer, below */
 static int s_wspot = -1, s_wspot_wait, s_wspot_held;
@@ -16188,13 +16326,15 @@ static void warp_spot_frame(void)
     MEMF(c + 0xDCu) = 0.0f;
     MEMF(c + 0x110u) = 0.0f;
     MEMF(c + CHAR_FALL_FROM) = y;
-    if (s_cp_spots[s_wspot].cp == WSPOT_MAINMENU) {
+    if (s_cp_spots[s_wspot].cp >= WSPOT_SOAK_TRE) {
         const uint32_t cam = MEM32(0x008470DCu), ctl = xact_va_ok(cam) ? MEM32(cam + 4u) : 0;
-        if (xact_va_ok(ctl))            /* looking down the hall into the pub */
+        if (xact_va_ok(ctl))            /* looking down the hall into the pub / at the soldiers */
             MEMF(ctl + 0x60u) = MEMF(ctl + 0x5Cu) = 0.0f;
         /* He faces in too (user 2026-11-12): facing +0x170 / +0x174, s16 in
          * 1/65536 turns, 0 = +x (the hall's side wall), 16384 = -z. */
         MEM16(c + 0x170u) = MEM16(c + 0x174u) = 0x4000u;
+    }
+    if (s_cp_spots[s_wspot].cp == WSPOT_MAINMENU) {
         /* His size like the menu's characters (user 2026-11-12: "much smaller"):
          * the character scale +0x260 / +0x264 (+0x268 / +0x26C copies; the matrix
          * in 0x000808F0 = model scale x it) is 1 / the level scale (0x1D: 2) for
@@ -16204,6 +16344,9 @@ static void warp_spot_frame(void)
     if (++s_wspot_held >= 20) {
         if (s_cp_spots[s_wspot].cp == WSPOT_MAINMENU)
             fprintf(stderr, "[WARP] MainMenu: put at %.0f %.0f %.0f\n", x, y, z);
+        else if (s_cp_spots[s_wspot].cp == WSPOT_SOAK_TRE)
+            fprintf(stderr, "[WARP] Soak ThroneRoomExtended: put at %.0f %.0f %.0f\n",
+                    x, y, z);
         else
             fprintf(stderr, "[WARP] checkpoint %u: put at %.0f %.0f %.0f\n",
                     s_cp_spots[s_wspot].cp, x, y, z);
@@ -16364,12 +16507,12 @@ static void warp_frame(void)
         g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
         g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
         s_wspot = -1;
-        if (s_menu_walk)                /* at the pub's door, not spawn 0 mid-room */
-            for (size_t i = 0; i < sizeof(s_cp_spots) / sizeof(s_cp_spots[0]); i++)
-                if (s_cp_spots[i].cp == WSPOT_MAINMENU) {
+        if (s_menu_walk || (soak == 0x48 && s_cv_pend_scene < 0))  /* the pub's door, not spawn 0 mid-room; */
+            for (size_t i = 0; i < sizeof(s_cp_spots) / sizeof(s_cp_spots[0]); i++)  /* in the throne room */
+                if (s_cp_spots[i].cp == (s_menu_walk ? WSPOT_MAINMENU : WSPOT_SOAK_TRE)) {
                     s_wspot = (int)i;
                     s_wspot_wait = s_wspot_held = 0;
-                    s_wspot_level = 0x1D;
+                    s_wspot_level = (uint32_t)soak;
                 }
         g_warped = 1;
         fprintf(stderr, "[WARP] to level 0x%02X as the soak test loads it; nothing is saved "
@@ -16596,6 +16739,60 @@ static void cutview_scene_event(uint32_t rec)
  * it sets [0x0076F0B4], the scene's clock stands still until the speech has started
  * (0x000501F0, 0x0001B210), and that one never starts (to-do 139). */
 extern void sub_0001AF70_gen(void);
+
+/* To-do 216 (the Mouse / Bear voice in conversations, voice_pitch.c): a scene's
+ * speech about to start. Its cue (sound table +0 sound bank, +4 cue name, +8
+ * cue number), the lip-sync name the game's map gives (what 0x0002AC90 returns
+ * a moment later: the std::map at [[[0x00847024] + 0x40] + 0xAC], nodes left
+ * +0, right +8, key +0xC, name +0x10, end +0x15; filled by 0x00028A80; read
+ * here, nothing called) and the lip-sync talker ([0x007FDC00], set by scene
+ * action 0x7E; its name at +0x40 of the character record). */
+int  voice_mixed_wanted(void);
+void voice_mixed_start(unsigned sound, int sdbk, int cue, const char *cue_name,
+                       const char *lip_name, const char *talker);
+
+static void speech_cstr(uint32_t va, char *out, size_t n)
+{
+    size_t i = 0;
+    if (xact_va_ok(va))
+        for (; i + 1 < n && MEM8(va + (uint32_t)i); i++)
+            out[i] = (char)MEM8(va + (uint32_t)i);
+    out[i] = '\0';
+}
+
+static void speech_mixed_note(uint32_t sound)
+{
+    const uint32_t ent = 0x0065E060u + sound * 0x30u;
+    uint32_t obj = MEM32(0x00847024u), map, head, node, best, lip = 0, chars, ti;
+    char cue[40], lipn[40], talker[40];
+
+    if (!voice_mixed_wanted())
+        return;
+    if (xact_va_ok(obj) && xact_va_ok(obj = MEM32(obj + 0x40u)) && xact_va_ok(map = MEM32(obj + 0xACu))
+        && xact_va_ok(head = MEM32(map + 4u))) {
+        node = MEM32(head + 4u);
+        best = head;
+        for (int guard = 0; guard < 64 && xact_va_ok(node) && !MEM8(node + 0x15u); guard++) {
+            if ((int32_t)MEM32(node + 0xCu) < (int32_t)sound) {
+                node = MEM32(node + 8u);
+            } else {
+                best = node;
+                node = MEM32(node);
+            }
+        }
+        if (best != head && !((int32_t)sound < (int32_t)MEM32(best + 0xCu)))
+            lip = MEM32(best + 0x10u);
+    }
+    speech_cstr(MEM32(ent + 4u), cue, sizeof cue);
+    speech_cstr(lip, lipn, sizeof lipn);
+    talker[0] = '\0';
+    ti = MEM32(0x007FDC00u);
+    chars = MEM32(0x0084A5F8u);
+    if (ti < 0x81u && xact_va_ok(chars))
+        speech_cstr(chars + ti * 0x6D0u + 0x40u, talker, sizeof talker);
+    voice_mixed_start(sound, (int)MEM32(ent), (int)MEM32(ent + 8u), cue, lip ? lipn : NULL, talker);
+}
+
 void sub_0001AF70(void)
 {
     uint32_t number = MEM32(g_esp + 4), sound = number;
@@ -16610,6 +16807,8 @@ void sub_0001AF70(void)
         return;
     }
     if (sound >= 0xDDAu || MEM32(0x0065E060u + sound * 0x30u) != 0xFFFFFFFFu || !sound) {
+        if (sound && sound < 0xDDAu)
+            speech_mixed_note(sound);   /* before the stream's first read */
         sub_0001AF70_gen();
         return;
     }
@@ -17621,8 +17820,12 @@ float conker_SizeFactor(void)
  * written here (a load, a warp), and base x the factor written; the base again
  * when the cheat goes off. 0 = not set up yet (the game fills it later). Run at
  * the top of the draw and at the end of the frame, so a load's first frame
- * already has his size. */
-static struct { uint32_t c; float base, wrote; } s_size;
+ * already has his size, and at the entry of his matrix build (0x000808F0):
+ * the bar scenes (level 0x1D) place him every frame through the cutscene's
+ * place step 0x000532D0, which writes the scene's scale (0.7, 0.5) after the
+ * other two and before the matrix, so only the fur (read at draw time) took
+ * ours (to-do 263). [SIZE] only when the base or the factor changes. */
+static struct { uint32_t c; float base, wrote, said_base, said_k; } s_size;
 
 static void size_frame(void)
 {
@@ -17646,7 +17849,11 @@ static void size_frame(void)
         return;
     MEMF(c + 0x260u) = MEMF(c + 0x264u) = MEMF(c + 0x268u) = MEMF(c + 0x26Cu) = want;
     s_size.wrote = want;
-    fprintf(stderr, "[SIZE] Conker x%.2g (scale %.4g, the level's %.4g)\n", k, want, s_size.base);
+    if (s_size.base != s_size.said_base || k != s_size.said_k) {
+        s_size.said_base = s_size.base;
+        s_size.said_k = k;
+        fprintf(stderr, "[SIZE] Conker x%.2g (scale %.4g, the level's %.4g)\n", k, want, s_size.base);
+    }
 }
 
 /* The camera follows his size (to-do 212, 214). The game's camera code runs as
@@ -18251,6 +18458,7 @@ void sub_0001FC70_enter(void)
  * an error, answers 0: the attachment code then removes the record
  * (0x000777D0 -> attach_remove) and the game goes on without it. Objects
  * (0x0006B5B0) use the answer without a check, so they are left as they were.
+ * A model the carved-asset cache holds (src/caff_redirect.c) is let through.
  * RECOMP_ATTACH_GUARD=0 turns it off; [MODEL] line per refused path. */
 static int attach_guard_on(void)
 {
@@ -18281,6 +18489,21 @@ static int asset_status(const char *path)
     return -1;
 }
 
+extern int caff_assets_has(const char *rel);
+
+/* A model's status for a guard before a request (to-do 43, src/caff_guard.c):
+ * the asset table's record status (-1 = no record; 0, 0x3E4, 0x3E5 usable),
+ * and 0 for a model only the carved-asset cache holds: the game's loose-file
+ * door opens it through src/caff_redirect.c. */
+int conker_model_status(const char *path)
+{
+    int st = path[0] ? asset_status(path) : 0;
+
+    if (st == -1 && !_strnicmp(path, "aid\\", 4) && caff_assets_has(path + 4))
+        st = 0;
+    return st;
+}
+
 extern void sub_0005E4E0(void);
 extern void sub_00086490_gen(void);
 void sub_00086490(void)
@@ -18299,7 +18522,7 @@ void sub_00086490(void)
         va = g_eax;
         g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_esp = r_esp;
         guest_str(va, path, sizeof path);
-        st = path[0] ? asset_status(path) : 0;
+        st = conker_model_status(path);
         if (st != 0 && st != 0x3E4 && st != 0x3E5) {
             static uint32_t said[16];
             const uint32_t h = asset_hash(path);
@@ -19349,17 +19572,23 @@ extern void sub_00081FC0_gen(void);
 void sub_00081FC0(void)
 {
     static int on = -1, told;
-    uint32_t c = g_edi;
+    uint32_t c = g_edi, vp = MEM32(g_esp + 4u) & 0xFFFFu, cams = MEM32(0x008470DCu);
 
     if (on < 0)
         on = env_on("RECOMP_BEACH_FUR", 1);
+    /* Character & foliage detail Low thins fur sooner, but not on the character
+     * this viewport's camera follows (to-do 219): the camera is always 250-600
+     * from him, so he went bald (sub_003E1EE0 above reads this). */
+    s_fur_own = vp < 4u && xact_va_ok(cams) && MEM32(cams + vp * 0x770u + 0x3E0u) == c;
     if (!on || MEM32(0x007FA1F8u) != 4u || MEM8(0x0076F0E0u) || !xact_va_ok(c)
         || MEM32(c + 0x68u) != 0x58u || !popin_on(POPIN_FUR)) {
         sub_00081FC0_gen();
+        s_fur_own = 0;
         return;
     }
     MEM32(c + 0x68u) = 0xFFFFFFFFu;
     sub_00081FC0_gen();
+    s_fur_own = 0;
     MEM32(c + 0x68u) = 0x58u;
     if (!told) {
         told = 1;

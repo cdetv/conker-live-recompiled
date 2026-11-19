@@ -8,7 +8,8 @@ the expression "MIT" get the standard MIT text with the copyright line from
 their .nuspec.
 
 Covers what the zip ships: conker.exe and xemu_apu.dll (toolkit, xemu APU,
-Dear ImGui, SDL3 + HIDAPI, the picture filters) and conker-launcher.exe (the
+Dear ImGui, SDL3 + HIDAPI, the picture filters, GamepadMotionHelpers, the
+package reader's extraction after Txukie's MIT code) and conker-launcher.exe (the
 .NET runtime, Avalonia and what it pulls in, CommunityToolkit.Mvvm,
 SharpCompress). Build-only packages (ILLink, Avalonia.BuildServices) and tools
 that never ship (capstone, Ghidra, xemu itself) are credits, not notices.
@@ -212,6 +213,15 @@ def main():
         'https://github.com/JibbSmart/GamepadMotionHelpers, included unchanged in\n'
         'the toolkit (third_party/gamepadmotionhelpers).\n\n'
         + read(os.path.join(lic, 'GamepadMotionHelpers.txt'))))
+    parts.append(section(
+        "10. Txukie's xboxrecomp-conker (the package reader's resource extraction)",
+        'https://github.com/Txukie/xboxrecomp-conker (commit d0edebc,\n'
+        'work/conker/project/src/conker_caff.c).\n'
+        "The package reader's resource extraction (src/caff.c: one model and all it\n"
+        "needs written as a loose package) follows their conker_caff.c, written anew\n"
+        'in this project. They worked out how a single model can be written as a\n'
+        'loose file; thank you.\n'
+        'MIT licence:\n\nCopyright (c) 2026 sp00nz\n\n' + MIT))
 
     # ── conker-launcher.exe ──
     parts.append('\nPART 2: conker-launcher.exe (the launcher)\n'

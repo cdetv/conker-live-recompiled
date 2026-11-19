@@ -53,6 +53,19 @@
  *               Chapters list starts it, then exit; a copy of the slot goes
  *               to <save>\edit_save_backups first (src/edit_save.c).
  *
+ *   conker.exe --list-package <package> [--json] [--game-dir <folder>]
+ *   conker.exe --extract <package> <resource> <out file> [--game-dir <folder>]
+ *   conker.exe --unpack-all <out folder> [--game-dir <folder>]
+ *   conker.exe --carve [--check] [--game-dir <folder>] [--save-dir <folder>]
+ *
+ *               the package reader without the game (to-do 43,
+ *               src/caff_tool.c): one package's header, sections and
+ *               directory; developer switches: one resource as a loose
+ *               package, or every package unpacked by the game's own code
+ *               into a folder (game data: _work only); --carve is the
+ *               launcher's step after an import: the asset cache in
+ *               <save>\assets (src/caff_cache.c), --check only asks.
+ *
  *   conker.exe --bug-report --crash | --freeze [--save-dir <folder>]
  *
  *               what the game starts when it crashed (the question, then the
@@ -90,6 +103,7 @@
 #include <windows.h>
 #include <dbghelp.h>
 #include <stdio.h>
+#include <locale.h>     /* setlocale: UTF-8 text conversions (to-do 262) */
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
@@ -164,6 +178,25 @@ static int s_own_log;
 #include "precompile.h"
 #include "bug_report.h"
 #include "edit_save.h"
+#include "legacy_cp.h"      /* [CODEPAGE]: the PC's own code page (to-do 262) */
+#include "cheats.h"
+
+/* The asset cache's features at start (caff_cache_start): "voice" = the lip
+ * timelines for the Mouse / Bear voice in conversations (to-do 216), wanted
+ * when the player unlocked either cheat, it is on, or the cheat menu is
+ * unlocked (to-do 216 (a): the table is read only at start, and that player
+ * can turn either on mid-session; a run that began without it kept every
+ * conversation as recorded until a restart). --debug's blanket unlock alone
+ * doesn't count: test runs on save copies would carve every start. */
+static int cache_feature_on(const char *feature)
+{
+    if (!strcmp(feature, "voice"))
+        return cheat_unlocked_saved(CHEAT_MOUSE) || cheat_unlocked_saved(CHEAT_BEAR)
+            || (cheats_active() & (CHEAT_BIT(CHEAT_MOUSE) | CHEAT_BIT(CHEAT_BEAR))) != 0
+            || cheats_menu_unlocked();
+    return 0;
+}
+
 extern void overlay_init(void);
 extern void overlay_dump_settings(FILE *f);
 extern void overlay_list_pads(FILE *f);
@@ -490,6 +523,23 @@ static void check_language(void)
     fprintf(stderr, "[LANGUAGE] %s\n", folders[id - 1]);
 }
 
+/* A folder name too long for the game's buffers: said in a box, not a crash. */
+static BOOL path_too_long(const char *what, const char *dir)
+{
+    char msg[MAX_PATH * 3 + 200];
+
+    /* Room for "\settings.ini", "\default.xbe" and the like after it. */
+    if (!dir || strlen(dir) < MAX_PATH - 40)
+        return FALSE;
+    sprintf_s(msg, sizeof msg, "The %s folder's path is too long for the game "
+              "(%u bytes as UTF-8, at most %u):\n\n%s\n\nPlease use a folder "
+              "with a shorter path.", what, (unsigned)strlen(dir),
+              (unsigned)(MAX_PATH - 41), dir);
+    fprintf(stderr, "%s\n", msg);
+    MessageBoxA(NULL, msg, APP_TITLE_A, MB_ICONERROR);
+    return TRUE;
+}
+
 /* Fill s_game_dir and s_save_dir from the command line, falling back to the
  * defaults described at the top of this file. settings.ini is read in
  * between: it lives in the save folder, and its game_dir comes after
@@ -517,6 +567,10 @@ static BOOL parse_args(int argc, char **argv)
             return FALSE;
         }
     }
+    /* UTF-8 takes up to 3 bytes a letter (to-do 262): a long Japanese path
+     * can pass MAX_PATH bytes, which strcpy_s would stop the game for. */
+    if (path_too_long("save", save_dir) || path_too_long("game", game_dir))
+        return FALSE;
 
     if (save_dir) {
         strcpy_s(s_save_dir, MAX_PATH, save_dir);
@@ -524,6 +578,15 @@ static BOOL parse_args(int argc, char **argv)
         default_save_dir(s_save_dir);
     }
     open_log();
+    /* To-do 262: folder names with any letters need the manifest's UTF-8
+     * code page (src/conker.manifest; Windows 10 1903+). */
+    if (GetACP() == CP_UTF8)
+        fprintf(stderr, "[CODEPAGE] UTF-8 (the PC's own: %u)\n",
+                conker_legacy_cp());
+    else
+        fprintf(stderr, "[CODEPAGE] %u: Windows older than 10 1903 ignores the "
+                "UTF-8 manifest; folder names only in this code page\n",
+                GetACP());
 
     /* Sets the runtime switches it holds, so before anything reads one. */
     settings_load(s_save_dir);
@@ -597,7 +660,7 @@ static BOOL parse_args(int argc, char **argv)
 /* ── Forward declarations ──────────────────────────────────── */
 
 static BOOL load_xbe(const char *path, void **out_data, size_t *out_size);
-static BOOL xbe_supported(const void *xbe, size_t size);
+static BOOL xbe_supported(const void *xbe, size_t size, int quiet);
 
 /* Recompiled entry point (generated by recomp pipeline) */
 extern void xbe_entry_point(void);
@@ -1058,6 +1121,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     /* Unbuffered output for immediate visibility during debugging */
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
+    /* The C library's own text conversions in UTF-8 too (to-do 262): a wide
+     * path printed with %S stopped at its first letter past ASCII in the
+     * "C" locale. Only LC_CTYPE: numbers keep their dot. Byte case and
+     * classes stay as they were (tested 2026-11-18: all 256 bytes the same
+     * but isprint('\t')); towupper now upcases past ASCII. */
+    setlocale(LC_CTYPE, ".UTF8");
 
     if (__argc == 2 && strcmp(__argv[1], "--dump-settings") == 0) {
         extern void chords_apply(void);
@@ -1076,6 +1145,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return bug_report_cmd(__argc, __argv);
     if (__argc >= 2 && strcmp(__argv[1], "--edit-save") == 0)
         return edit_save_cmd(__argc, __argv);
+    if (__argc >= 2 && (strcmp(__argv[1], "--list-package") == 0
+                        || strcmp(__argv[1], "--extract") == 0
+                        || strcmp(__argv[1], "--unpack-all") == 0
+                        || strcmp(__argv[1], "--carve") == 0)) {
+        extern int caff_tool_cmd(void);
+        return caff_tool_cmd();
+    }
 
     printf("=== Conker: Live & Reloaded - Static Recompilation ===\n");
 
@@ -1151,7 +1227,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 1;
     }
     printf("XBE loaded: %zu bytes\n", xbe_size);
-    if (!xbe_supported(xbe_data, xbe_size)) {
+    if (!xbe_supported(xbe_data, xbe_size, 0)) {
         MessageBoxW(NULL, L"These Conker: Live & Reloaded game files are a "
                     L"version this port doesn't support. It runs the PAL "
                     L"(Europe) and USA discs: please re-import one of those "
@@ -1173,6 +1249,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     g_xbox_mem_offset = xbox_GetMemoryOffset();
     printf("Xbox memory mapped. Offset: 0x%llX\n", (unsigned long long)g_xbox_mem_offset);
+
+    /* The carved-asset cache (src/caff_cache.c, to-do 43): carved now only
+     * when a feature that is on needs a file it lacks (the launcher carves
+     * after an import). The game's unpacker needs guest memory and a stack,
+     * nothing else; before the redirect reads the cache below. */
+    {
+        extern void caff_cache_start(const char *game_dir, const char *save_dir,
+                                     int (*feature_on)(const char *feature));
+        uint32_t esp = g_esp;
+        g_esp = XBOX_STACK_TOP;
+        caff_cache_start(s_game_dir, s_save_dir, cache_feature_on);
+        g_esp = esp;
+    }
 
     /* D3D's GPU-time fence (docs/conker-notes.md, D3D table).
      *
@@ -1225,10 +1314,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     /* The decensor patch's redirect (src/decensor.c), before any open. */
     decensor_init(s_save_dir);
-    voice_pitch_init();             /* to-do 212: Conker the Mouse / Bear */
+    voice_pitch_init(s_save_dir);   /* to-dos 212, 216: Conker the Mouse / Bear */
     /* Save folders named after their saves (src/save_names.c); after the
      * decensor redirect, which it passes other paths on to. */
     save_names_init(s_save_dir);
+    /* Carved assets (src/caff_redirect.c, to-do 43): aid\ opens the cache
+     * in <save dir>\assets holds; in front of the two above. */
+    {
+        extern void caff_redirect_init(const char *game_dir, const char *save_dir);
+        caff_redirect_init(s_game_dir, s_save_dir);
+    }
 
     /* Step 5: Initialize kernel bridge (thunk table in Xbox memory) */
     printf("Initializing kernel bridge...\n");
@@ -1320,6 +1415,37 @@ void conker_dashboard_notice(void)
         | MB_SETFOREGROUND);
 }
 
+/* ── The package reader's no-game commands (src/caff_tool.c) ── */
+
+/* The XBE in guest memory and a guest stack, nothing else started: enough
+ * for the game's own unpacker (src/caff_guest.c). 0 when the XBE is not one
+ * we support or the memory can't be set up. */
+int conker_tool_guest_up(const void *xbe, size_t size)
+{
+    if (!xbe_supported(xbe, size, 1) || !xbox_MemoryLayoutInit(xbe, size))
+        return 0;
+    g_xbox_mem_offset = xbox_GetMemoryOffset();
+    g_esp = XBOX_STACK_TOP;
+    return 1;
+}
+
+void conker_tool_guest_down(void)
+{
+    xbox_MemoryLayoutShutdown();
+}
+
+/* default_save_dir as UTF-8 (the package reader's paths). */
+void conker_default_save_dir_utf8(char *out, size_t cap)
+{
+    char ansi[MAX_PATH];
+    WCHAR wide[MAX_PATH];
+
+    default_save_dir(ansi);
+    if (!MultiByteToWideChar(CP_ACP, 0, ansi, -1, wide, MAX_PATH)
+        || !WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int)cap, NULL, NULL))
+        snprintf(out, cap, "%s", ansi);
+}
+
 /* ── XBE Loading ───────────────────────────────────────────── */
 
 /* default.xbe SHA-1s the recompiled code was made from (PAL) or matches
@@ -1329,7 +1455,7 @@ static const char *const s_xbe_sha1[] = {
     "2232A1B3874D67B4BB4CF53A940420D2DAB59535",     /* USA */
 };
 
-static BOOL xbe_supported(const void *xbe, size_t size)
+static BOOL xbe_supported(const void *xbe, size_t size, int quiet)
 {
     BCRYPT_ALG_HANDLE alg;
     UCHAR digest[20];
@@ -1344,7 +1470,8 @@ static BOOL xbe_supported(const void *xbe, size_t size)
         return TRUE;
     for (i = 0; i < 20; i++)
         sprintf_s(hex + i * 2, 3, "%02X", digest[i]);
-    printf("default.xbe SHA-1 %s\n", hex);
+    if (!quiet)
+        printf("default.xbe SHA-1 %s\n", hex);
     for (i = 0; i < (int)(sizeof s_xbe_sha1 / sizeof *s_xbe_sha1); i++)
         if (!strcmp(hex, s_xbe_sha1[i])) {
             bug_report_set_release(i == 0 ? "PAL" : "USA", hex);

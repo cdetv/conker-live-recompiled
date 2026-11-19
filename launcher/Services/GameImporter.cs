@@ -2,7 +2,8 @@ namespace ConkerLauncher.Services;
 
 /// <summary>
 /// Copies the player's Conker disc into <c>game\</c> (SPEC 9.3): a full disc image or an XISO,
-/// a folder (picked by its <c>default.xbe</c>), or a .zip/.7z/.rar holding either.
+/// a folder (picked by its <c>default.xbe</c>), a .zip/.7z/.rar holding either, or the Xbox
+/// Store version's package (picked by its <c>DefaultPackage</c> or a <c>Data####</c> file).
 /// </summary>
 /// <remarks>
 /// Everything is written to <c>game.import\</c> first and swapped in at the end, so a cancelled
@@ -16,7 +17,8 @@ public sealed class GameImporter(GameFolder folder)
 
     private string TempDir => Path.Combine(folder.Root, "import.tmp");
 
-    public static readonly string[] Extensions = [".iso", ".xiso", ".zip", ".7z", ".rar", ".xbe"];
+    /// <summary>The types Import Files takes; <see cref="StorePackage.FileName"/> = the Xbox Store version's package.</summary>
+    public static readonly string[] Extensions = [".iso", ".xiso", ".zip", ".7z", ".rar", ".xbe", StorePackage.FileName];
 
     /// <summary>Removes what an interrupted import left behind.</summary>
     public void CleanLeftovers()
@@ -25,21 +27,26 @@ public sealed class GameImporter(GameFolder folder)
         ImportTools.RemoveFolder(TempDir);
     }
 
-    /// <summary>Imports <paramref name="source"/>; returns the disc's region ("PAL", "USA").</summary>
+    /// <summary>The words the Files tab shows for an import of the Xbox Store version.</summary>
+    public const string StoreVersion = "Xbox Store version";
+
+    /// <summary>Imports <paramref name="source"/>; returns what was imported ("PAL disc", "USA disc", <see cref="StoreVersion"/>).</summary>
     public string Import(string source, IProgress<JobProgress> progress, CancellationToken cancel)
     {
         CleanLeftovers();
         try
         {
-            string region = Path.GetExtension(source).ToLowerInvariant() switch
-            {
-                ".xbe" => FromFolder(Path.GetDirectoryName(Path.GetFullPath(source))!, progress, cancel),
-                ".zip" or ".7z" or ".rar" => FromArchive(source, progress, cancel),
-                _ => FromDisc(source, progress, cancel),
-            };
+            string what = StorePackage.IsPackageName(source)
+                ? FromPackage(source, progress, cancel)
+                : (Path.GetExtension(source).ToLowerInvariant() switch
+                {
+                    ".xbe" => FromFolder(Path.GetDirectoryName(Path.GetFullPath(source))!, progress, cancel),
+                    ".zip" or ".7z" or ".rar" => FromArchive(source, progress, cancel),
+                    _ => FromDisc(source, progress, cancel),
+                }) + " disc";
             progress.Report(new JobProgress("Finishing", null));
             ImportTools.Swap(Staging, folder.GameDir);
-            return region;
+            return what;
         }
         finally
         {
@@ -56,7 +63,55 @@ public sealed class GameImporter(GameFolder folder)
         XdvdfsEntry xbe = entries.FirstOrDefault(e => !e.IsDirectory && e.Path.Equals("default.xbe", StringComparison.OrdinalIgnoreCase))
             ?? throw new ImportException("The disc image has no default.xbe: it isn't an Xbox game disc.");
         string region = XbeCheck.Require(disc.ReadAll(xbe));
+        CopyEntries(disc, entries, "The disc image", progress, cancel);
+        return region;
+    }
 
+    /// <summary>
+    /// The Xbox Store version (to-do 37): the quick check of the package first (its files all
+    /// there, the hash chain, three sampled groups), then every block hash-checked as the copy
+    /// reads it. Any failure stops with one of the two approved messages and leaves <c>game\</c> as it was.
+    /// </summary>
+    private string FromPackage(string pick, IProgress<JobProgress> progress, CancellationToken cancel)
+    {
+        progress.Report(new JobProgress("Reading the Xbox Store version", null));
+        string header = StorePackage.HeaderFor(pick);
+        if (!File.Exists(header))
+        {
+            throw new ImportException(GodPackageStream.PartMessage);
+        }
+
+        GodPackageStream package = GodPackageStream.Open(header);
+        try
+        {
+            package.CheckSample();
+            package.VerifyReads = true;
+        }
+        catch
+        {
+            package.Dispose();
+            throw;
+        }
+
+        using XdvdfsImage image = XdvdfsImage.OpenPackage(package);
+        List<XdvdfsEntry> entries = image.ListAll();
+        XdvdfsEntry xbe = entries.FirstOrDefault(e => !e.IsDirectory && e.Path.Equals("default.xbe", StringComparison.OrdinalIgnoreCase))
+            ?? throw new ImportException(GodPackageStream.DamagedMessage);
+        string region = XbeCheck.Require(image.ReadAll(xbe));
+        CopyEntries(image, entries, "The package", progress, cancel);
+
+        // The copy as written: default.xbe still the same build.
+        if (XbeCheck.Require(File.ReadAllBytes(Path.Combine(Staging, "default.xbe"))) != region)
+        {
+            throw new ImportException(GodPackageStream.DamagedMessage);
+        }
+
+        return StoreVersion;
+    }
+
+    /// <summary>Copies every entry of <paramref name="source"/> into the staging folder, after the free space check.</summary>
+    private void CopyEntries(XdvdfsImage source, List<XdvdfsEntry> entries, string sourceName, IProgress<JobProgress> progress, CancellationToken cancel)
+    {
         long total = entries.Sum(e => e.Size);
         ImportTools.RequireSpace(folder.Root, total);
         Directory.CreateDirectory(Staging);
@@ -65,7 +120,7 @@ public sealed class GameImporter(GameFolder folder)
         {
             cancel.ThrowIfCancellationRequested();
             string path = ImportTools.SafePath(Staging, entry.Path)
-                ?? throw new ImportException($"The disc image has a bad file name ({entry.Path}).");
+                ?? throw new ImportException($"{sourceName} has a bad file name ({entry.Path}).");
             if (entry.IsDirectory)
             {
                 Directory.CreateDirectory(path);
@@ -74,10 +129,8 @@ public sealed class GameImporter(GameFolder folder)
 
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             using FileStream output = new(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20);
-            disc.Copy(entry, output, bytes.Add, cancel);
+            source.Copy(entry, output, bytes.Add, cancel);
         }
-
-        return region;
     }
 
     private string FromFolder(string source, IProgress<JobProgress> progress, CancellationToken cancel)

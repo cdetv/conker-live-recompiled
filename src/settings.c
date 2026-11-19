@@ -37,8 +37,10 @@
 #include <ctype.h>
 
 #include "settings.h"
+#include "legacy_cp.h"   /* paths saved in the PC's own code page (to-do 262) */
 #include "controls.h"
 #include "chords.h"
+#include "ui_text.h"     /* N_(): the preset names (to-do 229) */
 
 typedef enum { OPT_BOOL, OPT_CHOICE, OPT_RES, OPT_PATH, OPT_RECT, OPT_NUM,
                OPT_KEY, OPT_WIN } OptKind;
@@ -119,20 +121,27 @@ static const Option s_options[] = {
       "but shimmers when moving), aniso2/aniso4/aniso8/aniso16 (original\n"
       "plus anisotropic filtering: also sharp at a low angle; aniso8 is\n"
       "the default)." },
-    { "display", "grass_full_detail", OPT_BOOL, "1", "1", "RECOMP_GRASS_FULL",
-      NULL,
-      "Pop-in Fix (grass, flowers, fur and characters): 1 = full detail\n"
-      "at any distance\n"
-      "(default; grass keeps waving and never thins out, nobody pops in or\n"
-      "out with distance, fur stays on), 0 = the original (grass still and\n"
-      "thinned out a few steps away, gone further off; characters hidden\n"
-      "past their distance limit; fur fading out with distance)." },
+    /* To-do 219 (#22; user 2026-11-16): replaces grass_full_detail (the
+     * Pop-in Fix, 0.1.x-0.3.3); an old file's 0 is read as original, 1 as
+     * extended (settings_load). */
+    { "display", "character_foliage_detail", OPT_CHOICE, "extended", "extended",
+      "RECOMP_CHARACTER_FOLIAGE_DETAIL", "low original extended",
+      "How far away characters, grass and fur keep their detail:\n"
+      "extended (default; the Pop-in Fix: grass keeps waving and never thins\n"
+      "out, nobody pops in or out with distance, fur stays on, and far\n"
+      "characters keep their full model twice as far), original (as on the\n"
+      "Xbox: grass still and thinned out a few steps away, gone further off;\n"
+      "characters hidden past their distance limit; fur fading out with\n"
+      "distance) or low (faster on a weak PC: characters hide, fur and grass\n"
+      "thin out and far characters switch to a simpler model sooner than on\n"
+      "the Xbox, so far enemies are harder to see; in multiplayer far players\n"
+      "also animate less often). Applies at once." },
     { "display", "popin_grass", OPT_BOOL, "1", "1", "RECOMP_POPIN_GRASS",
       NULL,
       "The Pop-in Fix's parts, each 1 = fixed, 0 = as the original; they\n"
-      "apply only while grass_full_detail = 1. popin_grass: grass and\n"
-      "flowers (far grass also gets the level's haze, like the ground\n"
-      "under it), popin_characters: characters, popin_fur: fur (all three on\n"
+      "apply only while character_foliage_detail = extended. popin_grass:\n"
+      "grass and flowers (far grass also gets the level's haze, like the\n"
+      "ground under it), popin_characters: characters, popin_fur: fur (all three on\n"
       "by default), popin_particles: ambient particles (falling leaves,\n"
       "dust) all round instead of only near the camera (experimental, off\n"
       "by default)." },
@@ -225,12 +234,14 @@ static const Option s_options[] = {
       NULL,
       "The game's loading screen while a level loads: 1 = on (default),\n"
       "0 = off (black, then the level fades in). From the next load." },
-    /* To-do 118 (2026-11-07; off by default: user). */
-    { "display", "fast_loads", OPT_BOOL, "0", "0", "RECOMP_FAST_LOADS",
+    /* To-do 118 (2026-11-07; off by default until 0.3.4, user 2026-11-18:
+     * on by default, no longer "experimental"; to-do 265). A file from
+     * before 0.3.4 has it switched on once (settings_load). */
+    { "display", "fast_loads", OPT_BOOL, "1", "0", "RECOMP_FAST_LOADS",
       NULL,
-      "Loads don't wait for the old music to fade out: 1 = on (the music\n"
-      "stops at once when a load starts, a load from the main menu takes\n"
-      "about half a second), 0 = off (default; the original: the music\n"
+      "Loads don't wait for the old music to fade out: 1 = on (default;\n"
+      "the music stops at once when a load starts, a load from the main\n"
+      "menu takes about half a second), 0 = off (the original: the music\n"
       "fades out first, 3 seconds or more). From the next load." },
     /* To-dos 150-152 (user 2026-11-09). */
     { "display", "idle_demo", OPT_BOOL, "1", "1", "RECOMP_IDLE_DEMO", NULL,
@@ -457,6 +468,14 @@ static const Option s_options[] = {
       "french, german, italian, spanish or japanese. Voices are English in\n"
       "every language. Applies when the game is started again. Saves made in\n"
       "one language load in all the others." },
+    /* To-do 229 (user 2026-11-17): its own setting, the Text language by
+     * default; read by the overlay every frame (src/ui_text.cpp). */
+    { "language", "ui_language", OPT_CHOICE, "auto", "auto", "RECOMP_UI_LANGUAGE",
+      "auto english french german italian spanish japanese",
+      "Language of this port's own menus (F2, F3, the F1 line, photo mode):\n"
+      "auto (default; the same as language above), english, french, german,\n"
+      "italian, spanish or japanese (needs a Japanese font in Windows).\n"
+      "Applies at once. The texts are in lang\\ next to conker.exe." },
     { "uncensored", "uncensored_audio", OPT_BOOL, "1", "1",
       "RECOMP_UNCENSORED_AUDIO", NULL,
       "With the decensor patch installed (paths.decensor_dir): the\n"
@@ -903,8 +922,10 @@ static const Option s_options[] = {
  * options set at once from F2 or the launcher. High is the defaults above
  * (checked at start-up), so a new file shows High. Any of these changed by
  * hand and no preset matches: "Custom". */
+/* N_: F2 shows them in the menu language (to-do 229); the file and the log
+ * keep these. */
 static const char *const s_preset_names[SETTINGS_PRESETS] = {
-    "Low", "Medium", "High", "Ultra",
+    N_("Low"), N_("Medium"), N_("High"), N_("Ultra"),
 };
 static const struct {
     const char *key;
@@ -915,7 +936,9 @@ static const struct {
     { "upscaler",             { "fsr",      "fsr",     "fsr",    "fsr"     } },
     { "antialiasing",         { "fxaa",     "fxaa",    "smaa",   "smaa"    } },
     { "shadow_resolution",    { "original", "2x",      "4x",     "8x"      } },
-    { "grass_full_detail",    { "0",        "1",       "1",      "1"       } },
+    /* User 2026-11-16 (to-do 219): Low picks Low (was the original). */
+    { "character_foliage_detail",
+                              { "low",      "extended", "extended", "extended" } },
     { "smooth_world_shadows", { "0",        "1",       "1",      "1"       } },
     { "cutscene_blur",        { "original", "updated", "updated", "updated" } },
     { "texture_filter",       { "original", "aniso4",  "aniso8", "aniso16" } },
@@ -1036,6 +1059,8 @@ static int normalize(const Option *o, const char *value, char *out,
     unsigned w, h;
     char extra;
     size_t n;
+    char conv[MAX_PATH * 3];        /* OPT_PATH from the PC's code page */
+    WCHAR wide[MAX_PATH];
 
     switch (o->kind) {
     case OPT_BOOL:
@@ -1135,6 +1160,25 @@ static int normalize(const Option *o, const char *value, char *out,
         return 1;
     }
     case OPT_PATH:
+        /* Folder names are UTF-8, as the game's own calls read them (to-do
+         * 262). One an editor saved in the PC's own code page (not valid
+         * UTF-8) is read in that code page; F2's next save writes it UTF-8. */
+        if (!conker_is_utf8(value)
+            && MultiByteToWideChar(conker_legacy_cp(), 0, value, -1, wide,
+                                   MAX_PATH) > 0
+            && WideCharToMultiByte(CP_UTF8, 0, wide, -1, conv, sizeof conv,
+                                   NULL, NULL) > 0) {
+            fprintf(stderr, "[SETTINGS] %s: %s isn't UTF-8: read in code "
+                    "page %u\n", where, o->key, conker_legacy_cp());
+            value = v = conv;
+        }
+        /* UTF-8 takes up to 3 bytes a letter: too long is ignored, not a
+         * stop in strcpy_s below. */
+        if (strlen(value) >= MAX_PATH) {
+            fprintf(stderr, "[SETTINGS] %s: %s ignored: longer than %u bytes\n",
+                    where, o->key, (unsigned)(MAX_PATH - 1));
+            return 0;
+        }
         /* Quotes are optional around a path with spaces. */
         n = strlen(value);
         if (n >= 2 && value[0] == '"' && value[n - 1] == '"') {
@@ -1561,8 +1605,18 @@ void settings_load(const char *save_dir)
     char buf[1024], section[64] = "";
     FILE *f;
     int line = 0, old_windowed = 0, mode_seen = 0;
+    const char *old_popin = NULL;       /* grass_full_detail, before 0.3.4 */
+    int detail_seen = 0;
     size_t i;
 
+    /* The Pop-in Fix's old switch (scripts): RECOMP_GRASS_FULL=0 is detail
+     * distance original, 1 extended, unless the new one is set too. */
+    {
+        const char *g = getenv("RECOMP_GRASS_FULL");
+        if (g && *g && !getenv("RECOMP_CHARACTER_FOLIAGE_DETAIL"))
+            _putenv_s("RECOMP_CHARACTER_FOLIAGE_DETAIL",
+                      *g == '0' ? "original" : "extended");
+    }
     /* What the environment holds before the file sets anything. */
     for (i = 0; i < NUM_OPTIONS; i++) {
         strcpy_s(s_value[i], MAX_PATH, s_options[i].def);
@@ -1637,6 +1691,14 @@ void settings_load(const char *save_dir)
             }
             if (o >= 0 && !strcmp(s_options[o].key, "display_mode"))
                 mode_seen = 1;
+            /* The Pop-in Fix's switch until 0.3.4 (to-do 219). */
+            if (o < 0 && !_stricmp(section, "display")
+                    && !_stricmp(key, "grass_full_detail")) {
+                old_popin = parse_bool(trim(eq + 1));
+                continue;
+            }
+            if (o >= 0 && !strcmp(s_options[o].key, "character_foliage_detail"))
+                detail_seen = 1;
             if (o < 0 && !_stricmp(key, "widescreen")) {
                 fprintf(stderr, "[SETTINGS] %s line %d: widescreen is no "
                         "longer an option (render_resolution sets the "
@@ -1657,6 +1719,29 @@ void settings_load(const char *save_dir)
             strcpy_s(s_value[o], MAX_PATH, "windowed");
             fprintf(stderr, "[SETTINGS] %s: fullscreen = 0 (the old switch) "
                     "read as display_mode = windowed\n", s_path);
+        }
+        if (old_popin && !detail_seen) {
+            int o = find("character_foliage_detail");
+            const char *v = old_popin[0] == '0' ? "original" : "extended";
+            strcpy_s(s_value[o], MAX_PATH, v);
+            fprintf(stderr, "[SETTINGS] %s: grass_full_detail = %s (the Pop-in "
+                    "Fix's old switch) read as character_foliage_detail = %s\n",
+                    s_path, old_popin, v);
+        }
+        /* Fast Load on by default from 0.3.4 (to-do 265, user 2026-11-18:
+         * once for every player). Every file the game writes holds every
+         * option, so one without character_foliage_detail (new in 0.3.4)
+         * was written before 0.3.4: its fast_loads = 0 was the old default,
+         * read as on. Saved so once anything writes the file (F2 writes it
+         * whole; the launcher adds both lines, SettingsViewModel). */
+        if (!detail_seen) {
+            int o = find("fast_loads");
+            if (o >= 0 && strcmp(s_value[o], "1")) {
+                strcpy_s(s_value[o], MAX_PATH, "1");
+                fprintf(stderr, "[SETTINGS] %s: written before 0.3.4, Fast Load "
+                        "switched on (the new default; F2 Fixes turns it off)\n",
+                        s_path);
+            }
         }
     }
 

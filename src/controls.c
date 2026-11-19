@@ -27,6 +27,7 @@
 #include "settings.h"
 #include "chords.h"
 #include "pad_binds.h"
+#include "ui_text.h"   /* N_(): the menus' text (to-do 229) */
 
 /* ---- key names ------------------------------------------------------------ */
 
@@ -438,8 +439,8 @@ typedef struct {
 #define SWIM_UNDER   2
 #define BAT_GROUND   3
 #define BAT_AIR      4
-#define SWIMMING     "Swimming"
-#define BAT          "Bat (Count Batula)"
+#define SWIMMING     N_("Swimming")
+#define BAT          N_("Bat (Count Batula)")
 #define CLASSIC      1
 #define MODERN       2
 
@@ -455,58 +456,58 @@ typedef struct {
  * pad_binds.c; the user's defaults 2026-11-17), shown in the menus in place
  * of a row's fixed button. */
 static const Action s_story[] = {
-    { { "story_move_forward", "Move forward", "Left stick up" }, { LST(UP) } },
-    { { "story_move_back", "Move back", "Left stick down" }, { LST(DOWN) } },
-    { { "story_move_left", "Move left", "Left stick left" }, { LST(LEFT) } },
-    { { "story_move_right", "Move right", "Left stick right" }, { LST(RIGHT) } },
-    { { "story_walk", "Walk (hold)", "Left stick half way" }, { XBOX_KBM_WALK } },
-    { { "story_jump", "Jump", "A" }, { XBOX_KBM_A }, 0, 0, PAD(JUMP) },
-    { { "story_crouch", "Crouch (hold)", "Right trigger" }, { XBOX_KBM_RT }, 0, 0,
+    { { "story_move_forward", N_("Move forward"), N_("Left stick up") }, { LST(UP) } },
+    { { "story_move_back", N_("Move back"), N_("Left stick down") }, { LST(DOWN) } },
+    { { "story_move_left", N_("Move left"), N_("Left stick left") }, { LST(LEFT) } },
+    { { "story_move_right", N_("Move right"), N_("Left stick right") }, { LST(RIGHT) } },
+    { { "story_walk", N_("Walk (hold)"), N_("Left stick half way") }, { XBOX_KBM_WALK } },
+    { { "story_jump", N_("Jump"), "A" }, { XBOX_KBM_A }, 0, 0, PAD(JUMP) },
+    { { "story_crouch", N_("Crouch (hold)"), N_("Right trigger") }, { XBOX_KBM_RT }, 0, 0,
       PAD(CROUCH) },
-    { { "story_weapon", "Weapon out / away, context action", "B" },
+    { { "story_weapon", N_("Weapon out / away, context action"), "B" },
       { XBOX_KBM_B }, 0, CLASSIC, PAD(CONTEXT) },
-    { { "story_context", "Context action (on a B pad)", "B" },
+    { { "story_context", N_("Context action (on a B pad)"), "B" },
       { XBOX_KBM_B }, 0, MODERN, PAD(CONTEXT) },
-    { { "story_aim", "Aim weapon (hold)", "Left trigger" },
+    { { "story_aim", N_("Aim weapon (hold)"), N_("Left trigger") },
       { XBOX_KBM_B }, 0, MODERN, PAD(AIM) },
-    { { "story_attack", "Attack (while aiming)", "Right trigger" }, { XBOX_KBM_RT },
+    { { "story_attack", N_("Attack (while aiming)"), N_("Right trigger") }, { XBOX_KBM_RT },
       0, 0, PAD(ATTACK) },
-    { { "story_reload", "Reload", "X" }, { XBOX_KBM_X }, 0, 0, PAD(RELOAD) },
+    { { "story_reload", N_("Reload"), "X" }, { XBOX_KBM_X }, 0, 0, PAD(RELOAD) },
     /* The head-cam held or toggled (user 2026-11-17: both, on the keyboard
      * and the controller; the game's own left trigger is held). */
-    { { "story_head_cam_hold", "Head-cam (hold)", "Left trigger" },
+    { { "story_head_cam_hold", N_("Head-cam (hold)"), N_("Left trigger") },
       { XBOX_KBM_LT }, 0, 0, PAD(HEADCAM_HOLD) },
-    { { "story_head_cam", "Head-cam (toggle)", "LB" },
+    { { "story_head_cam", N_("Head-cam (toggle)"), "LB" },
       { XBOX_KBM_LT | XBOX_KBM_TOGGLE }, 0, 0, PAD(HEADCAM_TOGGLE) },
-    { { "story_zoom", "Zoom (Unlocked Camera: reset camera)", "Right stick click" },
+    { { "story_zoom", N_("Zoom (Unlocked Camera: reset camera)"), N_("Right stick click") },
       { XBOX_KBM_RTHUMB }, 0, 0, PAD(ZOOM) },
     /* Unlocked Camera's zoom (to-do 41, user 2026-11-15): no button of the
      * game's; the window hook passes its presses to the camera
      * (controls_cam_zoom, conker_CameraZoomNotch). */
-    { { "story_cam_zoom_in", "Camera zoom in (Unlocked Camera)",
-        "D-pad up + right stick up" }, { 0 } },
-    { { "story_cam_zoom_out", "Camera zoom out (Unlocked Camera)",
-        "D-pad up + right stick down" }, { 0 } },
-    { { "story_pause", "Pause", "Start" }, { XBOX_KBM_START }, 0, 0, PAD(PAUSE) },
-    { { "story_back_button", "Back button", "Back" }, { XBOX_KBM_BACK } },
-    { { "story_dpad_up", "D-pad up", "D-pad up" }, { XBOX_KBM_DPAD_UP } },
-    { { "story_dpad_down", "D-pad down", "D-pad down" }, { XBOX_KBM_DPAD_DOWN } },
-    { { "story_dpad_left", "D-pad left", "D-pad left" }, { XBOX_KBM_DPAD_LEFT } },
-    { { "story_dpad_right", "D-pad right", "D-pad right" },
+    { { "story_cam_zoom_in", N_("Camera zoom in (Unlocked Camera)"),
+        N_("D-pad up + right stick up") }, { 0 } },
+    { { "story_cam_zoom_out", N_("Camera zoom out (Unlocked Camera)"),
+        N_("D-pad up + right stick down") }, { 0 } },
+    { { "story_pause", N_("Pause"), "Start" }, { XBOX_KBM_START }, 0, 0, PAD(PAUSE) },
+    { { "story_back_button", N_("Back button"), "Back" }, { XBOX_KBM_BACK } },
+    { { "story_dpad_up", N_("D-pad up"), N_("D-pad up") }, { XBOX_KBM_DPAD_UP } },
+    { { "story_dpad_down", N_("D-pad down"), N_("D-pad down") }, { XBOX_KBM_DPAD_DOWN } },
+    { { "story_dpad_left", N_("D-pad left"), N_("D-pad left") }, { XBOX_KBM_DPAD_LEFT } },
+    { { "story_dpad_right", N_("D-pad right"), N_("D-pad right") },
       { XBOX_KBM_DPAD_RIGHT } },
-    { { "story_look_up", "Look up (keys)", "Right stick up" }, { RST(UP) } },
-    { { "story_look_down", "Look down (keys)", "Right stick down" }, { RST(DOWN) } },
-    { { "story_look_left", "Look left (keys)", "Right stick left" }, { RST(LEFT) } },
-    { { "story_look_right", "Look right (keys)", "Right stick right" },
+    { { "story_look_up", N_("Look up (keys)"), N_("Right stick up") }, { RST(UP) } },
+    { { "story_look_down", N_("Look down (keys)"), N_("Right stick down") }, { RST(DOWN) } },
+    { { "story_look_left", N_("Look left (keys)"), N_("Right stick left") }, { RST(LEFT) } },
+    { { "story_look_right", N_("Look right (keys)"), N_("Right stick right") },
       { RST(RIGHT) } },
     /* Swimming (user 2026-10-26): Space up and Ctrl down underwater, as
      * jump and crouch on land; apply_set says how they take over. The game's
      * own buttons: B dives, B swims up, A down. */
-    { { "story_dive", "Dive Under", "B", SWIMMING },
+    { { "story_dive", N_("Dive Under"), "B", SWIMMING },
       { XBOX_KBM_B }, SWIM_SURFACE, 0, PAD(DIVE) },
-    { { "story_swim_up", "Swim up", "B", SWIMMING },
+    { { "story_swim_up", N_("Swim up"), "B", SWIMMING },
       { XBOX_KBM_B }, SWIM_UNDER, 0, PAD(SWIM_UP) },
-    { { "story_swim_down", "Swim down", "A", SWIMMING },
+    { { "story_swim_down", N_("Swim down"), "A", SWIMMING },
       { XBOX_KBM_A }, SWIM_UNDER, 0, PAD(SWIM_DOWN) },
     /* The bat (Count Batula, user 2026-10-28): B launches from the ground;
      * in the air B flies up, A down, the right trigger poops and the left
@@ -515,21 +516,21 @@ static const Action s_story[] = {
      * the flight code stops the bat while it is held. Two aim rows (user
      * 2026-11-17): a toggle and a hold; story_bat_aim is the scheme's own
      * (Classic toggles, Modern holds), story_bat_aim_alt the other. */
-    { { "story_bat_launch", "Launch (on the ground)", "B", BAT },
+    { { "story_bat_launch", N_("Launch (on the ground)"), "B", BAT },
       { XBOX_KBM_B }, BAT_GROUND, 0, PAD(BAT_LAUNCH) },
-    { { "story_bat_up", "Fly up", "B", BAT }, { XBOX_KBM_B }, BAT_AIR, 0,
+    { { "story_bat_up", N_("Fly up"), "B", BAT }, { XBOX_KBM_B }, BAT_AIR, 0,
       PAD(BAT_UP) },
-    { { "story_bat_down", "Fly down", "A", BAT }, { XBOX_KBM_A }, BAT_AIR, 0,
+    { { "story_bat_down", N_("Fly down"), "A", BAT }, { XBOX_KBM_A }, BAT_AIR, 0,
       PAD(BAT_DOWN) },
-    { { "story_bat_poop", "Poop", "Right trigger", BAT },
+    { { "story_bat_poop", N_("Poop"), N_("Right trigger"), BAT },
       { XBOX_KBM_RT }, BAT_AIR, 0, PAD(BAT_POOP) },
-    { { "story_bat_aim", "Aim (toggle)", "Left trigger", BAT },
+    { { "story_bat_aim", N_("Aim (toggle)"), N_("Left trigger"), BAT },
       { XBOX_KBM_LT }, BAT_AIR, CLASSIC, PAD(BAT_AIM_TOGGLE) },
-    { { "story_bat_aim_alt", "Aim (hold)", "Left trigger held", BAT },
+    { { "story_bat_aim_alt", N_("Aim (hold)"), N_("Left trigger held"), BAT },
       { XBOX_KBM_LT }, BAT_AIR, CLASSIC, PAD(BAT_AIM_HOLD) },
-    { { "story_bat_aim_alt", "Aim (toggle)", "Left trigger", BAT },
+    { { "story_bat_aim_alt", N_("Aim (toggle)"), N_("Left trigger"), BAT },
       { XBOX_KBM_LT }, BAT_AIR, MODERN, PAD(BAT_AIM_TOGGLE) },
-    { { "story_bat_aim", "Aim (hold)", "Left trigger held", BAT },
+    { { "story_bat_aim", N_("Aim (hold)"), N_("Left trigger held"), BAT },
       { XBOX_KBM_LT }, BAT_AIR, MODERN, PAD(BAT_AIM_HOLD) },
 };
 
@@ -539,34 +540,34 @@ static const Action s_story[] = {
  * the mouse steers it while the key is held; the same for the abilities
  * wheel. */
 static const Action s_mp[] = {
-    { { "mp_move_forward", "Move forward", "Left stick up" }, { LST(UP) } },
-    { { "mp_move_back", "Move back", "Left stick down" }, { LST(DOWN) } },
-    { { "mp_move_left", "Move left", "Left stick left" }, { LST(LEFT) } },
-    { { "mp_move_right", "Move right", "Left stick right" }, { LST(RIGHT) } },
-    { { "mp_walk", "Walk (hold)", "Left stick half way" }, { XBOX_KBM_WALK } },
-    { { "mp_jump", "Jump", "Left stick click" }, { XBOX_KBM_LTHUMB } },
-    { { "mp_fire", "Fire", "Right trigger" }, { XBOX_KBM_RT } },
-    { { "mp_zoom", "Zoom", "Right stick click" }, { XBOX_KBM_RTHUMB } },
-    { { "mp_reload", "Reload", "A" }, { XBOX_KBM_A } },
-    { { "mp_interact", "Interact (terminals)", "A" }, { XBOX_KBM_A } },
-    { { "mp_weapon_mode", "Weapon mode", "Left trigger" }, { XBOX_KBM_LT } },
-    { { "mp_ability", "Abilities (tap) / abilities wheel (hold, aim with "
-        "the mouse)", "X" }, { XBOX_KBM_X, XBOX_KBM_MOUSE_LSTICK } },
-    { { "mp_weapon", "Next weapon (tap) / weapon wheel (hold, aim with "
-        "the mouse)", "Y" }, { XBOX_KBM_Y, XBOX_KBM_MOUSE_LSTICK } },
-    { { "mp_crouch", "Crouch / prone", "B" }, { XBOX_KBM_B } },
-    { { "mp_vote", "Vote", "Black" }, { XBOX_KBM_BLACK } },
-    { { "mp_radio", "Radio mode", "White" }, { XBOX_KBM_WHITE } },
-    { { "mp_pause", "Pause / options", "Start" }, { XBOX_KBM_START } },
-    { { "mp_back_button", "Back button", "Back" }, { XBOX_KBM_BACK } },
-    { { "mp_dpad_up", "D-pad up", "D-pad up" }, { XBOX_KBM_DPAD_UP } },
-    { { "mp_dpad_down", "D-pad down", "D-pad down" }, { XBOX_KBM_DPAD_DOWN } },
-    { { "mp_dpad_left", "D-pad left", "D-pad left" }, { XBOX_KBM_DPAD_LEFT } },
-    { { "mp_dpad_right", "D-pad right", "D-pad right" }, { XBOX_KBM_DPAD_RIGHT } },
-    { { "mp_look_up", "Look up (keys)", "Right stick up" }, { RST(UP) } },
-    { { "mp_look_down", "Look down (keys)", "Right stick down" }, { RST(DOWN) } },
-    { { "mp_look_left", "Look left (keys)", "Right stick left" }, { RST(LEFT) } },
-    { { "mp_look_right", "Look right (keys)", "Right stick right" },
+    { { "mp_move_forward", N_("Move forward"), N_("Left stick up") }, { LST(UP) } },
+    { { "mp_move_back", N_("Move back"), N_("Left stick down") }, { LST(DOWN) } },
+    { { "mp_move_left", N_("Move left"), N_("Left stick left") }, { LST(LEFT) } },
+    { { "mp_move_right", N_("Move right"), N_("Left stick right") }, { LST(RIGHT) } },
+    { { "mp_walk", N_("Walk (hold)"), N_("Left stick half way") }, { XBOX_KBM_WALK } },
+    { { "mp_jump", N_("Jump"), N_("Left stick click") }, { XBOX_KBM_LTHUMB } },
+    { { "mp_fire", N_("Fire"), N_("Right trigger") }, { XBOX_KBM_RT } },
+    { { "mp_zoom", N_("Zoom"), N_("Right stick click") }, { XBOX_KBM_RTHUMB } },
+    { { "mp_reload", N_("Reload"), "A" }, { XBOX_KBM_A } },
+    { { "mp_interact", N_("Interact (terminals)"), "A" }, { XBOX_KBM_A } },
+    { { "mp_weapon_mode", N_("Weapon mode"), N_("Left trigger") }, { XBOX_KBM_LT } },
+    { { "mp_ability", N_("Abilities (tap) / abilities wheel (hold, aim with "
+           "the mouse)"), "X" }, { XBOX_KBM_X, XBOX_KBM_MOUSE_LSTICK } },
+    { { "mp_weapon", N_("Next weapon (tap) / weapon wheel (hold, aim with "
+           "the mouse)"), "Y" }, { XBOX_KBM_Y, XBOX_KBM_MOUSE_LSTICK } },
+    { { "mp_crouch", N_("Crouch / prone"), "B" }, { XBOX_KBM_B } },
+    { { "mp_vote", N_("Vote"), "Black" }, { XBOX_KBM_BLACK } },
+    { { "mp_radio", N_("Radio mode"), "White" }, { XBOX_KBM_WHITE } },
+    { { "mp_pause", N_("Pause / options"), "Start" }, { XBOX_KBM_START } },
+    { { "mp_back_button", N_("Back button"), "Back" }, { XBOX_KBM_BACK } },
+    { { "mp_dpad_up", N_("D-pad up"), N_("D-pad up") }, { XBOX_KBM_DPAD_UP } },
+    { { "mp_dpad_down", N_("D-pad down"), N_("D-pad down") }, { XBOX_KBM_DPAD_DOWN } },
+    { { "mp_dpad_left", N_("D-pad left"), N_("D-pad left") }, { XBOX_KBM_DPAD_LEFT } },
+    { { "mp_dpad_right", N_("D-pad right"), N_("D-pad right") }, { XBOX_KBM_DPAD_RIGHT } },
+    { { "mp_look_up", N_("Look up (keys)"), N_("Right stick up") }, { RST(UP) } },
+    { { "mp_look_down", N_("Look down (keys)"), N_("Right stick down") }, { RST(DOWN) } },
+    { { "mp_look_left", N_("Look left (keys)"), N_("Right stick left") }, { RST(LEFT) } },
+    { { "mp_look_right", N_("Look right (keys)"), N_("Right stick right") },
       { RST(RIGHT) } },
 };
 
@@ -584,41 +585,41 @@ static const Action s_mp[] = {
  * Tab is X, which opens the map options on the multiplayer map select
  * (user 2026-10-28); F3 lists it in its own "Multiplayer menu" section. In
  * a level's menu Tab does nothing. */
-#define MP_MENU "Multiplayer menu"
+#define MP_MENU N_("Multiplayer menu")
 static const Action s_menu[] = {
-    { { "", "Navigate", "Left stick up" }, { LST(UP) } },
-    { { "", "Navigate", "Left stick down" }, { LST(DOWN) } },
-    { { "", "Navigate", "Left stick left" }, { LST(LEFT) } },
-    { { "", "Navigate", "Left stick right" }, { LST(RIGHT) } },
-    { { "", "Navigate", "D-pad up" }, { XBOX_KBM_DPAD_UP } },
-    { { "", "Navigate", "D-pad down" }, { XBOX_KBM_DPAD_DOWN } },
-    { { "", "Navigate", "D-pad left" }, { XBOX_KBM_DPAD_LEFT } },
-    { { "", "Navigate", "D-pad right" }, { XBOX_KBM_DPAD_RIGHT } },
-    { { "", "Choose", "A" }, { XBOX_KBM_A } },
-    { { "", "Choose", "A" }, { XBOX_KBM_A } },
-    { { "", "Choose", "A" }, { XBOX_KBM_A } },
-    { { "", "Go back", "B" }, { XBOX_KBM_B } },
-    { { "", "Go back", "B" }, { XBOX_KBM_B } },
-    { { "", "Go back", "B" }, { XBOX_KBM_B } },
+    { { "", N_("Navigate"), N_("Left stick up") }, { LST(UP) } },
+    { { "", N_("Navigate"), N_("Left stick down") }, { LST(DOWN) } },
+    { { "", N_("Navigate"), N_("Left stick left") }, { LST(LEFT) } },
+    { { "", N_("Navigate"), N_("Left stick right") }, { LST(RIGHT) } },
+    { { "", N_("Navigate"), N_("D-pad up") }, { XBOX_KBM_DPAD_UP } },
+    { { "", N_("Navigate"), N_("D-pad down") }, { XBOX_KBM_DPAD_DOWN } },
+    { { "", N_("Navigate"), N_("D-pad left") }, { XBOX_KBM_DPAD_LEFT } },
+    { { "", N_("Navigate"), N_("D-pad right") }, { XBOX_KBM_DPAD_RIGHT } },
+    { { "", N_("Choose"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Choose"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Choose"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Go back"), "B" }, { XBOX_KBM_B } },
+    { { "", N_("Go back"), "B" }, { XBOX_KBM_B } },
+    { { "", N_("Go back"), "B" }, { XBOX_KBM_B } },
     { { "", "", "Y" }, { XBOX_KBM_Y } },
     { { "", "", "Y" }, { XBOX_KBM_Y } },
-    { { "", "Map options", "X", MP_MENU }, { XBOX_KBM_X } },
+    { { "", N_("Map options"), "X", MP_MENU }, { XBOX_KBM_X } },
 };
 static const Action s_menu_game[] = {
-    { { "", "Navigate", "Left stick up" }, { LST(UP) } },
-    { { "", "Navigate", "Left stick down" }, { LST(DOWN) } },
-    { { "", "Navigate", "Left stick left" }, { LST(LEFT) } },
-    { { "", "Navigate", "Left stick right" }, { LST(RIGHT) } },
-    { { "", "Navigate", "D-pad up" }, { XBOX_KBM_DPAD_UP } },
-    { { "", "Navigate", "D-pad down" }, { XBOX_KBM_DPAD_DOWN } },
-    { { "", "Navigate", "D-pad left" }, { XBOX_KBM_DPAD_LEFT } },
-    { { "", "Navigate", "D-pad right" }, { XBOX_KBM_DPAD_RIGHT } },
-    { { "", "Choose", "A" }, { XBOX_KBM_A } },
-    { { "", "Choose", "A" }, { XBOX_KBM_A } },
-    { { "", "Choose", "A" }, { XBOX_KBM_A } },
-    { { "", "Go back", "B" }, { XBOX_KBM_B } },
-    { { "", "Close the menu", "Start" }, { XBOX_KBM_START } },
-    { { "", "Go back", "B" }, { XBOX_KBM_B } },
+    { { "", N_("Navigate"), N_("Left stick up") }, { LST(UP) } },
+    { { "", N_("Navigate"), N_("Left stick down") }, { LST(DOWN) } },
+    { { "", N_("Navigate"), N_("Left stick left") }, { LST(LEFT) } },
+    { { "", N_("Navigate"), N_("Left stick right") }, { LST(RIGHT) } },
+    { { "", N_("Navigate"), N_("D-pad up") }, { XBOX_KBM_DPAD_UP } },
+    { { "", N_("Navigate"), N_("D-pad down") }, { XBOX_KBM_DPAD_DOWN } },
+    { { "", N_("Navigate"), N_("D-pad left") }, { XBOX_KBM_DPAD_LEFT } },
+    { { "", N_("Navigate"), N_("D-pad right") }, { XBOX_KBM_DPAD_RIGHT } },
+    { { "", N_("Choose"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Choose"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Choose"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Go back"), "B" }, { XBOX_KBM_B } },
+    { { "", N_("Close the menu"), "Start" }, { XBOX_KBM_START } },
+    { { "", N_("Go back"), "B" }, { XBOX_KBM_B } },
     { { "", "", "Y" }, { XBOX_KBM_Y } },
     { { "", "", "Y" }, { XBOX_KBM_Y } },
     { { "", "", "" }, { 0 } },
@@ -634,23 +635,23 @@ static const int s_menu_keys[] = {
  * with A. So the menu's moving and choosing keys work here too, and Q is
  * A as the user asked (Quit). Backspace resumes, as Esc does. */
 static const Action s_pause[] = {
-    { { "", "Resume", "Start" }, { XBOX_KBM_START } },
-    { { "", "Resume", "Start" }, { XBOX_KBM_START } },
-    { { "", "Quit", "A" }, { XBOX_KBM_A } },
-    { { "", "Confirm quit", "A" }, { XBOX_KBM_A } },
-    { { "", "Confirm quit", "A" }, { XBOX_KBM_A } },
-    { { "", "Confirm quit", "A" }, { XBOX_KBM_A } },
-    { { "", "Open / close options", "Y" }, { XBOX_KBM_Y } },
-    { { "", "Open / close options", "Y" }, { XBOX_KBM_Y } },
-    { { "", "Open / close options", "Y" }, { XBOX_KBM_Y } },
-    { { "", "Navigate", "Left stick" }, { LST(UP) } },
-    { { "", "Navigate", "Left stick" }, { LST(DOWN) } },
-    { { "", "Navigate", "Left stick" }, { LST(LEFT) } },
-    { { "", "Navigate", "Left stick" }, { LST(RIGHT) } },
-    { { "", "Navigate", "D-pad" }, { XBOX_KBM_DPAD_UP } },
-    { { "", "Navigate", "D-pad" }, { XBOX_KBM_DPAD_DOWN } },
-    { { "", "Navigate", "D-pad" }, { XBOX_KBM_DPAD_LEFT } },
-    { { "", "Navigate", "D-pad" }, { XBOX_KBM_DPAD_RIGHT } },
+    { { "", N_("Resume"), "Start" }, { XBOX_KBM_START } },
+    { { "", N_("Resume"), "Start" }, { XBOX_KBM_START } },
+    { { "", N_("Quit"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Confirm quit"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Confirm quit"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Confirm quit"), "A" }, { XBOX_KBM_A } },
+    { { "", N_("Open / close options"), "Y" }, { XBOX_KBM_Y } },
+    { { "", N_("Open / close options"), "Y" }, { XBOX_KBM_Y } },
+    { { "", N_("Open / close options"), "Y" }, { XBOX_KBM_Y } },
+    { { "", N_("Navigate"), N_("Left stick") }, { LST(UP) } },
+    { { "", N_("Navigate"), N_("Left stick") }, { LST(DOWN) } },
+    { { "", N_("Navigate"), N_("Left stick") }, { LST(LEFT) } },
+    { { "", N_("Navigate"), N_("Left stick") }, { LST(RIGHT) } },
+    { { "", N_("Navigate"), "D-pad" }, { XBOX_KBM_DPAD_UP } },
+    { { "", N_("Navigate"), "D-pad" }, { XBOX_KBM_DPAD_DOWN } },
+    { { "", N_("Navigate"), "D-pad" }, { XBOX_KBM_DPAD_LEFT } },
+    { { "", N_("Navigate"), "D-pad" }, { XBOX_KBM_DPAD_RIGHT } },
     /* To-do 196: X opens the cheat menu from the Options page once it is
      * unlocked; the X key (user 2026-11-11, was Tab; Tab is now Y, Options).
      * No label: F3 doesn't list it. */
@@ -666,57 +667,57 @@ static const int s_pause_keys[] = {
  * head-cam key cannot start a skip and stay held after it. E and Mouse 1
  * skip too (user 2026-11-04, to-do 16). */
 static const Action s_cutscene[] = {
-    { { "", "Skip", "Left trigger" }, { XBOX_KBM_LT } },
-    { { "", "Skip", "Left trigger" }, { XBOX_KBM_LT } },
-    { { "", "Skip", "Left trigger" }, { XBOX_KBM_LT } },
-    { { "", "Pause", "Start" }, { XBOX_KBM_START } },
+    { { "", N_("Skip"), N_("Left trigger") }, { XBOX_KBM_LT } },
+    { { "", N_("Skip"), N_("Left trigger") }, { XBOX_KBM_LT } },
+    { { "", N_("Skip"), N_("Left trigger") }, { XBOX_KBM_LT } },
+    { { "", N_("Pause"), "Start" }, { XBOX_KBM_START } },
 };
 static const int s_cutscene_keys[] = { VK_SPACE, 'E', VK_LBUTTON, VK_ESCAPE };
 
 /* Photo mode (user 2026-10-29, SPEC 10.1): no output, the keys are read
  * by photo_mode.c; rows in controls.h's PHOTO_ order. The button is the
  * pad's own, fixed. */
-#define PHOTO_ANYWHERE "Toggle"
-#define PHOTO_IN       "In photo mode"
+#define PHOTO_ANYWHERE N_("Toggle")
+#define PHOTO_IN       N_("In photo mode")
 static const Action s_photo[] = {
-    { { "photo_toggle", "Photo mode on / off", "Back + RB", PHOTO_ANYWHERE } },
-    { { "pause_key", "Pause (hold the picture)", "none", PHOTO_ANYWHERE } },
+    { { "photo_toggle", N_("Photo mode on / off"), "Back + RB", PHOTO_ANYWHERE } },
+    { { "pause_key", N_("Pause (hold the picture)"), "none", PHOTO_ANYWHERE } },
     /* To-do 12 (SPEC 9.2): the pad reaches it through F2's button. */
-    { { "report_key", "Report Bug", "none", PHOTO_ANYWHERE } },
+    { { "report_key", N_("Report Bug"), "none", PHOTO_ANYWHERE } },
     /* To-do 14 (SPEC 10.3): the pad reaches it through Back + Start. */
-    { { "cheats_key", "Debug menu", "none", PHOTO_ANYWHERE } },
+    { { "cheats_key", N_("Debug menu"), "none", PHOTO_ANYWHERE } },
     /* To-do 24 (SPEC 10.3): --debug only; the pad has RB + A. */
-    { { "noclip_key", "Noclip", "RB + A", PHOTO_ANYWHERE } },
+    { { "noclip_key", N_("Noclip"), "RB + A", PHOTO_ANYWHERE } },
     /* To-do 161: shown once the cheat is unlocked; the pad has both sticks clicked. */
-    { { "bullet_key", "Bullet time (cheat)", "LS + RS click", PHOTO_ANYWHERE } },
+    { { "bullet_key", N_("Bullet time (cheat)"), N_("LS + RS click"), PHOTO_ANYWHERE } },
     /* To-do 168: --debug only; a [MARK] line and a shot (the console's mark). */
-    { { "mark_key", "Mark (log line + shot)", "none", PHOTO_ANYWHERE } },
-    { { "photo_forward", "Fly forward", "Left stick up", PHOTO_IN } },
-    { { "photo_back", "Fly back", "Left stick down", PHOTO_IN } },
-    { { "photo_left", "Fly left", "Left stick left", PHOTO_IN } },
-    { { "photo_right", "Fly right", "Left stick right", PHOTO_IN } },
-    { { "photo_up", "Fly up", "Right trigger", PHOTO_IN } },
-    { { "photo_down", "Fly down", "Left trigger", PHOTO_IN } },
-    { { "photo_roll_left", "Roll left (anticlockwise)", "LB", PHOTO_IN } },
-    { { "photo_roll_right", "Roll right (clockwise)", "RB", PHOTO_IN } },
-    { { "photo_slow", "Fly slower (hold)", "Right stick click", PHOTO_IN } },
-    { { "photo_fast", "Fly faster (hold)", "Left stick click", PHOTO_IN } },
-    { { "photo_zoom_in", "Zoom in", "D-pad up", PHOTO_IN } },
-    { { "photo_zoom_out", "Zoom out", "D-pad down", PHOTO_IN } },
-    { { "photo_take", "Take a photo", "A", PHOTO_IN } },
-    { { "photo_leave", "Leave photo mode", "Back + RB", PHOTO_IN } },
-    { { "photo_reset", "Camera back to the start", "Back", PHOTO_IN } },
-    { { "photo_hud", "Show / hide the HUD and speech bubbles", "Y",
+    { { "mark_key", N_("Mark (log line + shot)"), "none", PHOTO_ANYWHERE } },
+    { { "photo_forward", N_("Fly forward"), N_("Left stick up"), PHOTO_IN } },
+    { { "photo_back", N_("Fly back"), N_("Left stick down"), PHOTO_IN } },
+    { { "photo_left", N_("Fly left"), N_("Left stick left"), PHOTO_IN } },
+    { { "photo_right", N_("Fly right"), N_("Left stick right"), PHOTO_IN } },
+    { { "photo_up", N_("Fly up"), N_("Right trigger"), PHOTO_IN } },
+    { { "photo_down", N_("Fly down"), N_("Left trigger"), PHOTO_IN } },
+    { { "photo_roll_left", N_("Roll left (anticlockwise)"), "LB", PHOTO_IN } },
+    { { "photo_roll_right", N_("Roll right (clockwise)"), "RB", PHOTO_IN } },
+    { { "photo_slow", N_("Fly slower (hold)"), N_("Right stick click"), PHOTO_IN } },
+    { { "photo_fast", N_("Fly faster (hold)"), N_("Left stick click"), PHOTO_IN } },
+    { { "photo_zoom_in", N_("Zoom in"), N_("D-pad up"), PHOTO_IN } },
+    { { "photo_zoom_out", N_("Zoom out"), N_("D-pad down"), PHOTO_IN } },
+    { { "photo_take", N_("Take a photo"), "A", PHOTO_IN } },
+    { { "photo_leave", N_("Leave photo mode"), "Back + RB", PHOTO_IN } },
+    { { "photo_reset", N_("Camera back to the start"), "Back", PHOTO_IN } },
+    { { "photo_hud", N_("Show / hide the HUD and speech bubbles"), "Y",
         PHOTO_IN } },
-    { { "photo_conker", "Show / hide Conker", "X", PHOTO_IN } },
-    { { "photo_step", "Frame step (one frame; hold: normal speed)", "D-pad right",
+    { { "photo_conker", N_("Show / hide Conker"), "X", PHOTO_IN } },
+    { { "photo_step", N_("Frame step (one frame; hold: normal speed)"), N_("D-pad right"),
         PHOTO_IN } },
-    { { "photo_resume", "Pause / resume the world", "Back + A", PHOTO_IN } },
-    { { "photo_panel", "Photo settings", "Start", PHOTO_IN } },
+    { { "photo_resume", N_("Pause / resume the world"), "Back + A", PHOTO_IN } },
+    { { "photo_panel", N_("Photo settings"), "Start", PHOTO_IN } },
     /* B was "leave" until 2026-10-29 (user): Back + RB leaves too. */
-    { { "photo_cutscene_blur", "Cutscene blur on / off", "B", PHOTO_IN } },
+    { { "photo_cutscene_blur", N_("Cutscene blur on / off"), "B", PHOTO_IN } },
     /* To-do 33: --debug only, freecam: the pad and keys go to the camera or Conker. */
-    { { "freecam_swap", "Freecam: camera or Conker", "Back + X", PHOTO_IN } },
+    { { "freecam_swap", N_("Freecam: camera or Conker"), "Back + X", PHOTO_IN } },
 };
 
 static const Action *set_table(int set, int *n)

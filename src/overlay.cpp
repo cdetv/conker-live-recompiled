@@ -91,8 +91,8 @@
  * conker_SetGlow, scales the game's own glow from its next frame, and
  * cutscene blur, conker_SetCutsceneBlur, likewise; shadow quality,
  * conker_SetShadowRes in shadows.c, from each shadow's next draw; the
- * frame rate, the dip fix, grass detail, fog, screen haze, vignette and
- * screen drops, conker_SetFrameRate, conker_SetDipFix, conker_SetGrassFull,
+ * frame rate, the dip fix, character & foliage detail, fog, screen haze,
+ * vignette and screen drops, conker_SetFrameRate, conker_SetDipFix, conker_SetDetailDistance,
  * conker_SetFog, conker_SetUnderwaterFog, conker_SetScreenHaze, conker_SetVignette, conker_SetScreenDrops,
  * conker_SetUnderwaterOverlay, conker_SetPooFix and
  * conker_SetMainMenuSpeed, conker_SetSubmenuSpeed, conker_SetCutsceneSkip
@@ -147,6 +147,8 @@
 #include "menu_mouse.h"
 #include "dev_logs.h"
 #include "gpu_busy.h"
+#include "legacy_cp.h"              /* WM_CHAR's code page (to-do 262) */
+#include "ui_text.h"                /* T(), TL(), N_(): the menu language (to-do 229) */
 
 extern "C" {
 void xbox_KbmSetActive(int on);
@@ -211,7 +213,7 @@ void conker_SetFastLoads(int on);
 int xbox_FramebufferWindowIsFullscreen(void);
 int xbox_FramebufferWindowPlacement(int *x, int *y, int *w, int *h,
                                     int *maximized);
-void conker_SetGrassFull(int on);
+void conker_SetDetailDistance(int level);   /* low, original, extended */
 void conker_SetPopinPart(int part, int on);
 void conker_SetParticleDensity(float percent);
 void conker_SetFog(int on);
@@ -1073,6 +1075,51 @@ static void set_style(unsigned h)
     fprintf(stderr, "[OVERLAY] text %.0f px for a picture %u tall\n", px, h);
 }
 
+/* To-do 229: the default font (ProggyForever, the menus' look) has the
+ * accented letters of French, German, Italian and Spanish but no Japanese
+ * and no typographic extras (oe, quotes). Windows' own fonts fill in, read
+ * from the Fonts folder (nothing bundled; user 2026-11-17): Segoe UI for
+ * any Latin letter the default lacks, Yu Gothic (else Meiryo, MS Gothic)
+ * for Japanese. Merged into the default font: ImGui 1.92 draws each glyph
+ * from the first font that has it, made on demand, so the big Japanese
+ * font costs memory (~14 MB, read once), no start-up time. */
+static void add_system_fonts(ImFontAtlas *atlas)
+{
+    static const struct { const char *file; bool jp; } fonts[] = {
+        { "segoeui.ttf", false },
+        { "YuGothM.ttc", true }, { "meiryo.ttc", true }, { "msgothic.ttc", true },
+    };
+    wchar_t wdir[MAX_PATH];
+    char dir[MAX_PATH * 3], path[MAX_PATH * 3 + 32];
+    UINT n = GetWindowsDirectoryW(wdir, MAX_PATH);
+    bool jp = false;
+
+    if (!n || n >= MAX_PATH
+        || !WideCharToMultiByte(CP_UTF8, 0, wdir, -1, dir, sizeof dir, NULL, NULL)) {
+        ui_text_set_japanese_font(0);
+        return;
+    }
+    for (size_t i = 0; i < sizeof fonts / sizeof *fonts; i++) {
+        if (fonts[i].jp && jp)
+            continue;
+        snprintf(path, sizeof path, "%s\\Fonts\\%s", dir, fonts[i].file);
+        if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES)
+            continue;
+        ImFontConfig cfg;
+        cfg.MergeMode = true;
+        cfg.PixelSnapH = true;
+        if (atlas->AddFontFromFileTTF(path, 0.0f, &cfg)) {
+            fprintf(stderr, "[OVERLAY] font %s merged%s\n", fonts[i].file,
+                    fonts[i].jp ? " (Japanese)" : "");
+            jp |= fonts[i].jp;
+        }
+    }
+    if (!jp)
+        fprintf(stderr, "[OVERLAY] no Japanese font in %s\\Fonts: Japanese menus in English\n",
+                dir);
+    ui_text_set_japanese_font(jp);
+}
+
 static bool init_imgui(ID3D11Device *dev, ID3D11DeviceContext *ctx,
                        unsigned h)
 {
@@ -1091,6 +1138,7 @@ static bool init_imgui(ID3D11Device *dev, ID3D11DeviceContext *ctx,
     io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;
 
     io.Fonts->AddFontDefaultVector();
+    add_system_fonts(io.Fonts);
     set_style(h);
 
     if (!ImGui_ImplDX11_Init(dev, ctx)) {
@@ -1687,35 +1735,35 @@ static void lim_window(unsigned frames, double frame_ms)
     es = s_lim_exec / frame_ms;
     us = s_lim_gpu > 0.0 ? s_lim_gpu / frame_ms : 0.0;
     cpu_hint = s_lim_busy >= 0.5
-             ? "a lower frame rate helps most; a lower resolution a little"
-             : "a lower resolution won't help; a lower frame rate will";
+             ? N_("a lower frame rate helps most; a lower resolution a little")
+             : N_("a lower resolution won't help; a lower frame rate will");
     if (at_target) {
-        s_lim_verdict = "nothing (frame rate cap / VSync)";
-        s_lim_hint = "the PC keeps up with this frame rate";
+        s_lim_verdict = N_("nothing (frame rate cap / VSync)");
+        s_lim_hint = N_("the PC keeps up with this frame rate");
     } else if (gs >= AR_THREAD_FULL) {
-        s_lim_verdict = "CPU (game logic)";
-        s_lim_hint = "a lower resolution won't help; a lower frame rate will";
+        s_lim_verdict = N_("CPU (game logic)");
+        s_lim_hint = N_("a lower resolution won't help; a lower frame rate will");
     } else if (es >= AR_THREAD_FULL) {
-        s_lim_verdict = "CPU (graphics translation)";
-        s_lim_hint = "a lower resolution won't help; a lower frame rate will";
+        s_lim_verdict = N_("CPU (graphics translation)");
+        s_lim_hint = N_("a lower resolution won't help; a lower frame rate will");
     } else if (s_lim_busy >= AR_BUSY_DOWN) {
-        s_lim_verdict = "GPU";
-        s_lim_hint = "a lower render scale, resolution or the Low preset helps";
+        s_lim_verdict = N_("GPU");
+        s_lim_hint = N_("a lower render scale, resolution or the Low preset helps");
     } else if (gs >= 0.85) {
-        s_lim_verdict = "CPU (game logic)";
+        s_lim_verdict = N_("CPU (game logic)");
         s_lim_hint = cpu_hint;
     } else if (es >= 0.85) {
-        s_lim_verdict = "CPU (graphics translation)";
+        s_lim_verdict = N_("CPU (graphics translation)");
         s_lim_hint = cpu_hint;
     } else if (gs + es >= 0.9) {
-        s_lim_verdict = "CPU (game and graphics in turn)";
+        s_lim_verdict = N_("CPU (game and graphics in turn)");
         s_lim_hint = cpu_hint;
     } else if (s_lim_busy < 0.0 && us >= 0.85) {
-        s_lim_verdict = "GPU";
-        s_lim_hint = "a lower render scale, resolution or the Low preset helps";
+        s_lim_verdict = N_("GPU");
+        s_lim_hint = N_("a lower render scale, resolution or the Low preset helps");
     } else {
-        s_lim_verdict = "nothing (frame rate cap / VSync)";
-        s_lim_hint = "the PC keeps up with this frame rate";
+        s_lim_verdict = N_("nothing (frame rate cap / VSync)");
+        s_lim_hint = N_("the PC keeps up with this frame rate");
     }
     s_lim_have = true;
     if (ar_on())
@@ -1964,20 +2012,12 @@ static void drain_events(bool *close)
                 io.AddKeyEvent(k, down);
             break;
         }
-        case WM_CHAR: {
+        case WM_CHAR:
             /* The game window is an ANSI one: a character past ASCII comes
-             * in the ANSI code page (é is 0xE9 either way, € is not). */
-            unsigned c = (unsigned)e.w;
-            if (c >= 0x80 && c < 0x100) {
-                char b = (char)c;
-                wchar_t wc;
-                if (MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, &b, 1,
-                                        &wc, 1) == 1)
-                    c = wc;
-            }
-            io.AddInputCharacter(c);
+             * in the PC's own code page (é is 0xE9 either way, € is not),
+             * which CP_ACP no longer is under the UTF-8 manifest. */
+            io.AddInputCharacter(conker_wm_char((unsigned)e.w));
             break;
-        }
         case WM_MOUSEMOVE:
             io.AddMousePosEvent(e.x, e.y);
             break;
@@ -2266,11 +2306,38 @@ static void feed_pad(bool *close)
 
 /* Under an option: why its value is not the one in effect, if it is not. */
 /* Grey text wrapped to the window, which may be narrow. */
+/* A checkbox whose label wraps when it is wider than the window (to-do 229:
+ * German and French labels ran off photo mode's panel). label: as for
+ * ImGui::Checkbox (a TL() label). When it fits, ImGui's own checkbox;
+ * else the box, and the text wrapped beside it (a click on it ticks too). */
+static bool checkbox_wrap(const char *label, bool *v)
+{
+    const ImGuiStyle &st = ImGui::GetStyle();
+    const char *cut = strstr(label, "##");
+    float box = ImGui::GetFrameHeight() + st.ItemInnerSpacing.x;
+    if (box + ImGui::CalcTextSize(label, NULL, true).x <= ImGui::GetContentRegionAvail().x)
+        return ImGui::Checkbox(label, v);
+    ImGui::PushID(label);
+    bool changed = ImGui::Checkbox("##box", v);
+    ImGui::PopID();
+    ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label, cut);
+    ImGui::PopTextWrapPos();
+    if (ImGui::IsItemClicked()) {
+        *v = !*v;
+        changed = true;
+    }
+    return changed;
+}
+
+/* text: in English, marked N_() at the call (to-do 229); shown translated. */
 static void note(const char *text)
 {
     ImGui::PushStyleColor(ImGuiCol_Text,
                           ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-    ImGui::TextWrapped("%s", text);
+    ImGui::TextWrapped("%s", T(text));
     ImGui::PopStyleColor();
 }
 
@@ -2279,11 +2346,11 @@ static void option_note(const char *key, bool applies_now)
     const char *env = settings_env_override(key);
     if (env) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-        ImGui::TextWrapped("    %s is set, so this is not used", env);
+        ImGui::TextWrapped(T("    %s is set, so this is not used"), env);
         ImGui::PopStyleColor();
     } else if (!applies_now
                && strcmp(settings_get(key), settings_started(key))) {
-        note("    applies when the game is started again");
+        note(N_("    applies when the game is started again"));
     }
 }
 
@@ -2292,8 +2359,8 @@ static void save(const char *key, const char *value)
     if (settings_set(key, value))
         s_error[0] = '\0';
     else
-        snprintf(s_error, sizeof(s_error), "Could not save %s = %s "
-                 "(see the log)", key, value);
+        snprintf(s_error, sizeof(s_error), T("Could not save %s = %s "
+                 "(see the log)"), key, value);
 }
 
 /* --dump-settings (SPEC 9.2): the launcher's Settings tab is built from the
@@ -2309,8 +2376,10 @@ static const char *s_dump_needs;
  * shows them under that scheme only). */
 static const char *s_dump_scheme;
 /* The checkbox the entries being shown sit under (shown only while it is
- * on, indented). */
+ * on, indented); for a choice, the value it must have (to-do 219: the Pop-in
+ * Fix's parts under Character & foliage detail Extended). */
 static const char *s_dump_parent;
+static const char *s_dump_parent_value;
 /* F3 Slots: the slot (1-4) whose Options window the entries being shown
  * belong to (the launcher shows them behind that slot's Options button);
  * 0 = none. */
@@ -2336,6 +2405,8 @@ static bool dump_item(const char *type, const char *label, const char *key)
         fprintf(s_dump, ", \"scheme\": \"%s\"", s_dump_scheme);
     if (s_dump_parent)
         fprintf(s_dump, ", \"parent\": \"%s\"", s_dump_parent);
+    if (s_dump_parent && s_dump_parent_value)
+        fprintf(s_dump, ", \"parent_value\": \"%s\"", s_dump_parent_value);
     if (s_dump_slot)
         fprintf(s_dump, ", \"slot\": %d", s_dump_slot);
     return true;
@@ -2355,7 +2426,7 @@ static void dump_list(const char *name, const char *const *list, int count)
 /* A heading over a group of options. */
 static void section(const char *label)
 {
-    ImGui::SeparatorText(label);
+    ImGui::SeparatorText(T(label));
     if (dump_item("section", label, NULL))
         fputs(" }", s_dump);
 }
@@ -2396,11 +2467,11 @@ static void checkbox(const char *label, const char *key, bool applies_now,
                      const char *tip = NULL)
 {
     bool on = strcmp(settings_get(key), "0") != 0;
-    bool changed = ImGui::Checkbox(label, &on);
+    bool changed = checkbox_wrap(TL(label), &on);
     /* Wrapped (to-do 220): a long tip ran off a 1280-wide window. */
     if (tip && ImGui::BeginItemTooltip()) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
-        ImGui::TextUnformatted(tip);
+        ImGui::TextUnformatted(T(tip));
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
@@ -2446,8 +2517,6 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetCutsceneSkip(on);
         if (!strcmp(key, "hold_to_skip") && !settings_env_override(key))
             conker_SetSkipHold(on);
-        if (!strcmp(key, "grass_full_detail") && !settings_env_override(key))
-            conker_SetGrassFull(on);
         if (!strncmp(key, "popin_", 6) && !settings_env_override(key))
             conker_SetPopinPart(!strcmp(key, "popin_grass") ? 0
                                 : !strcmp(key, "popin_characters") ? 1
@@ -2494,12 +2563,12 @@ static void apply_resolution(void)
     if (settings_env_override("render_resolution"))
         return;
     if (!settings_render_size(v, &w, &h)) {
-        snprintf(s_error, sizeof(s_error), "Could not work out a size for "
-                 "%s", v);
+        snprintf(s_error, sizeof(s_error), T("Could not work out a size for "
+                 "%s"), v);
         return;
     }
     if (!xbox_SetRenderRes(w, h)) {
-        snprintf(s_error, sizeof(s_error), "%ux%u is too small or too big",
+        snprintf(s_error, sizeof(s_error), T("%ux%u is too small or too big"),
                  w, h);
         return;
     }
@@ -2536,7 +2605,7 @@ static void apply_render_scale(void)
     if (settings_env_override("render_scale"))
         return;
     if (!xbox_SetRenderScale(atoi(settings_get("render_scale"))))
-        snprintf(s_error, sizeof(s_error), "Render scale %s %% not taken",
+        snprintf(s_error, sizeof(s_error), T("Render scale %s %% not taken"),
                  settings_get("render_scale"));
     else if (ar_on())
         ar_start();         /* Automatic resolution's new top */
@@ -2617,7 +2686,7 @@ static void apply_crt(void)
  * in the list, even one only reachable by editing the file. */
 static void choice(const char *label, const char *key,
                    const char *const *values, const char *const *names,
-                   int count, bool applies_now)
+                   int count, bool applies_now, const char *tip = NULL)
 {
     const char *cur = settings_get(key);
     const char *preview = cur;
@@ -2625,7 +2694,7 @@ static void choice(const char *label, const char *key,
 
     for (int i = 0; i < count; i++)
         if (!_stricmp(values[i], cur)) {
-            preview = names[i];
+            preview = T(names[i]);
             listed = true;
         }
     /* The name above, the list the window's full width: the window may be
@@ -2633,17 +2702,21 @@ static void choice(const char *label, const char *key,
     if (dump_item("choice", label, key)) {
         dump_list("values", values, count);
         dump_list("names", names, count);
+        if (tip) {
+            fputs(", \"tip\": ", s_dump);
+            settings_json_string(s_dump, tip);
+        }
         fputs(" }", s_dump);
     }
     char id[64];
     snprintf(id, sizeof(id), "##%s", key);
-    ImGui::TextUnformatted(label);
+    ImGui::TextWrapped("%s", T(label));
     ImGui::SetNextItemWidth(-FLT_MIN);
     if (ImGui::BeginCombo(id, preview)) {
         s_popup_open = true;
         for (int i = 0; i < count; i++) {
             bool sel = !_stricmp(values[i], cur);
-            if (ImGui::Selectable(names[i], sel) && !sel) {
+            if (ImGui::Selectable(TL(names[i]), sel) && !sel) {
                 save(key, values[i]);
                 if (!s_error[0] && !strcmp(key, "render_resolution"))
                     apply_resolution();
@@ -2670,6 +2743,9 @@ static void choice(const char *label, const char *key,
                 if (!s_error[0] && !strcmp(key, "shadow_resolution")
                     && !settings_env_override(key))
                     conker_SetShadowRes((unsigned)atoi(values[i]));
+                if (!s_error[0] && !strcmp(key, "character_foliage_detail")
+                    && !settings_env_override(key))
+                    conker_SetDetailDistance(i);
                 if (!s_error[0] && (!strcmp(key, "mp_zoom_mode")
                                     || !strcmp(key, "story_slingshot_aim"))) {
                     controls_apply();
@@ -2682,6 +2758,11 @@ static void choice(const char *label, const char *key,
         if (!listed)
             ImGui::Selectable(cur, true);
         ImGui::EndCombo();
+    } else if (tip && ImGui::BeginItemTooltip()) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(T(tip));
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
     }
     option_note(key, applies_now);
 }
@@ -2897,7 +2978,10 @@ static void slider(const char *label, const char *key, float lo, float hi,
     float right = left + ImGui::GetContentRegionAvail().x;
     if (mute)
         ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
+    if (mute)
+        ImGui::TextUnformatted(T(label));
+    else
+        ImGui::TextWrapped("%s", T(label));
     if (mute) {
         bool on = strcmp(settings_get(mute), "0") != 0;
         bool solo_shown = settings_debug() && solo_ch >= 0;
@@ -2905,11 +2989,11 @@ static void slider(const char *label, const char *key, float lo, float hi,
         float in = ImGui::GetStyle().ItemInnerSpacing.x;
         float sp = ImGui::GetFontSize();
         float mute_box = right - fh;
-        float mute_txt = mute_box - in - ImGui::CalcTextSize("Mute").x;
+        float mute_txt = mute_box - in - ImGui::CalcTextSize(T("Mute")).x;
         float solo_box = mute_txt - sp - fh;
         float solo_txt = solo_box - in - ImGui::CalcTextSize("Solo").x;
         float first = solo_shown ? solo_txt : mute_txt;
-        float past = left + ImGui::CalcTextSize(label).x + sp - first;
+        float past = left + ImGui::CalcTextSize(T(label)).x + sp - first;
         bool flip = false;
         if (past > 0.0f) {          /* a long name: after it instead */
             mute_box += past; mute_txt += past;
@@ -2929,7 +3013,7 @@ static void slider(const char *label, const char *key, float lo, float hi,
                                   "saved), to find which sounds are which");
         }
         ImGui::SameLine(mute_txt);
-        ImGui::TextUnformatted("Mute");
+        ImGui::TextUnformatted(T("Mute"));
         flip = ImGui::IsItemClicked();
         ImGui::SameLine(mute_box);
         snprintf(id, sizeof(id), "##%s", mute);
@@ -2945,7 +3029,7 @@ static void slider(const char *label, const char *key, float lo, float hi,
                                            on);
             }
         }
-        ImGui::SetItemTooltip("Mute %s", label);
+        ImGui::SetItemTooltip(T("Mute %s"), T(label));
         snprintf(id, sizeof(id), "##%s", key);
     }
     ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + gap));
@@ -3003,7 +3087,7 @@ static bool reset_icon(const char *id, const char *tip)
                           ImVec2(c.x + h * 0.6f, c.y - r - h),
                           ImVec2(c.x + h * 0.6f, c.y - r + h), fg);
     if (hot)
-        ImGui::SetItemTooltip("%s", tip);
+        ImGui::SetItemTooltip("%s", T(tip));
     return pressed;
 }
 
@@ -3041,7 +3125,7 @@ static void remember_window(const char *key, unsigned w, unsigned h)
  * when the menu opens again. */
 static void ask_quit(void)
 {
-    const char *id = "Close game";
+    const char *id = TL("Close game");
 
     if (s_ask_quit && !ImGui::IsPopupOpen(id))
         ImGui::OpenPopup(id);
@@ -3050,14 +3134,14 @@ static void ask_quit(void)
         return;
     s_popup_open = true;
     if (s_ask_quit) {
-        ImGui::TextUnformatted("Do you want to close the game?");
-        if (ImGui::Button("Yes")) {
+        ImGui::TextUnformatted(T("Do you want to close the game?"));
+        if (ImGui::Button(TL("Yes"))) {
             fprintf(stderr, "[OVERLAY] Close game\n");
             fflush(stderr);
             PostMessageA(s_hwnd, WM_CLOSE, 0, 0);
         }
         ImGui::SameLine();
-        bool no = ImGui::Button("No");
+        bool no = ImGui::Button(TL("No"));
         /* No has the pad/keyboard cursor first: a stray A does not quit. */
         ImGui::SetItemDefaultFocus();
         if (no || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
@@ -3114,23 +3198,23 @@ static void display_tab(unsigned w, unsigned h, bool *close)
         "1440x1080", "1920x1440",
     };
     static const char *const res_names[] = {
-        "Auto (monitor shape, max 1440p)", "Auto 4:3 (max 1440p)",
-        "Native (monitor size)", "640x480 (original Xbox)",
+        N_("Auto (monitor shape, max 1440p)"), N_("Auto 4:3 (max 1440p)"),
+        N_("Native (monitor size)"), N_("640x480 (original Xbox)"),
         "1280x720 (16:9)", "1600x900 (16:9)", "1920x1080 (16:9)",
-        "2560x1440 (16:9)", "3840x2160 (16:9, slow)",
+        "2560x1440 (16:9)", N_("3840x2160 (16:9, slow)"),
         "1440x1080 (4:3)", "1920x1440 (4:3)",
     };
     static const char *const mode_values[] = {
         "windowed", "borderless", "fullscreen",
     };
     static const char *const mode_names[] = {
-        "Windowed", "Borderless (instant Alt+Tab)",
-        "Full screen (exclusive)",
+        N_("Windowed"), N_("Borderless (instant Alt+Tab)"),
+        N_("Full screen (exclusive)"),
     };
     static const char *const vsync_values[] = { "on", "off", "vrr" };
     static const char *const vsync_names[] = {
-        "On (no tearing)", "Off (lowest delay, may tear)",
-        "G-Sync / FreeSync (VRR)",
+        N_("On (no tearing)"), N_("Off (lowest delay, may tear)"),
+        N_("G-Sync / FreeSync (VRR)"),
     };
     /* 144 and up wait for fixes (settings.c frame_rate); 240 and uncapped
      * are listed with --debug (to-do 101, user 2026-11-06). */
@@ -3138,78 +3222,145 @@ static void display_tab(unsigned w, unsigned h, bool *close)
         "30", "60", "90", "120", "240", "uncapped",
     };
     static const char *const fps_names[] = {
-        "30 fps (original)", "60 fps", "90 fps", "120 fps",
+        N_("30 fps (original)"), "60 fps", "90 fps", "120 fps",
         "240 fps (debug)", "Uncapped (debug)",
     };
     /* RECOMP_LANGUAGE: the toolkit's answer to XGetLanguage, read once. */
     static const char *const lang_values[] = { "english", "french", "german",
                                                "italian", "spanish",
                                                "japanese" };
-    static const char *const lang_names[] = { "English", "French", "German",
-                                              "Italian", "Spanish",
-                                              "Japanese" };
+    /* Each in its own name (to-do 229, user 2026-11-17); Japanese in
+     * English when Windows has no Japanese font to draw it. */
+    const char *const lang_names[] = { "English", "Fran\xC3\xA7" "ais", "Deutsch",
+                                       "Italiano", "Espa\xC3\xB1" "ol",
+                                       ui_text_japanese_font()
+                                           ? "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E"
+                                           : "Japanese" };
+    static const char *const ui_values[] = { "auto", "english", "french", "german",
+                                             "italian", "spanish", "japanese" };
+    const char *const ui_names[] = { N_("Same as Text language"), lang_names[0],
+                                     lang_names[1], lang_names[2], lang_names[3],
+                                     lang_names[4], lang_names[5] };
     (void)w; (void)h; (void)close;
 
-    choice("Display mode", "display_mode", mode_values, mode_names,
+    choice(N_("Display mode"), "display_mode", mode_values, mode_names,
            (int)(sizeof(mode_values) / sizeof(mode_values[0])), true);
-    choice("Render resolution", "render_resolution", res_values, res_names,
+    choice(N_("Render resolution"), "render_resolution", res_values, res_names,
            (int)(sizeof(res_values) / sizeof(res_values[0])), true);
-    choice("Frame rate", "frame_rate", fps_values, fps_names,
+    choice(N_("Frame rate"), "frame_rate", fps_values, fps_names,
            settings_debug() ? 6 : 4, true);
     /* The dip fix at 30 is on by default and a debug choice (user
      * 2026-10-22); 60 and above always have it. */
     if (settings_debug() && !strcmp(settings_get("frame_rate"), "30")) {
         checkbox("Keep speed in slowdowns (debug)", "slowdown_fix", true);
-        note("    Off = original (runs fast when the frame rate dips)");
+        note(N_("    Off = original (runs fast when the frame rate dips)"));
     }
-    choice("VSync", "vsync", vsync_values, vsync_names,
+    choice(N_("VSync"), "vsync", vsync_values, vsync_names,
            (int)(sizeof(vsync_values) / sizeof(vsync_values[0])), true);
     /* Was "Text and menus" under its own Language heading (to-do 11). */
-    choice("Text language", "language", lang_values, lang_names,
+    choice(N_("Text language"), "language", lang_values, lang_names,
            (int)(sizeof(lang_values) / sizeof(lang_values[0])), false);
-    note("    Voices are English in every language");
+    note(N_("    Voices are English in every language"));
+    /* To-do 229: this port's own menus, at once. */
+    choice(N_("Menu language"), "ui_language", ui_values, ui_names,
+           (int)(sizeof(ui_values) / sizeof(ui_values[0])), true,
+           N_("The language of this port's own menus: F2, F3, photo mode and the "
+              "F1 line (the game's own menus follow Text language)"));
+    if (!ui_text_japanese_font() && !s_dump
+        && !_stricmp(settings_get("ui_language"), "japanese"))
+        note(N_("    No Japanese font found in Windows: shown in English"));
     /* To-dos 152-154 (user 2026-11-09). */
-    section("On screen");
-    checkbox("Hide HUD", "hide_hud", true,
-             "Energy, lives, money, the counters and the weapon sight hidden "
-             "while playing");
+    section(N_("On screen"));
+    checkbox(N_("Hide HUD"), "hide_hud", true,
+             N_("Energy, lives, money, the counters and the weapon sight hidden "
+                "while playing"));
     /* To-do 183 (user 2026-11-10). */
-    checkbox("Hide Speech Bubbles", "hide_bubbles", true,
-             "Speech bubbles hidden, in cutscenes and in play (photo mode's "
-             "HUD key hides them anyway)");
-    checkbox("Speedrun Timer", "speedrun_timer", true,
-             "Game time without loads from a new game, in the top right "
-             "corner: the total and the current chapter's part");
+    checkbox(N_("Hide Speech Bubbles"), "hide_bubbles", true,
+             N_("Speech bubbles hidden, in cutscenes and in play (photo mode's "
+                "HUD key hides them anyway)"));
+    checkbox(N_("Speedrun Timer"), "speedrun_timer", true,
+             N_("Game time without loads from a new game, in the top right "
+                "corner: the total and the current chapter's part"));
     /* Shown while the timer is on (user 2026-11-09); the dump lists it
      * under its parent. */
     if (s_dump || strcmp(settings_get("speedrun_timer"), "0")) {
         ImGui::Indent();
         s_dump_parent = "speedrun_timer";
-        checkbox("Time cutscenes", "speedrun_cutscenes", true,
-                 "The timer runs while a cutscene plays (off: it stops for "
-                 "them)");
+        checkbox(N_("Time cutscenes"), "speedrun_cutscenes", true,
+                 N_("The timer runs while a cutscene plays (off: it stops for "
+                    "them)"));
         s_dump_parent = NULL;
         ImGui::Unindent();
     }
-    checkbox("Input Display", "input_display", true,
-             "Controller 1 drawn in the bottom left corner: buttons, sticks "
-             "and triggers as you press them (keys bound to it show as the "
-             "buttons they press)");
+    checkbox(N_("Input Display"), "input_display", true,
+             N_("Controller 1 drawn in the bottom left corner: buttons, sticks "
+                "and triggers as you press them (keys bound to it show as the "
+                "buttons they press)"));
 }
 
 static void presets_choice(void);
 
 /* Was "Picture" until 0.3.1 (user 2026-11-11): render scale, upscaler and
  * texture filtering came over from Display, under the quality preset. */
+/* To-do 219 (#22; user 2026-11-16): the Pop-in Fix (F2 Fixes until 0.3.4)
+ * is Extended; its parts are shown while it is chosen (user 2026-10-31).
+ * The dump always lists them: the launcher shows and hides them by their
+ * parent's value. In conker_SetDetailDistance's order. */
+static void character_foliage_detail_choice(void)
+{
+    static const char *const values[] = { "low", "original", "extended" };
+    static const char *const names[] = {
+        N_("Low (faster)"), N_("Original (as on the Xbox)"), N_("Extended (no pop-in)"),
+    };
+    choice(N_("Character & foliage detail"), "character_foliage_detail", values,
+           names, 3, true,
+           N_("How far away characters, grass and fur keep their detail. "
+              "Low: characters hide, fur and grass thin out and far characters "
+              "switch to a simpler model sooner than on the Xbox (faster, but "
+              "far enemies are harder to see). Original: as on the Xbox. "
+              "Extended: no pop-in (grass, fur and characters at full detail at "
+              "any distance), and far characters keep their full model twice "
+              "as far"));
+    if (s_dump
+        || !_stricmp(settings_get("character_foliage_detail"), "extended")) {
+        ImGui::Indent();
+        s_dump_parent = "character_foliage_detail";
+        s_dump_parent_value = "extended";
+        checkbox(N_("Grass & flowers"), "popin_grass", true,
+                 N_("Grass keeps waving and flowers never thin out or vanish "
+                    "with distance"));
+        checkbox(N_("Characters"), "popin_characters", true,
+                 N_("Characters no longer fade out far from the camera"));
+        checkbox(N_("Fur"), "popin_fur", true,
+                 N_("Fur stays full at any distance instead of thinning out"));
+        checkbox(N_("Ambient Particles (experimental)"), "popin_particles", true,
+                 N_("Falling leaves, fluff and dust fill the whole area instead "
+                    "of only a small box around the camera"));
+        if (s_dump || strcmp(settings_get("popin_particles"), "0")) {
+            ImGui::Indent();
+            s_dump_parent = "popin_particles";
+            s_dump_parent_value = NULL;
+            slider(N_("Particle density"), "particle_density", 0.0f, 100.0f,
+                   "15", "%.0f %%", N_("Back to the default (15 %)"));
+            s_dump_parent = "character_foliage_detail";
+            s_dump_parent_value = "extended";
+            ImGui::Unindent();
+        }
+        s_dump_parent = NULL;
+        s_dump_parent_value = NULL;
+        ImGui::Unindent();
+    }
+}
+
 static void graphics_tab(unsigned w, unsigned h, bool *close)
 {
     static const char *const filter_values[] = {
         "off", "original", "aniso2", "aniso4", "aniso8", "aniso16",
     };
     static const char *const filter_names[] = {
-        "Off (sharpest, shimmers far away)", "Original (as on the Xbox)",
-        "Anisotropic 2x", "Anisotropic 4x", "Anisotropic 8x",
-        "Anisotropic 16x (sharpest steady)",
+        N_("Off (sharpest, shimmers far away)"), N_("Original (as on the Xbox)"),
+        N_("Anisotropic 2x"), N_("Anisotropic 4x"), N_("Anisotropic 8x"),
+        N_("Anisotropic 16x (sharpest steady)"),
     };
     /* As multiples (user 2026-11-07); settings.ini keeps the percent.
      * 5x-10x only with --debug (to-do 30). */
@@ -3218,129 +3369,130 @@ static void graphics_tab(unsigned w, unsigned h, bool *close)
         "500", "600", "700", "800", "900", "1000",
     };
     static const char *const scale_names[] = {
-        "0.5x (fastest, softest)", "0.67x", "0.75x", "1x (default)",
-        "1.25x", "1.5x", "2x", "2.5x", "3x", "4x (sharpest, slowest)",
+        N_("0.5x (fastest, softest)"), "0.67x", "0.75x", N_("1x (default)"),
+        "1.25x", "1.5x", "2x", "2.5x", "3x", N_("4x (sharpest, slowest)"),
         "5x (debug)", "6x (debug)", "7x (debug)", "8x (debug)", "9x (debug)",
         "10x (debug)",
     };
     static const char *const up_values[] = { "bilinear", "fsr" };
     static const char *const up_names[] = {
-        "Bilinear (plain, soft)", "AMD FSR 1 (sharper edges)",
+        N_("Bilinear (plain, soft)"), N_("AMD FSR 1 (sharper edges)"),
     };
     static const char *const aa_values[] = { "off", "fxaa", "smaa" };
     static const char *const aa_names[] = {
-        "Off (original)", "FXAA (quick, slightly soft)",
-        "SMAA (cleaner edges, sharper)",
+        N_("Off (original)"), N_("FXAA (quick, slightly soft)"),
+        N_("SMAA (cleaner edges, sharper)"),
     };
     static const char *const crt_values[] = { "off", "scanlines", "crt" };
     static const char *const crt_names[] = {
-        "Off (original)", "Scanlines", "CRT (scanlines, curve, glow)",
+        N_("Off (original)"), N_("Scanlines"), N_("CRT (scanlines, curve, glow)"),
     };
     /* atoi gives conker_SetShadowRes's factor ("original": 0 = 1x). */
     static const char *const shadow_values[] = { "original", "2x", "4x",
                                                  "8x", "16x" };
     static const char *const shadow_names[] = {
-        "Original (soft, blocky)", "2x", "4x (sharper)", "8x (very sharp)",
-        "16x (sharpest, more GPU)",
+        N_("Original (soft, blocky)"), "2x", N_("4x (sharper)"), N_("8x (very sharp)"),
+        N_("16x (sharpest, more GPU)"),
     };
     /* In conker_SetCutsceneBlur's order. */
     static const char *const dof_values[] = {
         "off", "original", "updated", "cinematic",
     };
     static const char *const dof_names[] = {
-        "Off (always sharp)", "Original (blocky at high resolutions)",
-        "Updated (original look, smooth)", "Cinematic (stronger, bokeh)",
+        N_("Off (always sharp)"), N_("Original (blocky at high resolutions)"),
+        N_("Updated (original look, smooth)"), N_("Cinematic (stronger, bokeh)"),
     };
     (void)w; (void)close;
 
     presets_choice();
-    choice("Render scale", "render_scale", scale_values, scale_names,
+    choice(N_("Render scale"), "render_scale", scale_values, scale_names,
            settings_debug() ? 16 : 10, true);
     /* To-do 220 (#22). */
-    checkbox("Automatic resolution", "auto_resolution", true,
-             "Lowers the render scale by itself when the graphics card can't "
-             "keep up with the frame rate, and raises it again when it can: "
-             "never above the render scale chosen here, never below 0.5x. "
-             "Helps only when the graphics card is what slows the game (F1 "
-             "pressed three times shows what does)");
+    checkbox(N_("Automatic resolution"), "auto_resolution", true,
+             N_("Lowers the render scale by itself when the graphics card can't "
+                "keep up with the frame rate, and raises it again when it can: "
+                "never above the render scale chosen here, never below 0.5x. "
+                "Helps only when the graphics card is what slows the game (F1 "
+                "pressed three times shows what does)"));
     {
         /* The size the game is drawn at, and when the toolkit capped it
          * (texture size, video memory), the multiple that is. */
         unsigned dw, dh;
         int pct = xbox_RenderScaleSize(&dw, &dh);
-        char buf[160], x[16];
+        char buf[320], x[16];
         if (ar_on() && s_ar_cur && s_ar_cur < s_ar_top)
-            snprintf(buf, sizeof(buf), "    Drawn at %ux%u now: lowered to %s"
-                     " by Automatic resolution", dw, dh,
+            snprintf(buf, sizeof(buf), T("    Drawn at %ux%u now: lowered to %s"
+                     " by Automatic resolution"), dw, dh,
                      ar_x(s_ar_cur, x, sizeof x));
         else if (pct < atoi(settings_get("render_scale")))
-            snprintf(buf, sizeof(buf), "    Drawn at %ux%u: capped at %.2gx,"
+            snprintf(buf, sizeof(buf), T("    Drawn at %ux%u: capped at %.2gx,"
                      " the largest the renderer and this graphics card take"
-                     " here", dw, dh, pct / 100.0);
+                     " here"), dw, dh, pct / 100.0);
         else
-            snprintf(buf, sizeof(buf), "    Drawn at %ux%u", dw, dh);
+            snprintf(buf, sizeof(buf), T("    Drawn at %ux%u"), dw, dh);
         note(buf);
     }
-    choice("Upscaler (render scale below 1x)", "upscaler", up_values,
+    choice(N_("Upscaler (render scale below 1x)"), "upscaler", up_values,
            up_names, (int)(sizeof(up_values) / sizeof(up_values[0])), true);
-    choice("Texture filtering", "texture_filter", filter_values, filter_names,
+    choice(N_("Texture filtering"), "texture_filter", filter_values, filter_names,
            (int)(sizeof(filter_values) / sizeof(filter_values[0])), true);
-    choice("Anti-aliasing", "antialiasing", aa_values, aa_names,
+    choice(N_("Anti-aliasing"), "antialiasing", aa_values, aa_names,
            (int)(sizeof(aa_values) / sizeof(aa_values[0])), true);
-    choice("Shadows", "shadow_resolution", shadow_values, shadow_names,
+    choice(N_("Shadows"), "shadow_resolution", shadow_values, shadow_names,
            (int)(sizeof(shadow_values) / sizeof(shadow_values[0])), true);
     /* To-do 105: the game's own shadows at original, nothing to soften. */
     ImGui::BeginDisabled(!_stricmp(settings_get("shadow_resolution"),
                                    "original"));
-    slider("Shadow softness", "shadow_softness", 0.0f, 100.0f, "0",
-           "%.0f %%", "Back to off (0 %: as sharp as Shadows draws them)");
+    slider(N_("Shadow softness"), "shadow_softness", 0.0f, 100.0f, "0",
+           "%.0f %%", N_("Back to off (0 %: as sharp as Shadows draws them)"));
     ImGui::EndDisabled();
-    checkbox("Smooth world shadows", "smooth_world_shadows", true,
-             "The shadows baked into the levels (fences, plants, buildings) "
-             "read smoothly instead of as blocky steps. Off = as the "
-             "original");
+    checkbox(N_("Smooth world shadows"), "smooth_world_shadows", true,
+             N_("The shadows baked into the levels (fences, plants, buildings) "
+                "read smoothly instead of as blocky steps. Off = as the "
+                "original"));
+    character_foliage_detail_choice();
     {
-        static const char *const orig = "Back to the original (1.00)";
-        slider("Gamma", "gamma", 0.5f, 1.5f, "1", "%.2f", orig);
-        slider("Contrast", "contrast", 0.5f, 1.5f, "1", "%.2f", orig);
-        slider("Saturation", "saturation", 0.0f, 2.0f, "1", "%.2f", orig);
-        slider("Sharpening", "sharpen", 0.0f, 100.0f, "0", "%.0f %%",
-               "Back to off (0 %)");
-        slider("Glow (the game's own)", "glow", 0.0f, 100.0f, "100",
-               "%.0f %%", "Back to the original (100 %)");
+        static const char *const orig = N_("Back to the original (1.00)");
+        slider(N_("Gamma"), "gamma", 0.5f, 1.5f, "1", "%.2f", orig);
+        slider(N_("Contrast"), "contrast", 0.5f, 1.5f, "1", "%.2f", orig);
+        slider(N_("Saturation"), "saturation", 0.0f, 2.0f, "1", "%.2f", orig);
+        slider(N_("Sharpening"), "sharpen", 0.0f, 100.0f, "0", "%.0f %%",
+               N_("Back to off (0 %)"));
+        slider(N_("Glow (the game's own)"), "glow", 0.0f, 100.0f, "100",
+               "%.0f %%", N_("Back to the original (100 %)"));
     }
-    checkbox("Fog", "fog", true,
-             "The distance fog that fades far scenery into the level's "
-             "colour. Off = far scenery as clear as near (the level's far "
-             "end may show). Under water, Underwater Fog decides");
-    checkbox("Underwater Fog", "underwater_fog", true,
-             "The murky water colour while the camera is under water. Off "
-             "= clear water");
-    checkbox("Haze", "screen_haze", true,
-             "The mist or colour wash in some levels. Off = a clear view "
-             "(e.g. no green gas in Chemical Warfare)");
-    checkbox("Vignette", "vignette", true,
-             "The dark corners round the picture in some levels. Off = "
-             "the picture as bright at the edges as in the middle");
-    checkbox("Screen drops", "screen_drops", true,
-             "Water and blood drops on the screen and the streaks they "
-             "leave. Off = a clean screen");
-    checkbox("Stretch FMV", "stretch_fmv", true,
-             "The movies (boot intro, idle demo, multiplayer briefings) "
-             "stretched to the window. Off = their own 4:3 shape with black "
-             "bars at the sides. Story cutscenes: Cutscenes in 4:3");
-    checkbox("Cutscenes in 4:3", "cutscenes_43", true,
-             "Story cutscenes in the original 4:3 shape with black bars at "
-             "the sides. Off = they fill the window as gameplay does");
-    checkbox("Underwater Shimmer", "underwater_overlay", true,
-             "The shimmering haze round Conker under water, which shows as "
-             "a band at eye level. Off = a clear view under water");
-    choice("Cutscene blur", "cutscene_blur", dof_values, dof_names,
+    checkbox(N_("Fog"), "fog", true,
+             N_("The distance fog that fades far scenery into the level's "
+                "colour. Off = far scenery as clear as near (the level's far "
+                "end may show). Under water, Underwater Fog decides"));
+    checkbox(N_("Underwater Fog"), "underwater_fog", true,
+             N_("The murky water colour while the camera is under water. Off "
+                "= clear water"));
+    checkbox(N_("Haze"), "screen_haze", true,
+             N_("The mist or colour wash in some levels. Off = a clear view "
+                "(e.g. no green gas in Chemical Warfare)"));
+    checkbox(N_("Vignette"), "vignette", true,
+             N_("The dark corners round the picture in some levels. Off = "
+                "the picture as bright at the edges as in the middle"));
+    checkbox(N_("Screen drops"), "screen_drops", true,
+             N_("Water and blood drops on the screen and the streaks they "
+                "leave. Off = a clean screen"));
+    checkbox(N_("Stretch FMV"), "stretch_fmv", true,
+             N_("The movies (boot intro, idle demo, multiplayer briefings) "
+                "stretched to the window. Off = their own 4:3 shape with black "
+                "bars at the sides. Story cutscenes: Cutscenes in 4:3"));
+    checkbox(N_("Cutscenes in 4:3"), "cutscenes_43", true,
+             N_("Story cutscenes in the original 4:3 shape with black bars at "
+                "the sides. Off = they fill the window as gameplay does"));
+    checkbox(N_("Underwater Shimmer"), "underwater_overlay", true,
+             N_("The shimmering haze round Conker under water, which shows as "
+                "a band at eye level. Off = a clear view under water"));
+    choice(N_("Cutscene blur"), "cutscene_blur", dof_values, dof_names,
            (int)(sizeof(dof_values) / sizeof(dof_values[0])), true);
-    choice("CRT / scanlines", "crt", crt_values, crt_names,
+    choice(N_("CRT / scanlines"), "crt", crt_values, crt_names,
            (int)(sizeof(crt_values) / sizeof(crt_values[0])), true);
-    slider("CRT strength", "crt_strength", 0.0f, 100.0f, "50", "%.0f %%",
-           "Back to the default (50 %)");
+    slider(N_("CRT strength"), "crt_strength", 0.0f, 100.0f, "50", "%.0f %%",
+           N_("Back to the default (50 %)"));
     if (_stricmp(settings_get("crt"), "off") && h < 960) {
         /* The toolkit fades them out below 2 pixels per line. */
         char buf[128];
@@ -3356,7 +3508,7 @@ static void sound_tab(unsigned w, unsigned h, bool *close)
         "xemu", "speakers", "evenodd", "front",
     };
     static const char *const mix_names[] = {
-        "xemu (default)", "speakers (wider stereo)", "evenodd (debug)",
+        N_("xemu (default)"), N_("speakers (wider stereo)"), "evenodd (debug)",
         "front (debug)",
     };
     (void)w; (void)h; (void)close;
@@ -3364,27 +3516,27 @@ static void sound_tab(unsigned w, unsigned h, bool *close)
     /* To-do 13 (user 2026-11-07): master, a mute per channel, Solo only
      * with --debug, a cutscene volume for everything a cutscene plays. */
     {
-        static const char *const full = "Back to full (100 %)";
-        slider("Master volume", "master_volume", 0.0f, 100.0f, "100",
+        static const char *const full = N_("Back to full (100 %)");
+        slider(N_("Master volume"), "master_volume", 0.0f, 100.0f, "100",
                "%.0f %%", full, "master_mute");
-        slider("Music", "music_volume", 0.0f, 100.0f, "100", "%.0f %%", full,
+        slider(N_("Music"), "music_volume", 0.0f, 100.0f, "100", "%.0f %%", full,
                "music_mute", 0);
-        slider("Effects", "effects_volume", 0.0f, 100.0f, "100", "%.0f %%",
+        slider(N_("Effects"), "effects_volume", 0.0f, 100.0f, "100", "%.0f %%",
                full, "effects_mute", 1);
-        slider("Dialogue", "dialogue_volume", 0.0f, 100.0f, "100", "%.0f %%",
+        slider(N_("Dialogue"), "dialogue_volume", 0.0f, 100.0f, "100", "%.0f %%",
                full, "dialogue_mute", 2);
-        slider("Other (ambience, menu sounds)", "other_volume", 0.0f, 100.0f,
+        slider(N_("Other (ambience, menu sounds)"), "other_volume", 0.0f, 100.0f,
                "100", "%.0f %%", full, "other_mute", 3);
         /* User 2026-11-07: percent, the original in the middle. */
         /* No note under it (user 2026-11-07); settings.ini explains it. */
-        slider("Cutscene volume", "cutscene_volume", 0.0f, 200.0f, "100",
-               "%.0f %%", "Back to the original (100 %)");
+        slider(N_("Cutscene volume"), "cutscene_volume", 0.0f, 200.0f, "100",
+               "%.0f %%", N_("Back to the original (100 %)"));
     }
     /* evenodd and front are for testing: listed only with --debug. */
-    choice("Mix", "mix", mix_values, mix_names, settings_debug() ? 4 : 2,
+    choice(N_("Mix"), "mix", mix_values, mix_names, settings_debug() ? 4 : 2,
            false);
-    checkbox("3D sound (HRTF)", "hrtf", false);
-    checkbox("Silence sound while paused", "pause_silence", true);
+    checkbox(N_("3D sound (HRTF)"), "hrtf", false);
+    checkbox(N_("Silence sound while paused"), "pause_silence", true);
 }
 
 /* In the user's order (2026-11-06); a plain line ends the Cutscenes group,
@@ -3394,142 +3546,113 @@ static void fixes_tab(unsigned w, unsigned h, bool *close)
     (void)w; (void)h;
 
     /* The decensor patch (decensor.c): greyed out without it. */
-    section("Uncensored");
+    section(N_("Uncensored"));
     bool have_audio = decensor_available(0) != 0;
     bool have_text = decensor_available(1) != 0;
     begin_needs("decensor", !have_audio);
-    checkbox("Uncensored audio", "uncensored_audio", false,
-             "Cutscene voices and songs without the bleeps (decensor "
-             "patch). Changes when the game is started again");
+    checkbox(N_("Uncensored audio"), "uncensored_audio", false,
+             N_("Cutscene voices and songs without the bleeps (decensor "
+                "patch). Changes when the game is started again"));
     end_needs();
     begin_needs("decensor", !have_text);
-    checkbox("Uncensored text", "uncensored_text", true,
-             "Subtitles and other text without the censoring (decensor "
-             "patch). Changes from the next level that loads");
+    checkbox(N_("Uncensored text"), "uncensored_text", true,
+             N_("Subtitles and other text without the censoring (decensor "
+                "patch). Changes from the next level that loads"));
     end_needs();
     if (!have_audio && !have_text)
-        note("    Needs the decensor patch in a \"decensor\" folder next to "
-             "the game (or paths.decensor_dir in settings.ini)");
+        note(N_("    Needs the decensor patch in a \"decensor\" folder next to "
+                "the game (or paths.decensor_dir in settings.ini)"));
 
     /* To-do 16 (user 2026-11-04): Hold to Skip shown while the first is
      * on; the dump always lists it, under its parent. */
-    section("Cutscenes");
-    checkbox("Skippable Cutscenes", "skippable_cutscenes", true,
-             "Every story cutscene can be skipped, also the ones the game "
-             "does not let you skip; a scene in parts skips one part at a "
-             "time");
+    section(N_("Cutscenes"));
+    checkbox(N_("Skippable Cutscenes"), "skippable_cutscenes", true,
+             N_("Every story cutscene can be skipped, also the ones the game "
+                "does not let you skip; a scene in parts skips one part at a "
+                "time"));
     if (s_dump || strcmp(settings_get("skippable_cutscenes"), "0")) {
         ImGui::Indent();
         s_dump_parent = "skippable_cutscenes";
-        checkbox("Hold to Skip", "hold_to_skip", true,
-                 "Scenes the game does not let you skip need the skip button "
-                 "held for 3 seconds (off: a press skips them)");
+        checkbox(N_("Hold to Skip"), "hold_to_skip", true,
+                 N_("Scenes the game does not let you skip need the skip button "
+                    "held for 3 seconds (off: a press skips them)"));
         /* User 2026-11-04: a debug choice. */
         if (settings_debug())
             checkbox("Tail-shaped ring (debug)", "skip_ring_tail", true,
-                     "The hold-to-skip ring drawn as Conker's curled-up tail");
+                     N_("The hold-to-skip ring drawn as Conker's curled-up tail"));
         s_dump_parent = NULL;
         ImGui::Unindent();
     }
 
     /* To-dos 41, 227 (user 2026-11-15): on by default. */
-    section("Camera");
-    checkbox("Unlocked Camera", "unlocked_camera", true,
-             "Single player: tilt the camera from straight down on Conker to "
-             "looking up, zoom smoothly with the mouse wheel or D-pad up + "
-             "right stick, and reset it with the zoom button (right stick "
-             "click / V). Off: the original camera, where the zoom button "
-             "switches between near and far");
+    section(N_("Camera"));
+    checkbox(N_("Unlocked Camera"), "unlocked_camera", true,
+             N_("Single player: tilt the camera from straight down on Conker to "
+                "looking up, zoom smoothly with the mouse wheel or D-pad up + "
+                "right stick, and reset it with the zoom button (right stick "
+                "click / V). Off: the original camera, where the zoom button "
+                "switches between near and far"));
     /* To-do 228 (user 2026-11-15): the game's own figure (top to bottom),
      * and what it makes across the window's shape. */
     {
-        char fmt[48];
+        char fmt[96];
         float v = roundf(slide_value(slide_for("field_of_view")));
-        snprintf(fmt, sizeof(fmt), "%%.0f\xC2\xB0 (%.0f\xC2\xB0 across)",
+        snprintf(fmt, sizeof(fmt), T("%%.0f\xC2\xB0 (%.0f\xC2\xB0 across)"),
                  conker_FovAcross(v));
-        slider("Field of view", "field_of_view", 40.0f, 75.0f, "50", fmt,
-               "Back to the original (50\xC2\xB0)");
+        slider(N_("Field of view"), "field_of_view", 40.0f, 75.0f, "50", fmt,
+               N_("Back to the original (50\xC2\xB0)"));
     }
 
     line();
-    checkbox("Pop-in Fix", "grass_full_detail", true,
-             "Eliminates pop-in for elements such as grass, fur, and distant "
-             "characters");
-    /* Its parts, shown while it is on (user 2026-10-31). The dump always
-     * lists them: the launcher shows and hides them by their parent. */
-    if (s_dump || strcmp(settings_get("grass_full_detail"), "0")) {
-        ImGui::Indent();
-        s_dump_parent = "grass_full_detail";
-        checkbox("Grass & flowers", "popin_grass", true,
-                 "Grass keeps waving and flowers never thin out or vanish "
-                 "with distance");
-        checkbox("Characters", "popin_characters", true,
-                 "Characters no longer fade out far from the camera");
-        checkbox("Fur", "popin_fur", true,
-                 "Fur stays full at any distance instead of thinning out");
-        checkbox("Ambient Particles (experimental)", "popin_particles", true,
-                 "Falling leaves, fluff and dust fill the whole area instead "
-                 "of only a small box around the camera");
-        if (s_dump || strcmp(settings_get("popin_particles"), "0")) {
-            ImGui::Indent();
-            s_dump_parent = "popin_particles";
-            slider("Particle density", "particle_density", 0.0f, 100.0f,
-                   "15", "%.0f %%", "Back to the default (15 %)");
-            s_dump_parent = "grass_full_detail";
-            ImGui::Unindent();
-        }
-        s_dump_parent = NULL;
-        ImGui::Unindent();
-    }
-    checkbox("Main Menu Speed", "main_menu_speed", true,
-             "Above 60 fps the main menu turns between its boards and zooms "
-             "into them at the original speed (off: faster, twice as fast at "
-             "120)");
-    checkbox("Sub-menu Speed", "submenu_speed", true,
-             "Above 60 fps game select and the chapter list fade at the "
-             "original speed (off: faster, twice as fast at 120)");
+    checkbox(N_("Main Menu Speed"), "main_menu_speed", true,
+             N_("Above 60 fps the main menu turns between its boards and zooms "
+                "into them at the original speed (off: faster, twice as fast at "
+                "120)"));
+    checkbox(N_("Sub-menu Speed"), "submenu_speed", true,
+             N_("Above 60 fps game select and the chapter list fade at the "
+                "original speed (off: faster, twice as fast at 120)"));
     /* To-dos 150, 151 (user 2026-11-09). */
-    checkbox("Idle Demo", "idle_demo", true,
-             "The demo movie after about 2 minutes on the main menu without a "
-             "press, as the original (off: it never starts)");
-    checkbox("Skip Intro", "skip_intro", false,
-             "Start straight at the main menu, without the logo and the "
-             "intro movie. From the next start");
+    checkbox(N_("Idle Demo"), "idle_demo", true,
+             N_("The demo movie after about 2 minutes on the main menu without a "
+                "press, as the original (off: it never starts)"));
+    checkbox(N_("Skip Intro"), "skip_intro", false,
+             N_("Start straight at the main menu, without the logo and the "
+                "intro movie. From the next start"));
     /* To-do 186 (user 2026-11-09): on by default; only with Skip Intro. */
     ImGui::Indent();
     ImGui::BeginDisabled(strcmp(settings_get("skip_intro"), "1") != 0);
-    checkbox("Skip Walk In", "skip_walk_in", false,
-             "With Skip Intro: no walk into the bar either, straight to the "
-             "menu as when the movie is skipped (off: Conker walks in). From "
-             "the next start");
+    checkbox(N_("Skip Walk In"), "skip_walk_in", false,
+             N_("With Skip Intro: no walk into the bar either, straight to the "
+                "menu as when the movie is skipped (off: Conker walks in). From "
+                "the next start"));
     ImGui::EndDisabled();
     ImGui::Unindent();
     /* To-do 26 (Fixes tab: user 2026-11-07): the game's own loading
      * screen, which the port drew but never showed. */
-    checkbox("Loading Screen", "loading_screen", true,
-             "The game's loading screen while a level loads (off: black, "
-             "then the level fades in). From the next load");
-    /* To-do 118: the loads' wait for the old music's fade-out (off by
-     * default, user 2026-11-07). */
-    checkbox("Fast Load (experimental)", "fast_loads", true,
-             "Loads don't wait for the old music to fade out, so a load from "
-             "the main menu takes about half a second instead of 3 or more; "
-             "the music stops at once when a load starts (off: the original "
-             "wait). From the next load");
+    checkbox(N_("Loading Screen"), "loading_screen", true,
+             N_("The game's loading screen while a level loads (off: black, "
+                "then the level fades in). From the next load"));
+    /* To-do 118: the loads' wait for the old music's fade-out (on by
+     * default and no longer "experimental" from 0.3.4, user 2026-11-18). */
+    checkbox(N_("Fast Load"), "fast_loads", true,
+             N_("Loads don't wait for the old music to fade out, so a load from "
+                "the main menu takes about half a second instead of 3 or more; "
+                "the music stops at once when a load starts (off: the original "
+                "wait). From the next load"));
     /* It tints the Underwater Shimmer (Picture tab): greyed out while that
      * is off (it was shown under it before the tabs, user 2026-11-03). */
     begin_needs("underwater_overlay",
                 !strcmp(settings_get("underwater_overlay"), "0"));
-    checkbox("Poo Fix", "poo_fix", true,
-             "Under the poo after the Bull fight, the haze is brown to "
-             "match instead of a blue band. Off = the original. Normal "
-             "water is never changed. Needs Underwater Shimmer (Picture) on");
+    checkbox(N_("Poo Fix"), "poo_fix", true,
+             N_("Under the poo after the Bull fight, the haze is brown to "
+                "match instead of a blue band. Off = the original. Normal "
+                "water is never changed. Needs Underwater Shimmer (Picture) on"));
     end_needs();
     /* On by default, a debug choice (user 2026-11-04). */
     if (settings_debug())
         checkbox("Physics at 30 Hz (debug)", "physics_30hz", true,
-                 "Above 30 fps tails, ragdolls and cloth move at the original "
-                 "speed (off: faster, 4x as fast at 120)");
+                 N_("Above 30 fps tails, ragdolls and cloth move at the original "
+                    "speed (off: faster, 4x as fast at 120)"));
 }
 
 struct MenuTab {
@@ -3537,10 +3660,10 @@ struct MenuTab {
     void (*body)(unsigned w, unsigned h, bool *close);
 };
 static const MenuTab s_menu_tabs[] = {
-    { "Display", display_tab },
-    { "Graphics", graphics_tab },
-    { "Sound", sound_tab },
-    { "Fixes", fixes_tab },
+    { N_("Display"), display_tab },
+    { N_("Graphics"), graphics_tab },
+    { N_("Sound"), sound_tab },
+    { N_("Fixes"), fixes_tab },
 };
 static const int MENU_TABS = (int)(sizeof(s_menu_tabs) / sizeof(s_menu_tabs[0]));
 
@@ -3562,7 +3685,7 @@ static int wrapped_tabs(const char *id, const Tab *tabs, int n, int cur,
 
     ImGui::PushID(id);
     for (int i = 0; i < n; i++) {
-        float tw = ImGui::CalcTextSize(tabs[i].name).x + st.FramePadding.x * 2.0f;
+        float tw = ImGui::CalcTextSize(T(tabs[i].name)).x + st.FramePadding.x * 2.0f;
         if (i > 0 && x + gap + tw <= avail) {
             ImGui::SameLine(0.0f, gap);
             x += gap + tw;
@@ -3576,7 +3699,7 @@ static int wrapped_tabs(const char *id, const Tab *tabs, int n, int cur,
                               st.Colors[lit ? ImGuiCol_TabSelected : ImGuiCol_TabHovered]);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,
                               st.Colors[ImGuiCol_TabSelected]);
-        if (ImGui::Button(tabs[i].name))
+        if (ImGui::Button(TL(tabs[i].name)))
             chosen = i;
         if (lit && focus)
             ImGui::SetKeyboardFocusHere(-1);   /* (presses it: no change) */
@@ -3624,8 +3747,12 @@ static void apply_preset_key(const char *key)
         ar_switch(strcmp(v, "0") != 0);
     else if (!strcmp(key, "shadow_resolution"))
         conker_SetShadowRes((unsigned)atoi(v));
-    else if (!strcmp(key, "grass_full_detail"))
-        conker_SetGrassFull(strcmp(v, "0") != 0);
+    else if (!strcmp(key, "character_foliage_detail")) {
+        static const char *const dd[] = { "low", "original", "extended" };
+        for (int i = 0; i < 3; i++)
+            if (!_stricmp(v, dd[i]))
+                conker_SetDetailDistance(i);
+    }
     else if (!strcmp(key, "smooth_world_shadows"))
         conker_SetSmoothLightmaps(strcmp(v, "0") != 0);
     else if (!strcmp(key, "cutscene_blur")) {
@@ -3639,15 +3766,15 @@ static void apply_preset_key(const char *key)
 static void preset_tip(int p, char *out, size_t n)
 {
     static const struct { const char *key, *name; } names[] = {
-        { "frame_rate", "Frame rate" }, { "render_scale", "Render scale" },
-        { "upscaler", "Upscaler" }, { "antialiasing", "Anti-aliasing" },
-        { "shadow_resolution", "Shadows" },
-        { "grass_full_detail", "Pop-in Fix" },
-        { "smooth_world_shadows", "Smooth world shadows" },
-        { "cutscene_blur", "Cutscene blur" },
-        { "texture_filter", "Texture filtering" },
-        { "hrtf", "3D sound (HRTF)" },
-        { "auto_resolution", "Automatic resolution" },
+        { "frame_rate", N_("Frame rate") }, { "render_scale", N_("Render scale") },
+        { "upscaler", N_("Upscaler") }, { "antialiasing", N_("Anti-aliasing") },
+        { "shadow_resolution", N_("Shadows") },
+        { "character_foliage_detail", N_("Character & foliage detail") },
+        { "smooth_world_shadows", N_("Smooth world shadows") },
+        { "cutscene_blur", N_("Cutscene blur") },
+        { "texture_filter", N_("Texture filtering") },
+        { "hrtf", N_("3D sound (HRTF)") },
+        { "auto_resolution", N_("Automatic resolution") },
     };
     size_t len = 0;
     out[0] = '\0';
@@ -3658,9 +3785,9 @@ static void preset_tip(int p, char *out, size_t n)
         char val[32];
         for (const auto &e : names)
             if (!strcmp(e.key, key))
-                name = e.name;
+                name = T(e.name);
         if (!strcmp(v, "0") || !strcmp(v, "1"))
-            snprintf(val, sizeof(val), "%s", v[0] == '1' ? "on" : "off");
+            snprintf(val, sizeof(val), "%s", v[0] == '1' ? T("on") : T("off"));
         else if (!strcmp(key, "render_scale"))
             snprintf(val, sizeof(val), "%.3gx", atoi(v) / 100.0);
         else if (!strcmp(key, "frame_rate"))
@@ -3691,19 +3818,20 @@ static void presets_choice(void)
         fputs(", \"tip\": ", s_dump);
         settings_json_string(s_dump, "Sets render scale, texture filtering, "
                              "anti-aliasing, shadows, smooth world shadows, "
-                             "cutscene blur, frame rate, the Pop-in Fix and "
+                             "cutscene blur, frame rate, character & "
+                             "foliage detail and "
                              "3D sound at once. High is the default; Low "
                              "suits a weak PC.");
         fputs(" }", s_dump);
     }
-    ImGui::TextUnformatted("Quality preset");
+    ImGui::TextUnformatted(T("Quality preset"));
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::BeginCombo("##quality_preset", cur >= 0 ? names[cur]
-                                                       : "Custom")) {
+    if (ImGui::BeginCombo("##quality_preset", cur >= 0 ? T(names[cur])
+                                                       : T("Custom"))) {
         s_popup_open = true;
         for (int p = 0; p < SETTINGS_PRESETS; p++) {
             bool sel = p == cur;
-            if (ImGui::Selectable(names[p], sel) && !sel) {
+            if (ImGui::Selectable(TL(names[p]), sel) && !sel) {
                 if (settings_preset_apply(p)) {
                     s_error[0] = '\0';
                     for (int k = 0; k < settings_preset_key_count(); k++)
@@ -3711,8 +3839,8 @@ static void presets_choice(void)
                     fprintf(stderr, "[OVERLAY] quality preset %s\n",
                             names[p]);
                 } else {
-                    snprintf(s_error, sizeof(s_error), "Could not save the "
-                             "%s preset (see the log)", names[p]);
+                    snprintf(s_error, sizeof(s_error), T("Could not save the "
+                             "%s preset (see the log)"), T(names[p]));
                 }
             }
             preset_tip(p, tip, sizeof(tip));
@@ -3722,12 +3850,12 @@ static void presets_choice(void)
         }
         ImGui::EndCombo();
     } else {
-        ImGui::SetItemTooltip("Sets the options below and the frame rate, "
-                              "the Pop-in Fix and 3D sound at once. High is "
-                              "the default; Low suits a weak PC.");
+        ImGui::SetItemTooltip("%s", T("Sets the options below and the frame rate "
+                                      "and 3D sound at once. High is "
+                                      "the default; Low suits a weak PC."));
     }
     if (strcmp(settings_get("hrtf"), settings_started("hrtf")))
-        note("    3D sound applies when the game is started again");
+        note(N_("    3D sound applies when the game is started again"));
 }
 
 static void build_menu(unsigned w, unsigned h, bool *close)
@@ -3735,19 +3863,21 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     /* 24 wide: "Ambient Particles (experimental)", indented, is the widest
      * line (clipped at 22, 2026-10-31). */
     place_window(MENU_SETTINGS, "menu_window", w, h, 24.0f, 0.0f);
-    ImGui::Begin("Settings", NULL,
+    ImGui::Begin(TL("Settings"), NULL,
                  ImGuiWindowFlags_NoCollapse
                  | ImGuiWindowFlags_NoSavedSettings);
     {
         bool paused = s_want_pause != 0;
-        char label[64];
-        snprintf(label, sizeof(label), "Pause the game (%s)",
-                 controls_keys_label(controls_hotkeys(PHOTO_PAUSE)));
+        char label[192];
+        int n = snprintf(label, sizeof(label), T("Pause the game (%s)"),
+                         controls_keys_label(controls_hotkeys(PHOTO_PAUSE)));
+        if (n > 0 && (size_t)n < sizeof(label))
+            snprintf(label + n, sizeof(label) - (size_t)n, "###pause_game");
         if (ImGui::Checkbox(label, &paused))
             want_pause(paused);
     }
     if (!s_pad_menu)
-        note("Controller: the game. Click this menu (or F2 twice) to use it.");
+        note(N_("Controller: the game. Click this menu (or F2 twice) to use it."));
 
     /* The dump goes through every tab; the menu shows the chosen one (the
      * same one again at the next opening). LB / RB on the pad step
@@ -3768,18 +3898,18 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         s_menu_tabs[s_tab_cur].body(w, h, close);
     }
 
-    ImGui::SeparatorText("Controls");  /* a button, nothing to dump */
-    if (ImGui::Button("Keyboard and mouse (F3)"))
+    ImGui::SeparatorText(T("Controls"));  /* a button, nothing to dump */
+    if (ImGui::Button(TL("Keyboard and mouse (F3)")))
         InterlockedExchange(&s_want_open, MENU_CONTROLS);
 
     if (s_error[0])
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", s_error);
     ImGui::Separator();
-    if (ImGui::Button("Back to the game"))
+    if (ImGui::Button(TL("Back to the game")))
         *close = true;
     ImGui::SameLine();
-    note("(F2, Esc, B or Start)");
-    if (ImGui::Button("Report Bug..."))
+    note(N_("(F2, Esc, B or Start)"));
+    if (ImGui::Button(TL("Report Bug...")))
         ask_report();
     {
         ControlKeys rk = controls_hotkeys(PHOTO_REPORT);
@@ -3791,7 +3921,7 @@ static void build_menu(unsigned w, unsigned h, bool *close)
         }
     }
     ImGui::Separator();
-    if (ImGui::Button("Close game"))
+    if (ImGui::Button(TL("Close game")))
         s_ask_quit = true;
     ask_quit();
     s_item_active = ImGui::IsAnyItemActive();
@@ -3816,7 +3946,7 @@ static void build_pad_menu(unsigned w, unsigned h, bool *close)
         ImGui::SetNextWindowFocus();
         s_focus = false;
     }
-    ImGui::Begin("Menu", NULL,
+    ImGui::Begin(TL("Menu"), NULL,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove
                  | ImGuiWindowFlags_NoSavedSettings
                  | ImGuiWindowFlags_AlwaysAutoResize);
@@ -3828,30 +3958,30 @@ static void build_pad_menu(unsigned w, unsigned h, bool *close)
         ImGui::NavInitWindow(ImGui::GetCurrentWindow(), true);
         ImGui::SetNavCursorVisible(true);
     }
-    if (ImGui::Button("Settings", size))
+    if (ImGui::Button(TL("Settings"), size))
         InterlockedExchange(&s_want_open, MENU_SETTINGS);
-    if (ImGui::Button("Controls", size))
+    if (ImGui::Button(TL("Controls"), size))
         InterlockedExchange(&s_want_open, MENU_CONTROLS);
     /* User 2026-11-15: straight to the Options window of the controller that
      * opened this list. The menus read slot 1's controller alone (read_pad;
      * user 2026-11-07), so it is slot 1's. */
-    if (ImGui::Button("Controller Options", size)) {
+    if (ImGui::Button(TL("Controller Options"), size)) {
         s_goto_slot_opts = 0;
         InterlockedExchange(&s_want_open, MENU_CONTROLS);
         fprintf(stderr, "[OVERLAY] Recomp Menu: controller options (slot %d)\n",
                 s_goto_slot_opts + 1);
     }
-    if (ImGui::Button("Photo Mode", size)) {
+    if (ImGui::Button(TL("Photo Mode"), size)) {
         photo_request_toggle();
         *close = true;
     }
     if (settings_debug()) {
         if (ImGui::Button("Debug", size))
             InterlockedExchange(&s_want_open, MENU_DEBUG);
-    } else if (cheats_menu_ok() && ImGui::Button("Cheats", size)) {
+    } else if (cheats_menu_ok() && ImGui::Button(TL("Cheats"), size)) {
         InterlockedExchange(&s_want_open, MENU_CHEATS);
     }
-    if (ImGui::Button("Report Bug", size))
+    if (ImGui::Button(TL("Report Bug"), size))
         ask_report();
     s_item_active = false;              /* buttons only: B and Esc close */
     ImGui::End();
@@ -4742,7 +4872,7 @@ static bool shares_key(ControlKeys a, ControlKeys b)
 /* A line for a key row's tooltip (orange), once each. */
 static void add_note(char *out, size_t size, const char *fmt, ...)
 {
-    char line[160];
+    char line[320];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(line, sizeof(line), fmt, ap);
@@ -4771,18 +4901,18 @@ static void combo_notes(char *out, size_t size, ControlKeys mine,
             int ah = CONTROLS_HOLD(a), ai = CONTROLS_INPUT(a);
             int bh = CONTROLS_HOLD(b), bi = CONTROLS_INPUT(b);
             if (ah && !bh && bi == ah)
-                add_note(out, size, "%s is also %s: that happens too",
+                add_note(out, size, T("%s is also %s: that happens too"),
                          controls_key_label(ah), other_label);
             if (ah && !bh && bi == ai)
-                add_note(out, size, "While %s is held, %s is this, not %s",
+                add_note(out, size, T("While %s is held, %s is this, not %s"),
                          controls_key_label(ah), controls_key_label(ai),
                          other_label);
             if (!ah && bh && bh == ai)
-                add_note(out, size, "%s also starts %s (%s): this happens too",
+                add_note(out, size, T("%s also starts %s (%s): this happens too"),
                          controls_key_label(ai), other_label,
                          controls_bind_label(b));
             if (!ah && bh && bi == ai)
-                add_note(out, size, "While %s is held, %s is %s, not this",
+                add_note(out, size, T("While %s is held, %s is %s, not this"),
                          controls_key_label(bh), controls_key_label(ai),
                          other_label);
         }
@@ -4796,7 +4926,7 @@ static void combo_notes(char *out, size_t size, ControlKeys mine,
  * fourth is refused and the question stays. */
 static void ask_key(void)
 {
-    const char *id = "Set a key";
+    const char *id = TL("Set a key");
 
     if (s_capture_idx < 0)
         return;
@@ -4809,14 +4939,14 @@ static void ask_key(void)
     const ControlAction *a = controls_action(s_capture_set, s_capture_idx);
     ControlKeys keys = controls_keys(s_capture_set, s_capture_idx);
     bool done = false;
-    ImGui::Text("Press a key or a mouse button for:");
-    ImGui::Text("    %s", a->label);
-    ImGui::Text("Keys now: %s", keys ? controls_keys_label(keys) : "none");
-    note("A key it doesn't have is added (up to 3), a key it has is taken "
-         "off. For a combo hold one key and press another. Clicking here "
-         "(not on a button) is that mouse button. Esc cancels.");
+    ImGui::TextUnformatted(T("Press a key or a mouse button for:"));
+    ImGui::Text("    %s", T(a->label));
+    ImGui::Text(T("Keys now: %s"), keys ? controls_keys_label(keys) : T("none"));
+    note(N_("A key it doesn't have is added (up to 3), a key it has is taken "
+            "off. For a combo hold one key and press another. Clicking here "
+            "(not on a button) is that mouse button. Esc cancels."));
     if (s_capture_first)
-        ImGui::Text("Holding %s: press another key for a combo, or let go",
+        ImGui::Text(T("Holding %s: press another key for a combo, or let go"),
                     controls_key_label(s_capture_first));
     if (s_capture_cancel) {
         s_capture_cancel = false;
@@ -4829,7 +4959,7 @@ static void ask_key(void)
             done = true;
         } else if (controls_keys_count(keys) >= CONTROLS_MAX_KEYS) {
             snprintf(s_capture_msg, sizeof(s_capture_msg),
-                     "Already 3 keys: press one to remove it first");
+                     "%s", T("Already 3 keys: press one to remove it first"));
             s_capture_got = -1;
         } else {
             set_key(s_capture_set, s_capture_idx,
@@ -4840,13 +4970,13 @@ static void ask_key(void)
     if (s_capture_msg[0])
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s",
                            s_capture_msg);
-    if (ImGui::Button("No key")) {
+    if (ImGui::Button(TL("No key"))) {
         set_key(s_capture_set, s_capture_idx, 0);
         done = true;
     }
     s_capture_hover = ImGui::IsItemHovered();
     ImGui::SameLine();
-    if (ImGui::Button("Cancel"))
+    if (ImGui::Button(TL("Cancel")))
         done = true;
     s_capture_hover = s_capture_hover || ImGui::IsItemHovered();
     if (done) {
@@ -4859,8 +4989,8 @@ static void ask_key(void)
 
 static const char *set_name(int set)
 {
-    return set == CONTROLS_MP ? "multiplayer"
-         : set == CONTROLS_PHOTO ? "photo mode" : "single player";
+    return set == CONTROLS_MP ? N_("multiplayer")
+         : set == CONTROLS_PHOTO ? N_("photo mode") : N_("single player");
 }
 
 /* What "Reset all ... controls" puts back: every key of a set's table
@@ -4889,7 +5019,7 @@ static int reset_keys(int set, char (*out)[48], int max)
 /* "Reset all ... controls?" before putting every key of a set back. */
 static void ask_reset(void)
 {
-    const char *id = "Reset controls";
+    const char *id = TL("Reset controls");
 
     if (s_ask_reset < 0)
         return;
@@ -4899,12 +5029,12 @@ static void ask_reset(void)
                                 | ImGuiWindowFlags_NoSavedSettings))
         return;
     s_popup_open = true;
-    ImGui::Text(s_ask_reset == CONTROLS_PHOTO
-                ? "Put every %s key back to the defaults?"
-                : "Put every %s key and the mouse back to the defaults?",
-                set_name(s_ask_reset));
+    ImGui::Text(T(s_ask_reset == CONTROLS_PHOTO
+                  ? N_("Put every %s key back to the defaults?")
+                  : N_("Put every %s key and the mouse back to the defaults?")),
+                T(set_name(s_ask_reset)));
     bool done = false;
-    if (ImGui::Button("Yes")) {
+    if (ImGui::Button(TL("Yes"))) {
         char keys[64][48];
         int set = s_ask_reset;
         int n = reset_keys(set, keys, 64);
@@ -4915,7 +5045,7 @@ static void ask_reset(void)
         done = true;
     }
     ImGui::SameLine();
-    bool no = ImGui::Button("No");
+    bool no = ImGui::Button(TL("No"));
     ImGui::SetItemDefaultFocus();
     if (no || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))
@@ -4940,14 +5070,14 @@ static bool begin_keys(const char *id, bool pad)
                            | ImGuiTableFlags_SizingStretchProp))
         return false;
     float px = ImGui::GetFontSize();
-    ImGui::TableSetupColumn(pad ? "Action" : "action",
+    ImGui::TableSetupColumn(pad ? T("Action") : "action",
                             ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn(pad ? "Keys" : "key",
+    ImGui::TableSetupColumn(pad ? T("Keys") : "key",
                             ImGuiTableColumnFlags_WidthFixed, px * 8.0f);
     ImGui::TableSetupColumn("##reset", ImGuiTableColumnFlags_WidthFixed,
                             ImGui::GetFrameHeight());
     if (pad) {
-        ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed,
+        ImGui::TableSetupColumn(T("Controller"), ImGuiTableColumnFlags_WidthFixed,
                                 px * 10.5f);
         ImGui::TableSetupColumn("##pad_reset", ImGuiTableColumnFlags_WidthFixed,
                                 ImGui::GetFrameHeight());
@@ -4976,15 +5106,15 @@ static void set_pad_bind(int action, bool modern, unsigned button)
 {
     const unsigned old = saved_bind(action, modern);
     int c[PADB_ACTIONS], n, to[PADB_ACTIONS];
-    char what[160];
+    char what[320];
     size_t len = 0;
 
     s_bind_msg[0] = what[0] = '\0';
     if (button == old)
         return;
     if (!button && pad_binds_required(action)) {
-        snprintf(s_bind_msg, sizeof(s_bind_msg), "%s needs a button",
-                 pad_binds_label(action, modern));
+        snprintf(s_bind_msg, sizeof(s_bind_msg), T("%s needs a button"),
+                 T(pad_binds_label(action, modern)));
         return;
     }
     n = pad_binds_clashes(action, modern, button, c, PADB_ACTIONS);
@@ -4998,24 +5128,24 @@ static void set_pad_bind(int action, bool modern, unsigned button)
             clean = other[k] == action;     /* it is moving away */
         to[i] = clean ? 1 : 0;
         if (!clean && pad_binds_required(c[i])) {
-            snprintf(s_bind_msg, sizeof(s_bind_msg), "%s is %s's, and %s needs a "
-                     "button: give %s another first", pad_binds_button_label(button),
-                     pad_binds_label(c[i], modern), pad_binds_label(c[i], modern),
-                     pad_binds_label(c[i], modern));
+            snprintf(s_bind_msg, sizeof(s_bind_msg), T("%s is %s's, and %s needs a "
+                     "button: give %s another first"), T(pad_binds_button_label(button)),
+                     T(pad_binds_label(c[i], modern)), T(pad_binds_label(c[i], modern)),
+                     T(pad_binds_label(c[i], modern)));
             return;
         }
     }
     for (int i = 0; i < n; i++) {
         save(pad_binds_key(c[i], modern), pad_binds_button_name(to[i] ? old : 0u));
         snprintf(what + len, sizeof(what) - len, "%s%s %s", len ? "; " : "",
-                 pad_binds_label(c[i], modern),
-                 to[i] ? "takes" : "has no button now:");
+                 T(pad_binds_label(c[i], modern)),
+                 to[i] ? T("takes") : T("has no button now:"));
         len = strlen(what);
         if (to[i])
             snprintf(what + len, sizeof(what) - len, " %s",
-                     pad_binds_button_label(old));
+                     T(pad_binds_button_label(old)));
         else
-            snprintf(what + len, sizeof(what) - len, " pick one");
+            snprintf(what + len, sizeof(what) - len, " %s", T("pick one"));
         len = strlen(what);
     }
     save(pad_binds_key(action, modern), pad_binds_button_name(button));
@@ -5032,7 +5162,7 @@ static void set_pad_bind(int action, bool modern, unsigned button)
  * pad is capture_bind's meanwhile; a drop-down for the mouse. */
 static void ask_pad_bind(void)
 {
-    const char *id = "Set a controller button";
+    const char *id = TL("Set a controller button");
 
     if (s_bind_capture < 0)
         return;
@@ -5046,14 +5176,14 @@ static void ask_pad_bind(void)
     const bool modern = story_modern();
     const unsigned cur = saved_bind(act, modern);
     bool done = false;
-    char item[96];
+    char item[192];
 
-    ImGui::Text("On slot 1's controller, press the button for:");
-    ImGui::Text("    %s (%s)", pad_binds_label(act, modern),
-                modern ? "Modern" : "Classic");
-    ImGui::Text("Button now: %s", cur ? pad_binds_button_label(cur) : "none");
-    note("A button another action uses at the same moment swaps with this one. "
-         "Back, Esc or Cancel: no change. Back and the D-pad can't be bound.");
+    ImGui::TextUnformatted(T("On slot 1's controller, press the button for:"));
+    ImGui::Text("    %s (%s)", T(pad_binds_label(act, modern)),
+                modern ? T("Modern") : T("Classic"));
+    ImGui::Text(T("Button now: %s"), cur ? T(pad_binds_button_label(cur)) : T("none"));
+    note(N_("A button another action uses at the same moment swaps with this one. "
+            "Back, Esc or Cancel: no change. Back and the D-pad can't be bound."));
     if (s_bind_cap_got) {
         unsigned b = s_bind_cap_got;
         s_bind_cap_got = 0;
@@ -5063,9 +5193,9 @@ static void ask_pad_bind(void)
     if (s_bind_msg[0])
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s", s_bind_msg);
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
-    if (ImGui::BeginCombo("##pad_pick", cur ? pad_binds_button_label(cur) : "None",
+    if (ImGui::BeginCombo("##pad_pick", cur ? T(pad_binds_button_label(cur)) : T("None"),
                           ImGuiComboFlags_HeightLarge)) {
-        if (!pad_binds_required(act) && ImGui::Selectable("None", !cur) && cur) {
+        if (!pad_binds_required(act) && ImGui::Selectable(TL("None"), !cur) && cur) {
             set_pad_bind(act, modern, 0u);
             done = saved_bind(act, modern) == 0u;
         }
@@ -5073,11 +5203,12 @@ static void ask_pad_bind(void)
             const unsigned b = pad_binds_choice(i);
             int c[4];
             int n = pad_binds_clashes(act, modern, b, c, 4);
-            if (n > 0)
-                snprintf(item, sizeof(item), "%s  (%s's)##b%d",
-                         pad_binds_button_label(b), pad_binds_label(c[0], modern), i);
-            else
-                snprintf(item, sizeof(item), "%s##b%d", pad_binds_button_label(b), i);
+            int len = n > 0
+                ? snprintf(item, sizeof(item), T("%s  (%s's)"),
+                           T(pad_binds_button_label(b)), T(pad_binds_label(c[0], modern)))
+                : snprintf(item, sizeof(item), "%s", T(pad_binds_button_label(b)));
+            if (len > 0 && (size_t)len < sizeof(item))
+                snprintf(item + len, sizeof(item) - (size_t)len, "###b%d", i);
             if (ImGui::Selectable(item, b == cur) && b != cur) {
                 set_pad_bind(act, modern, b);
                 done = saved_bind(act, modern) == b;
@@ -5087,7 +5218,7 @@ static void ask_pad_bind(void)
         }
         ImGui::EndCombo();
     }
-    if (ImGui::Button("Cancel") || s_bind_cap_cancel
+    if (ImGui::Button(TL("Cancel")) || s_bind_cap_cancel
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         done = true;
         s_bind_msg[0] = '\0';
@@ -5130,7 +5261,7 @@ static bool row_hidden(int set, int i)
 static const char *row_label(int set, int i, const ControlAction *a)
 {
     return set == CONTROLS_PHOTO && i == PHOTO_MENU && !settings_debug()
-               ? "Cheat menu" : a->label;
+               ? N_("Cheat menu") : a->label;
 }
 
 /* keys_table for --dump-settings: every row of the set's table, single
@@ -5240,7 +5371,7 @@ static void keys_table(int set)
                 if (open)
                     ImGui::EndTable();
                 section = a->section;
-                ImGui::SeparatorText(section);
+                ImGui::SeparatorText(T(section));
                 snprintf(id, sizeof(id), "##keys_%s", section);
                 open = begin_keys(id, pad);
             }
@@ -5269,27 +5400,27 @@ static void keys_table(int set)
                     ControlKeys other = controls_keys(set, j);
                     const char *lj = controls_action(set, j)->label;
                     if (shares_key(keys, other))
-                        add_note(also, sizeof(also), "Also used for: %s", lj);
-                    combo_notes(also, sizeof(also), keys, other, lj);
+                        add_note(also, sizeof(also), T("Also used for: %s"), T(lj));
+                    combo_notes(also, sizeof(also), keys, other, T(lj));
                 }
 
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             /* The button beside the action when both fit, else under it:
              * the menu may be narrow. */
-            char btn[48];
-            snprintf(btn, sizeof(btn), "(%s)", controls_button(set, i));
+            char btn[96];
+            snprintf(btn, sizeof(btn), "(%s)", T(controls_button(set, i)));
             ImGui::AlignTextToFramePadding();
             if (pad || !shows_button(a)) {
-                ImGui::TextWrapped("%s", row_label(set, i, a));
-            } else if (ImGui::CalcTextSize(a->label).x + gap
+                ImGui::TextWrapped("%s", T(row_label(set, i, a)));
+            } else if (ImGui::CalcTextSize(T(a->label)).x + gap
                 + ImGui::CalcTextSize(btn).x
                 <= ImGui::GetContentRegionAvail().x) {
-                ImGui::TextUnformatted(a->label);
+                ImGui::TextUnformatted(T(a->label));
                 ImGui::SameLine(0.0f, gap);
                 ImGui::TextDisabled("%s", btn);
             } else {
-                ImGui::TextWrapped("%s", a->label);
+                ImGui::TextWrapped("%s", T(a->label));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle()
                                       .Colors[ImGuiCol_TextDisabled]);
                 ImGui::TextWrapped("%s", btn);
@@ -5323,7 +5454,7 @@ static void keys_table(int set)
             if (keys != def) {
                 char tip[160];
                 snprintf(id, sizeof(id), "##reset_%s", a->key);
-                snprintf(tip, sizeof(tip), "Back to the default (%s)",
+                snprintf(tip, sizeof(tip), T("Back to the default (%s)"),
                          controls_keys_label(def));
                 if (reset_icon(id, tip))
                     set_key(set, i, def);
@@ -5339,14 +5470,14 @@ static void keys_table(int set)
                 ImGui::AlignTextToFramePadding();
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle()
                                       .Colors[ImGuiCol_TextDisabled]);
-                ImGui::TextWrapped("%s", a->button);
+                ImGui::TextWrapped("%s", T(a->button));
                 ImGui::PopStyleColor();
-                ImGui::SetItemTooltip("The controller's own: not rebindable");
+                ImGui::SetItemTooltip("%s", T("The controller's own: not rebindable"));
                 ImGui::TableNextColumn();
                 continue;
             }
             const unsigned cur = saved_bind(pa, modern);
-            snprintf(id, sizeof(id), "%s##pad_%s", pad_binds_button_label(cur),
+            snprintf(id, sizeof(id), "%s###pad_%s", T(pad_binds_button_label(cur)),
                      pad_binds_key(pa, modern));
             if (ImGui::Button(id, ImVec2(-FLT_MIN, 0.0f))) {
                 s_bind_capture = pa;
@@ -5355,15 +5486,15 @@ static void keys_table(int set)
                 s_bind_cap_cancel = false;
                 s_bind_msg[0] = '\0';
             }
-            ImGui::SetItemTooltip("Click, then press a button on slot 1's "
-                                  "controller (or pick one)");
+            ImGui::SetItemTooltip("%s", T("Click, then press a button on slot 1's "
+                                          "controller (or pick one)"));
             ImGui::TableNextColumn();
             const unsigned pdef = pad_binds_default(pa, modern);
             if (cur != pdef) {
-                char tip[96];
+                char tip[192];
                 snprintf(id, sizeof(id), "##pad_reset_%s", pad_binds_key(pa, modern));
-                snprintf(tip, sizeof(tip), "Back to the default (%s)",
-                         pdef ? pad_binds_button_label(pdef) : "none");
+                snprintf(tip, sizeof(tip), T("Back to the default (%s)"),
+                         pdef ? T(pad_binds_button_label(pdef)) : T("none"));
                 if (reset_icon(id, tip))
                     set_pad_bind(pa, modern, pdef);
             }
@@ -5381,11 +5512,11 @@ static void keys_table(int set)
 static void reset_binds_button(void)
 {
     const bool modern = story_modern();
-    const char *scheme = modern ? "Modern" : "Classic";
-    char q[96];
+    const char *scheme = modern ? N_("Modern") : N_("Classic");
+    char q[256];
 
-    snprintf(q, sizeof(q), "Put every %s controller button back to its default?",
-             scheme);
+    snprintf(q, sizeof(q), T("Put every %s controller button back to its default?"),
+             T(scheme));
     if (s_dump) {
         char keys[2 * PADB_ACTIONS][48];
         const char *list[2 * PADB_ACTIONS];
@@ -5409,7 +5540,7 @@ static void reset_binds_button(void)
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(q);
         ImGui::SameLine();
-        if (ImGui::Button("Yes##binds_reset")) {
+        if (ImGui::Button(TL("Yes##binds_reset"))) {
             for (int a = 0; a < PADB_ACTIONS; a++)
                 if (pad_binds_key(a, modern))
                     save(pad_binds_key(a, modern),
@@ -5420,9 +5551,9 @@ static void reset_binds_button(void)
             s_binds_ask_reset = false;
         }
         ImGui::SameLine();
-        if (ImGui::Button("No##binds_reset"))
+        if (ImGui::Button(TL("No##binds_reset")))
             s_binds_ask_reset = false;
-    } else if (ImGui::Button("Reset the controller buttons")) {
+    } else if (ImGui::Button(TL("Reset the controller buttons"))) {
         s_binds_ask_reset = true;
     }
 }
@@ -5431,18 +5562,18 @@ static void reset_binds_button(void)
  * dump gives the question and what it puts back. */
 static void reset_button(int set)
 {
-    char id[64];
-    snprintf(id, sizeof(id), "Reset all %s controls", set_name(set));
+    char id[192];
+    snprintf(id, sizeof(id), T("Reset all %s controls"), T(set_name(set)));
     if (s_dump) {
-        char keys[64][48], q[96];
+        char keys[64][48], q[256];
         const char *list[64];
         int n = reset_keys(set, keys, 64);
         for (int i = 0; i < n; i++)
             list[i] = keys[i];
-        snprintf(q, sizeof(q), set == CONTROLS_PHOTO
-                 ? "Put every %s key back to the defaults?"
-                 : "Put every %s key and the mouse back to the defaults?",
-                 set_name(set));
+        snprintf(q, sizeof(q), T(set == CONTROLS_PHOTO
+                 ? N_("Put every %s key back to the defaults?")
+                 : N_("Put every %s key and the mouse back to the defaults?")),
+                 T(set_name(set)));
         dump_item("reset", id, NULL);
         fputs(", \"question\": ", s_dump);
         settings_json_string(s_dump, q);
@@ -5450,7 +5581,7 @@ static void reset_button(int set)
         fputs(" }", s_dump);
     }
     size_t len = strlen(id);
-    snprintf(id + len, sizeof(id) - len, "##%d", set);
+    snprintf(id + len, sizeof(id) - len, "###reset_set%d", set);
     if (ImGui::Button(id))
         s_ask_reset = set;
 }
@@ -5461,27 +5592,27 @@ static void controls_tab(int set)
     static const char *const prefix[] = { "story", "mp" };
     char key[64];
 
-    section("Mouse (looking around)");
+    section(N_("Mouse (looking around)"));
     snprintf(key, sizeof(key), "%s_mouse_x", prefix[set]);
-    slider("Sensitivity left and right", key, 10.0f, 400.0f, "100",
-           "%.0f %%", "Back to the default (100 %)");
+    slider(N_("Sensitivity left and right"), key, 10.0f, 400.0f, "100",
+           "%.0f %%", N_("Back to the default (100 %)"));
     snprintf(key, sizeof(key), "%s_mouse_y", prefix[set]);
-    slider("Sensitivity up and down", key, 10.0f, 400.0f, "100", "%.0f %%",
-           "Back to the default (100 %)");
+    slider(N_("Sensitivity up and down"), key, 10.0f, 400.0f, "100", "%.0f %%",
+           N_("Back to the default (100 %)"));
     snprintf(key, sizeof(key), "%s_invert_y", prefix[set]);
-    checkbox("Invert up and down", key, true);
+    checkbox(N_("Invert up and down"), key, true);
 
-    section(set == CONTROLS_STORY ? "Keys and controller" : "Keys");
+    section(set == CONTROLS_STORY ? N_("Keys and controller") : N_("Keys"));
     if (set == CONTROLS_STORY)
-        info("Click an action's keys to add or remove one (up to 3). Click its "
-             "controller button to change it: slot 1's controller, for the "
-             "scheme above (Classic and Modern each have their own). Button "
-             "names are an Xbox controller's: on a PlayStation controller "
-             "A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / "
-             "RT = L1 / R1 / L2 / R2, Start = Options.");
+        info(N_("Click an action's keys to add or remove one (up to 3). Click its "
+                "controller button to change it: slot 1's controller, for the "
+                "scheme above (Classic and Modern each have their own). Button "
+                "names are an Xbox controller's: on a PlayStation controller "
+                "A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / "
+                "RT = L1 / R1 / L2 / R2, Start = Options."));
     else
-        info("Click an action's keys to add or remove one (up to 3). In "
-             "brackets: the controller button it presses.");
+        info(N_("Click an action's keys to add or remove one (up to 3). In "
+                "brackets: the controller button it presses."));
     keys_table(set);
     reset_button(set);
     if (set == CONTROLS_STORY)
@@ -5492,8 +5623,8 @@ static void controls_tab(int set)
  * button for the same thing. */
 static void photo_tab(void)
 {
-    info("Click an action's keys to add or remove one (up to 3). In brackets: "
-         "the controller button that does the same.");
+    info(N_("Click an action's keys to add or remove one (up to 3). In brackets: "
+            "the controller button that does the same."));
     keys_table(CONTROLS_PHOTO);
     reset_button(CONTROLS_PHOTO);
 }
@@ -5533,8 +5664,8 @@ static void key_list(const int *keys, int n, char *out, size_t size)
     }
     if (a) {
         len = strlen(out);
-        snprintf(out + len, size - len, "%s", len ? " or arrow keys"
-                                                  : "Arrow keys");
+        snprintf(out + len, size - len, "%s", len ? T(" or arrow keys")
+                                                  : T("Arrow keys"));
     }
 }
 
@@ -5568,7 +5699,7 @@ static void fixed_keys(int set, const char *section, const char *id,
         for (int j = i; j < n && nk < 16; j++)
             if (!strcmp(controls_action(set, j)->label, label))
                 keys[nk++] = controls_key(set, j);
-        char text[160];
+        char text[256];
         key_list(keys, nk, text, sizeof(text));
         if (dump_item("fixed", label, NULL)) {
             fputs(", \"keys\": ", s_dump);
@@ -5577,7 +5708,7 @@ static void fixed_keys(int set, const char *section, const char *id,
         }
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(label);
+        ImGui::TextUnformatted(T(label));
         ImGui::TableNextColumn();
         ImGui::TextWrapped("%s", text);
     }
@@ -5593,16 +5724,16 @@ static void fixed_keys(int set, const char *section, const char *id,
  * their own: "PlayStation / Switch controller 1". */
 static void pad_label(int pad, char *out, size_t size)
 {
-    char other[96], num[48];
+    char other[96], num[96];
     bool twin = false;
 
     if (pad < CONTROLS_XINPUT_PADS)
-        snprintf(num, sizeof(num), "Controller %d", pad + 1);
+        snprintf(num, sizeof(num), T("Controller %d"), pad + 1);
     else
-        snprintf(num, sizeof(num), "PlayStation / Switch controller %d",
+        snprintf(num, sizeof(num), T("PlayStation / Switch controller %d"),
                  pad - CONTROLS_XINPUT_PADS + 1);
     if (!controls_pad_connected(pad)) {
-        snprintf(out, size, "%s (not connected)", num);
+        snprintf(out, size, T("%s (not connected)"), num);
         return;
     }
     if (!controls_pad_name(pad, out, (int)size)) {
@@ -5625,15 +5756,15 @@ static void pad_label(int pad, char *out, size_t size)
 static void port_source_name(int src, int port, char *out, size_t size)
 {
     if (src == -1) {
-        snprintf(out, size, "No input");
+        snprintf(out, size, "%s", T("No input"));
     } else if (src == -2) {
         int pad = port >= 0 ? controls_pad_of_port(port) : -1;
         char now[96];
         if (pad >= 0) {
             pad_label(pad, now, sizeof(now));
-            snprintf(out, size, "Any controller (%s)", now);
+            snprintf(out, size, T("Any controller (%s)"), now);
         } else {
-            snprintf(out, size, "Any controller");
+            snprintf(out, size, "%s", T("Any controller"));
         }
     } else {
         pad_label(src, out, size);
@@ -5660,58 +5791,58 @@ static void slot_options(int p)
     snprintf(gy, sizeof(gy), "gyro_speed_y%d", p + 1);
     snprintf(gi, sizeof(gi), "gyro_invert_y%d", p + 1);
 
-    section("Rumble");
-    checkbox("Rumble", rk, true,
-             "This controller rumbles (when the game's own Vibration option "
-             "is on too); off: never");
+    section(N_("Rumble"));
+    checkbox(N_("Rumble"), rk, true,
+             N_("This controller rumbles (when the game's own Vibration option "
+                "is on too); off: never"));
     /* The strength shown while rumble is on (as the Pop-in Fix's parts);
      * the dump lists it under its parent. */
     if (s_dump || strcmp(settings_get(rk), "0")) {
         ImGui::Indent();
         s_dump_parent = rk;
-        slider("Rumble strength", sk, 0.0f, 200.0f, "100", "%.0f %%",
-               "Back to the default (100 %: as the game asks)");
+        slider(N_("Rumble strength"), sk, 0.0f, 200.0f, "100", "%.0f %%",
+               N_("Back to the default (100 %: as the game asks)"));
         s_dump_parent = NULL;
         ImGui::Unindent();
     }
 
-    section("Sticks");
-    info("How far a stick tilts before it moves anything: lower responds "
-         "sooner, higher helps a stick that drifts (14 % is the game's "
-         "own).");
+    section(N_("Sticks"));
+    info(N_("How far a stick tilts before it moves anything: lower responds "
+            "sooner, higher helps a stick that drifts (14 % is the game's "
+            "own)."));
     /* Resets to the default 10 (user 2026-11-07), not the game's 14. */
-    slider("Stick dead zone", dk, 0.0f, 40.0f, "10", "%.0f %%",
-           "Back to the default (10 %)");
+    slider(N_("Stick dead zone"), dk, 0.0f, 40.0f, "10", "%.0f %%",
+           N_("Back to the default (10 %)"));
     /* User 2026-11-15: the right stick's camera speed per controller, single
      * player (slot 1's alone) and multiplayer apart. */
     if (p == 0)
-        slider("Single player camera speed", "story_camera_speed1", 25.0f,
-               300.0f, "100", "%.0f %%", "Back to the default (100 %)");
-    slider("Multiplayer camera speed", cs, 25.0f, 300.0f, "100", "%.0f %%",
-           "Back to the default (100 %)");
+        slider(N_("Single player camera speed"), "story_camera_speed1", 25.0f,
+               300.0f, "100", "%.0f %%", N_("Back to the default (100 %)"));
+    slider(N_("Multiplayer camera speed"), cs, 25.0f, 300.0f, "100", "%.0f %%",
+           N_("Back to the default (100 %)"));
 
-    section("Gyro aiming");
+    section(N_("Gyro aiming"));
     if (!(gyro & CONTROLS_GYRO_HAS))
-        note("This controller has no gyro. PlayStation controllers "
-             "(DualShock 4, DualSense) and Switch controllers have one: "
-             "these settings are used when one is in this slot.");
-    checkbox("Aim with the gyro in single player", gs, true,
-             "Turning the controller aims while a weapon is out and the "
-             "left trigger is held");
-    checkbox("Aim with the gyro in multiplayer", gm, true,
-             "Turning the controller aims all match long");
-    slider("Gyro speed left / right", gx, 25.0f, 1000.0f, "200", "%.0f %%",
-           "Back to the default (200 %: the aim turns twice as far as the "
-           "controller)");
-    slider("Gyro speed up / down", gy, 25.0f, 1000.0f, "200", "%.0f %%",
-           "Back to the default (200 %: the aim turns twice as far as the "
-           "controller)");
-    checkbox("Invert gyro up / down", gi, true,
-             "Tilting the controller up aims down");
-    checkbox("Correct gyro drift automatically", "gyro_auto_calibrate", true,
-             "While a controller is held still, its gyro's slow drift is "
-             "measured and taken off (every controller). Off: only the "
-             "Calibrate button does it.");
+        note(N_("This controller has no gyro. PlayStation controllers "
+                "(DualShock 4, DualSense) and Switch controllers have one: "
+                "these settings are used when one is in this slot."));
+    checkbox(N_("Aim with the gyro in single player"), gs, true,
+             N_("Turning the controller aims while a weapon is out and the "
+                "left trigger is held"));
+    checkbox(N_("Aim with the gyro in multiplayer"), gm, true,
+             N_("Turning the controller aims all match long"));
+    slider(N_("Gyro speed left / right"), gx, 25.0f, 1000.0f, "200", "%.0f %%",
+           N_("Back to the default (200 %: the aim turns twice as far as the "
+              "controller)"));
+    slider(N_("Gyro speed up / down"), gy, 25.0f, 1000.0f, "200", "%.0f %%",
+           N_("Back to the default (200 %: the aim turns twice as far as the "
+              "controller)"));
+    checkbox(N_("Invert gyro up / down"), gi, true,
+             N_("Tilting the controller up aims down"));
+    checkbox(N_("Correct gyro drift automatically"), "gyro_auto_calibrate", true,
+             N_("While a controller is held still, its gyro's slow drift is "
+                "measured and taken off (every controller). Off: only the "
+                "Calibrate button does it."));
     if (s_dump)
         return;
 
@@ -5719,21 +5850,21 @@ static void slot_options(int p)
      * root scale so a slow drift shows too). */
     bool has = (gyro & CONTROLS_GYRO_HAS) != 0;
     ImGui::BeginDisabled(!has);
-    if (ImGui::Button("Calibrate")) {
+    if (ImGui::Button(TL("Calibrate"))) {
         controls_gyro_calibrate(p);
         fprintf(stderr, "[OVERLAY] slot %d gyro calibrate\n", p + 1);
     }
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Lay the controller down, still, and press: its "
-                          "gyro is measured for 2 seconds");
+    ImGui::SetItemTooltip("%s", T("Lay the controller down, still, and press: its "
+                                  "gyro is measured for 2 seconds"));
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(!has ? ""
                            : gyro & CONTROLS_GYRO_CALIBRATING
-                           ? "Calibrating: keep it still..."
+                           ? T("Calibrating: keep it still...")
                            : gyro & CONTROLS_GYRO_STILL
-                           ? "Held still" : "Turn the controller: the dot "
-                                            "follows");
+                           ? T("Held still") : T("Turn the controller: the dot "
+                                                 "follows"));
     if (has) {
         float s = ImGui::GetFontSize() * 4.0f;
         ImVec2 a = ImGui::GetCursorScreenPos();
@@ -5755,8 +5886,8 @@ static void slot_options(int p)
         ImGui::Dummy(ImVec2(s, s));
         ImGui::SameLine();
         ImGui::Text("%.0f\xC2\xB0/s %s\n%.0f\xC2\xB0/s %s", fabsf(yaw),
-                    yaw < 0.0f ? "left" : "right", fabsf(pitch),
-                    pitch < 0.0f ? "down" : "up");
+                    yaw < 0.0f ? T("left") : T("right"), fabsf(pitch),
+                    pitch < 0.0f ? T("down") : T("up"));
     }
 }
 
@@ -5765,12 +5896,15 @@ static void slot_options(int p)
  * opens again. Close, Esc or B close it (modals ignore them otherwise). */
 static void slot_options_window(void)
 {
-    char id[48], name[160];
+    char id[128], name[160];
 
     if (s_slot_opts < 0)
         return;
-    snprintf(id, sizeof(id), "Slot %d controller###slot_opts",
-             s_slot_opts + 1);
+    snprintf(id, sizeof(id), T("Slot %d controller"), s_slot_opts + 1);
+    {
+        size_t len = strlen(id);
+        snprintf(id + len, sizeof(id) - len, "###slot_opts");
+    }
     if (!ImGui::IsPopupOpen(id))
         ImGui::OpenPopup(id);
     float px = ImGui::GetFontSize();
@@ -5788,7 +5922,7 @@ static void slot_options_window(void)
     ImGui::TextDisabled("%s", name);
     slot_options(s_slot_opts);
     ImGui::Separator();
-    bool close = ImGui::Button("Close");
+    bool close = ImGui::Button(TL("Close"));
     if (close || (!s_item_active
                   && (ImGui::IsKeyPressed(ImGuiKey_Escape, false)
                       || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight,
@@ -5815,7 +5949,7 @@ static void set_chord(int fn, int c)
  * mouse and the keyboard. */
 static void ask_chord(void)
 {
-    const char *id = "Set a chord";
+    const char *id = TL("Set a chord");
 
     if (s_chord_capture < 0)
         return;
@@ -5827,12 +5961,12 @@ static void ask_chord(void)
     s_popup_open = true;
     const int fn = s_chord_capture;
     bool done = false;
-    ImGui::Text("On slot 1's controller, hold two buttons together for:");
-    ImGui::Text("    %s", chords_fn_label(fn));
-    ImGui::Text("Chord now: %s", chords_fn_chord_label(fn));
-    note("Hold one button and press the other: Back or RB with another button, "
-         "a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both "
-         "sticks clicked. B alone, Esc or Cancel: no change.");
+    ImGui::TextUnformatted(T("On slot 1's controller, hold two buttons together for:"));
+    ImGui::Text("    %s", T(chords_fn_label(fn)));
+    ImGui::Text(T("Chord now: %s"), T(chords_fn_chord_label(fn)));
+    note(N_("Hold one button and press the other: Back or RB with another button, "
+            "a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both "
+            "sticks clicked. B alone, Esc or Cancel: no change."));
     if (s_chord_cap_got >= 0) {
         const int c = s_chord_cap_got;
         const int o = chords_taken_by(fn, c);
@@ -5840,8 +5974,8 @@ static void ask_chord(void)
         if (c == chords_fn_chord(fn)) {
             done = true;
         } else if (o >= 0) {
-            snprintf(s_chord_msg, sizeof(s_chord_msg), "%s is %s's: pick another",
-                     chords_label(c), chords_fn_label(o));
+            snprintf(s_chord_msg, sizeof(s_chord_msg), T("%s is %s's: pick another"),
+                     T(chords_label(c)), T(chords_fn_label(o)));
         } else {
             set_chord(fn, c);
             done = true;
@@ -5850,13 +5984,13 @@ static void ask_chord(void)
     if (s_chord_msg[0])
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s", s_chord_msg);
     if (!chords_fn_required(fn)) {
-        if (ImGui::Button("No chord")) {
+        if (ImGui::Button(TL("No chord"))) {
             set_chord(fn, -1);
             done = true;
         }
         ImGui::SameLine();
     }
-    if (ImGui::Button("Cancel") || s_chord_cap_cancel
+    if (ImGui::Button(TL("Cancel")) || s_chord_cap_cancel
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         done = true;
     if (done) {
@@ -5914,36 +6048,36 @@ static void dump_chords(void)
  * function has and may not share: greyed, with its name), Press, reset. */
 static void chord_row(int fn)
 {
-    char id[96], item[96];
+    char id[160], item[192];
     const int cur = chords_fn_chord(fn);
     const bool req = chords_fn_required(fn) != 0;
 
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(chords_fn_label(fn));
-    ImGui::SetItemTooltip("%s", chords_fn_tip(fn));
+    ImGui::TextUnformatted(T(chords_fn_label(fn)));
+    ImGui::SetItemTooltip("%s", T(chords_fn_tip(fn)));
     if (req) {
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        ImGui::TextDisabled("(required)");
-        ImGui::SetItemTooltip("%s", chords_fn_tip(fn));
+        ImGui::TextDisabled("%s", T("(required)"));
+        ImGui::SetItemTooltip("%s", T(chords_fn_tip(fn)));
     }
 
     ImGui::TableNextColumn();
     snprintf(id, sizeof(id), "##chord_%s", chords_fn_key(fn));
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::BeginCombo(id, cur >= 0 ? chords_label(cur) : "None",
+    if (ImGui::BeginCombo(id, cur >= 0 ? T(chords_label(cur)) : T("None"),
                           ImGuiComboFlags_HeightLarge)) {
         s_popup_open = true;
-        if (!req && ImGui::Selectable("None", cur < 0) && cur >= 0)
+        if (!req && ImGui::Selectable(TL("None"), cur < 0) && cur >= 0)
             set_chord(fn, -1);
         for (int c = 0; c < chords_count(); c++) {
             const int o = chords_taken_by(fn, c);
             if (o >= 0)
-                snprintf(item, sizeof(item), "%s  (%s)##c%d", chords_label(c),
-                         chords_fn_label(o), c);
+                snprintf(item, sizeof(item), "%s  (%s)###c%d", T(chords_label(c)),
+                         T(chords_fn_label(o)), c);
             else
-                snprintf(item, sizeof(item), "%s##c%d", chords_label(c), c);
+                snprintf(item, sizeof(item), "%s###c%d", T(chords_label(c)), c);
             if (ImGui::Selectable(item, c == cur,
                                   o >= 0 ? ImGuiSelectableFlags_Disabled : 0)
                 && c != cur)
@@ -5955,7 +6089,7 @@ static void chord_row(int fn)
     }
 
     ImGui::TableNextColumn();
-    snprintf(id, sizeof(id), "Press##press_%s", chords_fn_key(fn));
+    snprintf(id, sizeof(id), "%s###press_%s", T("Press"), chords_fn_key(fn));
     if (ImGui::Button(id)) {
         s_chord_capture = fn;
         s_chord_cap_got = -1;
@@ -5964,20 +6098,20 @@ static void chord_row(int fn)
         s_chord_cap_cancel = false;
         s_chord_msg[0] = '\0';
     }
-    ImGui::SetItemTooltip("Set it by holding the chord on slot 1's controller");
+    ImGui::SetItemTooltip("%s", T("Set it by holding the chord on slot 1's controller"));
 
     ImGui::TableNextColumn();
     const int def = chords_find(settings_default(chords_fn_key(fn)));
     if (cur != def) {
-        char tip[96];
+        char tip[192];
         snprintf(id, sizeof(id), "##chord_reset_%s", chords_fn_key(fn));
-        snprintf(tip, sizeof(tip), "Back to the default (%s)",
-                 def >= 0 ? chords_label(def) : "none");
+        snprintf(tip, sizeof(tip), T("Back to the default (%s)"),
+                 def >= 0 ? T(chords_label(def)) : T("none"));
         if (reset_icon(id, tip)) {
             if (chords_taken_by(fn, def) >= 0)
-                snprintf(s_chord_msg, sizeof(s_chord_msg), "%s is %s's now: "
-                         "change that one first", chords_label(def),
-                         chords_fn_label(chords_taken_by(fn, def)));
+                snprintf(s_chord_msg, sizeof(s_chord_msg), T("%s is %s's now: "
+                         "change that one first"), T(chords_label(def)),
+                         T(chords_fn_label(chords_taken_by(fn, def))));
             else
                 set_chord(fn, def);
         }
@@ -5989,7 +6123,7 @@ static void chord_row(int fn)
  * that show now. Close, Esc or B close it. */
 static void chords_window(void)
 {
-    const char *id = "Controller chords###chords";
+    const char *id = TL("Controller chords###chords");
 
     if (!s_chords_open)
         return;
@@ -6009,28 +6143,28 @@ static void chords_window(void)
     const ImGuiStyle &style = ImGui::GetStyle();
     float w_fn = 0.0f, w_chord = 0.0f;
     for (int fn = 0; fn < CHORD_FNS; fn++) {
-        float w = ImGui::CalcTextSize(chords_fn_label(fn)).x;
+        float w = ImGui::CalcTextSize(T(chords_fn_label(fn))).x;
         if (chords_fn_required(fn))
-            w += style.ItemInnerSpacing.x + ImGui::CalcTextSize("(required)").x;
+            w += style.ItemInnerSpacing.x + ImGui::CalcTextSize(T("(required)")).x;
         w_fn = w > w_fn ? w : w_fn;
     }
     for (int c = 0; c < chords_count(); c++) {
-        float w = ImGui::CalcTextSize(chords_label(c)).x;
+        float w = ImGui::CalcTextSize(T(chords_label(c))).x;
         w_chord = w > w_chord ? w : w_chord;
     }
     w_chord += style.FramePadding.x * 2.0f + ImGui::GetFrameHeight();
-    note("Two buttons held together for our own extras, on slot 1's "
-         "controller; one set for every controller, apart from its normal "
-         "controls. Button names are an Xbox controller's: on a PlayStation "
-         "controller Back = Share / Create, Start = Options, LB / RB = "
-         "L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle.");
+    note(N_("Two buttons held together for our own extras, on slot 1's "
+            "controller; one set for every controller, apart from its normal "
+            "controls. Button names are an Xbox controller's: on a PlayStation "
+            "controller Back = Share / Create, Start = Options, LB / RB = "
+            "L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle."));
     for (int g = 0; g < CHORD_GROUPS; g++) {
         int fn, shown = 0;
         for (fn = 0; fn < CHORD_FNS; fn++)
             shown += chords_fn_group(fn) == g && chords_fn_shown(fn);
         if (!shown)
             continue;
-        ImGui::SeparatorText(chords_group_name(g));
+        ImGui::SeparatorText(T(chords_group_name(g)));
         note(chords_group_tip(g));
         char tid[32];
         snprintf(tid, sizeof(tid), "##chords%d", g);
@@ -6052,9 +6186,9 @@ static void chords_window(void)
     ImGui::Separator();
     if (s_chords_ask_reset) {
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Put every chord back to its default?");
+        ImGui::TextUnformatted(T("Put every chord back to its default?"));
         ImGui::SameLine();
-        if (ImGui::Button("Yes##chords_reset")) {
+        if (ImGui::Button(TL("Yes##chords_reset"))) {
             for (int fn = 0; fn < CHORD_FNS; fn++)
                 save(chords_fn_key(fn), settings_default(chords_fn_key(fn)));
             chords_apply();
@@ -6063,12 +6197,12 @@ static void chords_window(void)
             s_chords_ask_reset = false;
         }
         ImGui::SameLine();
-        if (ImGui::Button("No##chords_reset"))
+        if (ImGui::Button(TL("No##chords_reset")))
             s_chords_ask_reset = false;
-    } else if (ImGui::Button("Reset all chords")) {
+    } else if (ImGui::Button(TL("Reset all chords"))) {
         s_chords_ask_reset = true;
     }
-    bool close = ImGui::Button("Close");
+    bool close = ImGui::Button(TL("Close"));
     ImGui::SetItemDefaultFocus();
     if (s_chord_capture < 0
         && (close || (!s_item_active
@@ -6098,21 +6232,21 @@ static void ports_tab(void)
     static const int sources[] = { -1, -2, 0, 1, 2, 3, 4, 5, 6, 7 };
     bool kbm = strcmp(settings_get("keyboard_mouse"), "0") != 0;
     int kb = controls_keyboard_port();
-    char key[32], name[160], id[32];
+    char key[32], name[192], id[96];
 
     if (!s_dump && s_goto_slot_opts >= 0) {     /* Back + Start's way in */
         s_slot_opts = s_goto_slot_opts;
         s_goto_slot_opts = -1;
     }
 
-    info("Which controller is each player: slot 1 is player 1 (controller "
-         "port 1 on the Xbox). The list shows the connected controllers by "
-         "the names in Windows' game controller list; PlayStation "
-         "controllers (DualShock 4, DualSense) and Switch controllers "
-         "(Pro Controller, a pair of Joy-Cons) work without other "
-         "programs. A slot with "
-         "no controller and no keyboard is empty, as if nothing were "
-         "plugged in there; the game sees the change after a second.");
+    info(N_("Which controller is each player: slot 1 is player 1 (controller "
+            "port 1 on the Xbox). The list shows the connected controllers by "
+            "the names in Windows' game controller list; PlayStation "
+            "controllers (DualShock 4, DualSense) and Switch controllers "
+            "(Pro Controller, a pair of Joy-Cons) work without other "
+            "programs. A slot with "
+            "no controller and no keyboard is empty, as if nothing were "
+            "plugged in there; the game sees the change after a second."));
     /* The launcher names the controllers from --list-pads; a controller is
      * one slot's at a time, and the keyboard boxes are one choice, as
      * below. */
@@ -6125,9 +6259,9 @@ static void ports_tab(void)
     }
     if (!ImGui::BeginTable("##ports", 4, ImGuiTableFlags_SizingFixedFit))
         return;
-    ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthFixed);
-    ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn(T("Slot"), ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn(T("Controller"), ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn(T("Keyboard"), ImGuiTableColumnFlags_WidthFixed);
     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed);
     ImGui::TableHeadersRow();
     for (int p = 0; p < 4; p++) {
@@ -6135,7 +6269,7 @@ static void ports_tab(void)
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::AlignTextToFramePadding();
-        ImGui::Text("Slot %d", p + 1);
+        ImGui::Text(T("Slot %d"), p + 1);
 
         ImGui::TableNextColumn();
         port_source_name(cur, p, name, sizeof(name));
@@ -6153,7 +6287,7 @@ static void ports_tab(void)
                     continue;
                 port_source_name(sources[i], sel ? p : -1, name, sizeof(name));
                 size_t len = strlen(name);
-                snprintf(name + len, sizeof(name) - len, "##src%d", i);
+                snprintf(name + len, sizeof(name) - len, "###src%d", i);
                 if (ImGui::Selectable(name, sel) && !sel) {
                     if (sources[i] != -1)
                         for (int q = 0; q < 4; q++)
@@ -6189,39 +6323,39 @@ static void ports_tab(void)
             fprintf(stderr, "[OVERLAY] keyboard and mouse: %s\n",
                     on ? name : "off");
         }
-        ImGui::SetItemTooltip(on ? "The keyboard and mouse are this player"
-                                 : "Make the keyboard and mouse this player");
+        ImGui::SetItemTooltip("%s", on ? T("The keyboard and mouse are this player")
+                                       : T("Make the keyboard and mouse this player"));
 
         /* User 2026-11-15: each slot's controller settings behind its own
          * Options button (rumble, sticks, gyro). */
         ImGui::TableNextColumn();
-        snprintf(id, sizeof(id), "Options##opts%d", p + 1);
+        snprintf(id, sizeof(id), "%s###opts%d", T("Options"), p + 1);
         if (ImGui::Button(id)) {
             s_slot_opts = p;
             fprintf(stderr, "[OVERLAY] slot %d options\n", p + 1);
         }
-        ImGui::SetItemTooltip("Rumble, sticks and gyro aiming for slot %d's "
-                              "controller", p + 1);
+        ImGui::SetItemTooltip(T("Rumble, sticks and gyro aiming for slot %d's "
+                                "controller"), p + 1);
     }
     ImGui::EndTable();
     slot_options_window();
     /* User 2026-11-17: one Chords button for every controller. */
     dump_chords();
-    if (ImGui::Button("Chords")) {
+    if (ImGui::Button(TL("Chords"))) {
         s_chords_open = true;
         fprintf(stderr, "[OVERLAY] chords window\n");
     }
-    ImGui::SetItemTooltip("Two buttons held together for the menus, photo mode "
-                          "and cheats (every controller)");
+    ImGui::SetItemTooltip("%s", T("Two buttons held together for the menus, photo mode "
+                                  "and cheats (every controller)"));
     chords_window();
     /* Always shown: a note coming and going moved the boxes under the
      * pointer. */
-    info("The mouse turns the camera directly only on slot 1; on another "
-         "slot it works as that player's right stick.");
-    checkbox("Control when out of focus", "control_out_of_focus", true,
-             "Controllers keep playing the game while another window is in "
-             "front. Off: they do nothing until the game window is in front "
-             "again (the keyboard always waits).");
+    info(N_("The mouse turns the camera directly only on slot 1; on another "
+            "slot it works as that player's right stick."));
+    checkbox(N_("Control when out of focus"), "control_out_of_focus", true,
+             N_("Controllers keep playing the game while another window is in "
+                "front. Off: they do nothing until the game window is in front "
+                "again (the keyboard always waits)."));
     /* The dump: every slot's Options entries, each marked with its slot
      * (the launcher puts them behind that slot's Options button). */
     if (s_dump)
@@ -6235,9 +6369,9 @@ static void ports_tab(void)
 static void story_tab(void)
 {
     static const char *const values[] = { "classic", "modern" };
-    static const char *const names[] = { "Classic", "Modern" };
+    static const char *const names[] = { N_("Classic"), N_("Modern") };
 
-    section("Scheme");
+    section(N_("Scheme"));
     if (dump_item("radio", "Scheme", "story_scheme")) {
         dump_list("values", values, 2);
         dump_list("names", names, 2);
@@ -6245,8 +6379,8 @@ static void story_tab(void)
     }
     int was = strcmp(settings_get("story_scheme"), "modern") ? 0 : 1;
     int scheme = was;
-    ImGui::RadioButton(names[0], &scheme, 0);
-    ImGui::RadioButton(names[1], &scheme, 1);
+    ImGui::RadioButton(TL(names[0]), &scheme, 0);
+    ImGui::RadioButton(TL(names[1]), &scheme, 1);
     if (scheme != was) {
         save("story_scheme", values[scheme]);
         controls_apply();
@@ -6256,9 +6390,9 @@ static void story_tab(void)
      * pad's slingshot, as Classic's B, instead of the aim key holding it. */
     if (scheme == 1 || s_dump) {
         static const char *const sling_values[] = { "hold", "toggle" };
-        static const char *const sling_names[] = { "Hold", "Toggle" };
+        static const char *const sling_names[] = { N_("Hold"), N_("Toggle") };
         s_dump_scheme = "modern";
-        choice("Slingshot Aim", "story_slingshot_aim", sling_values,
+        choice(N_("Slingshot Aim"), "story_slingshot_aim", sling_values,
                sling_names, 2, true);
         s_dump_scheme = NULL;
     }
@@ -6269,14 +6403,14 @@ static void mp_tab(void)
 {
     static const char *const zoom_values[] = { "toggle", "hold" };
     static const char *const zoom_names[] = {
-        "Toggle (press to zoom in, press again to zoom out)",
-        "Hold (zoomed in while the key is held)",
+        N_("Toggle (press to zoom in, press again to zoom out)"),
+        N_("Hold (zoomed in while the key is held)"),
     };
 
-    info("These keys follow the game's \"Emily\" control scheme: "
-         "choose Emily in the multiplayer controller options.");
-    section("Zoom");
-    choice("Zoom key", "mp_zoom_mode", zoom_values, zoom_names, 2, true);
+    info(N_("These keys follow the game's \"Emily\" control scheme: "
+            "choose Emily in the multiplayer controller options."));
+    section(N_("Zoom"));
+    choice(N_("Zoom key"), "mp_zoom_mode", zoom_values, zoom_names, 2, true);
     controls_tab(CONTROLS_MP);
 }
 
@@ -6287,29 +6421,29 @@ static void menus_tab(void)
     };
     float w = 0.0f;
 
-    checkbox("Mouse in menus", "menu_mouse", true,
-             "The mouse in the game's menus: the pointer shows when the "
-             "mouse moves; on the main menu the arrows at the sides (or a "
-             "drag) turn, a click in the middle opens; right click goes "
-             "back, the wheel moves up and down.");
-    info("Fixed keys, the same in every menu: the main menu, the "
-         "multiplayer menus and pause menu. Esc goes back on the main "
-         "menu and the multiplayer menus, and closes the multiplayer "
-         "pause menu.");
+    checkbox(N_("Mouse in menus"), "menu_mouse", true,
+             N_("The mouse in the game's menus: the pointer shows when the "
+                "mouse moves; on the main menu the arrows at the sides (or a "
+                "drag) turn, a click in the middle opens; right click goes "
+                "back, the wheel moves up and down."));
+    info(N_("Fixed keys, the same in every menu: the main menu, the "
+            "multiplayer menus and pause menu. Esc goes back on the main "
+            "menu and the multiplayer menus, and closes the multiplayer "
+            "pause menu."));
     for (int set : sets)
         for (int i = 0; i < controls_count(set); i++) {
-            float x = ImGui::CalcTextSize(controls_action(set, i)->label).x;
+            float x = ImGui::CalcTextSize(T(controls_action(set, i)->label)).x;
             if (x > w)
                 w = x;
         }
     w += ImGui::GetFontSize();
-    section("Menus");
+    section(N_("Menus"));
     fixed_keys(CONTROLS_MENU, NULL, "##menu_keys", w);
-    section("Cutscenes");
+    section(N_("Cutscenes"));
     fixed_keys(CONTROLS_CUTSCENE, NULL, "##cutscene_keys", w);
-    section("Single player pause screen");
+    section(N_("Single player pause screen"));
     fixed_keys(CONTROLS_PAUSE, NULL, "##pause_keys", w);
-    section("Multiplayer menu");
+    section(N_("Multiplayer menu"));
     fixed_keys(CONTROLS_MENU, "Multiplayer menu", "##mp_menu_keys", w);
 }
 
@@ -6318,41 +6452,41 @@ struct ControlsTab {
     void (*body)(void);
 };
 static const ControlsTab s_controls_tabs[] = {
-    { "Single player", story_tab },
-    { "Multiplayer", mp_tab },
-    { "Photo mode", photo_tab },
-    { "Menus", menus_tab },
-    { "Slots", ports_tab },
+    { N_("Single player"), story_tab },
+    { N_("Multiplayer"), mp_tab },
+    { N_("Photo mode"), photo_tab },
+    { N_("Menus"), menus_tab },
+    { N_("Slots"), ports_tab },
 };
 
 static void build_controls(unsigned w, unsigned h, bool *close)
 {
-    place_window(MENU_CONTROLS, "controls_window", w, h, 28.0f, 0.85f);
-    ImGui::Begin("Controls", NULL,
+    place_window(MENU_CONTROLS, "controls_window", w, h, 40.0f, 0.85f);
+    ImGui::Begin(TL("Controls"), NULL,
                  ImGuiWindowFlags_NoCollapse
                  | ImGuiWindowFlags_NoSavedSettings);
-    checkbox("Use keyboard and mouse", "keyboard_mouse", true);
+    checkbox(N_("Use keyboard and mouse"), "keyboard_mouse", true);
     {
         static const char *const now[] = {
-            "In use now: the single player keys.",
-            "In use now: the multiplayer keys (the game is in multiplayer).",
-            "In use now: the menu keys (see Menus).",
-            "In use now: the pause screen keys (see Menus).",
-            "In use now: the menu keys, Esc closes the menu (see Menus).",
-            "In use now: the cutscene keys (see Menus).",
-            "In use now: the single player keys, swimming at the surface.",
-            "In use now: the single player keys, underwater.",
-            "In use now: the single player keys on the beehive gun "
-            "(Forward aims up, Back aims down).",
-            "In use now: the multiplayer keys in the Mule 52's gun seat "
-            "(Forward aims up, Back aims down).",
+            N_("In use now: the single player keys."),
+            N_("In use now: the multiplayer keys (the game is in multiplayer)."),
+            N_("In use now: the menu keys (see Menus)."),
+            N_("In use now: the pause screen keys (see Menus)."),
+            N_("In use now: the menu keys, Esc closes the menu (see Menus)."),
+            N_("In use now: the cutscene keys (see Menus)."),
+            N_("In use now: the single player keys, swimming at the surface."),
+            N_("In use now: the single player keys, underwater."),
+            N_("In use now: the single player keys on the beehive gun "
+               "(Forward aims up, Back aims down)."),
+            N_("In use now: the multiplayer keys in the Mule 52's gun seat "
+               "(Forward aims up, Back aims down)."),
             /* The Vault's suit and the alien's tail: not listed (user
              * 2026-10-28). */
-            "In use now: the single player keys.",
-            "In use now: the single player keys.",
-            "In use now: the single player keys, the bat on the ground.",
-            "In use now: the single player keys, the bat flying.",
-            "In use now: the photo mode keys.",
+            N_("In use now: the single player keys."),
+            N_("In use now: the single player keys."),
+            N_("In use now: the single player keys, the bat on the ground."),
+            N_("In use now: the single player keys, the bat flying."),
+            N_("In use now: the photo mode keys."),
         };
         /* One line per key set (controls.h); photo mode was missing and
          * F3 in photo mode crashed on the read past the end (user
@@ -6371,26 +6505,32 @@ static void build_controls(unsigned w, unsigned h, bool *close)
                 fputs(" }", s_dump);
             t.body();
         }
-    } else if (ImGui::BeginTabBar("##sets")) {
-        for (const ControlsTab &t : s_controls_tabs)
-            /* Back + Start's Controller Options: the Slots tab chosen
-             * (ports_tab then opens the slot's window). */
-            if (ImGui::BeginTabItem(t.name, NULL,
-                                    s_goto_slot_opts >= 0 && t.body == ports_tab
-                                    ? ImGuiTabItemFlags_SetSelected : 0)) {
-                t.body();
-                ImGui::EndTabItem();
-            }
-        ImGui::EndTabBar();
+    } else {
+        /* F2's wrapping rows of tabs (to-do 229: German / French names
+         * squeezed ImGui's tab bar to "Einzelsp..."); LB / RB step through
+         * them as in F2. Back + Start's Controller Options: the Slots tab
+         * chosen (ports_tab then opens the slot's window). */
+        static int cur;
+        const int n = (int)(sizeof(s_controls_tabs) / sizeof(s_controls_tabs[0]));
+        const bool stepped = s_tab_step != 0;
+        if (stepped)
+            cur = (cur + s_tab_step + n) % n;
+        s_tab_step = 0;
+        if (s_goto_slot_opts >= 0)
+            for (int i = 0; i < n; i++)
+                if (s_controls_tabs[i].body == ports_tab)
+                    cur = i;
+        cur = wrapped_tabs("##sets", s_controls_tabs, n, cur, stepped);
+        s_controls_tabs[cur].body();
     }
 
     if (s_error[0])
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", s_error);
     ImGui::Separator();
-    if (ImGui::Button("Back to the game"))
+    if (ImGui::Button(TL("Back to the game")))
         *close = true;
     ImGui::SameLine();
-    note("(F3, Esc, B or Start)");
+    note(N_("(F3, Esc, B or Start)"));
     ask_key();
     ask_pad_bind();
     ask_reset();
@@ -6417,13 +6557,15 @@ struct Shot {
 
 static void dev_shot_result(long seq, int state, const char *msg);
 
-static char s_shot_msg[160];        /* the last photo's outcome (s_lock) */
+static char s_shot_msg[160];        /* the last photo's outcome (s_lock): its argument */
+static const char *s_shot_fmt;      /* and its English format, translated when shown */
 static DWORD s_shot_msg_at;         /* GetTickCount when it was set */
 
-static void shot_message(const char *msg)
+static void shot_message(const char *fmt, const char *arg)
 {
     EnterCriticalSection(&s_lock);
-    snprintf(s_shot_msg, sizeof(s_shot_msg), "%s", msg);
+    s_shot_fmt = fmt;
+    snprintf(s_shot_msg, sizeof(s_shot_msg), "%s", arg);
     s_shot_msg_at = GetTickCount();
     LeaveCriticalSection(&s_lock);
 }
@@ -6433,9 +6575,9 @@ static bool shot_message_now(char *out, size_t size)
 {
     bool fresh;
     EnterCriticalSection(&s_lock);
-    fresh = s_shot_msg[0] && GetTickCount() - s_shot_msg_at < 4000;
+    fresh = s_shot_fmt && GetTickCount() - s_shot_msg_at < 4000;
     if (fresh)
-        snprintf(out, size, "%s", s_shot_msg);
+        snprintf(out, size, T(s_shot_fmt), s_shot_msg);
     LeaveCriticalSection(&s_lock);
     return fresh;
 }
@@ -6517,16 +6659,14 @@ static DWORD WINAPI write_shot(void *arg)
         }
         dev_shot_result(s->seq, SUCCEEDED(hr) ? 1 : -1, msg);
     } else if (SUCCEEDED(hr)) {
-        snprintf(msg, sizeof(msg), "Photo saved: %s", s->name);
+        shot_message(N_("Photo saved: %s"), s->name);
         fprintf(stderr, "[PHOTO] saved %s (%ux%u)\n", s->name, s->w, s->h);
     } else {
-        snprintf(msg, sizeof(msg), "The photo could not be saved (0x%08lX)",
-                 (unsigned long)hr);
+        snprintf(msg, sizeof(msg), "0x%08lX", (unsigned long)hr);
+        shot_message(N_("The photo could not be saved (%s)"), msg);
         fprintf(stderr, "[PHOTO] %s could not be written: 0x%08lX\n",
                 s->name, (unsigned long)hr);
     }
-    if (!s->seq)
-        shot_message(msg);
     free(s->bgr);
     delete s;
     if (SUCCEEDED(com))
@@ -6810,9 +6950,7 @@ static void take_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
         }
     }
     if (why) {
-        char msg[160];
-        snprintf(msg, sizeof(msg), "The photo could not be taken (%s)", why);
-        shot_message(msg);
+        shot_message(N_("The photo could not be taken (%s)"), why);
         fprintf(stderr, "[PHOTO] no photo: %s\n", why);
     }
 }
@@ -6931,7 +7069,8 @@ static void take_dev_shot(ID3D11Device *dev, ID3D11DeviceContext *ctx,
  * ends; "Save photo settings" keeps them (photo_picture, one line in
  * settings.ini; empty = photo mode starts from F2's). Executor thread. */
 struct PhotoPicture {
-    bool popin, grass, chars, fur, particles, haze, vignette, drops;
+    int detail;         /* character & foliage detail: low, original, extended */
+    bool grass, chars, fur, particles, haze, vignette, drops;
     float density, crt_strength;
     int crt;                        /* xbox_SetCrt's order: off, scanlines, crt */
     int cut_blur;                   /* photo_cut_blur: -1 as F2 says */
@@ -6953,7 +7092,10 @@ static int crt_setting(void)
 
 static void pp_from_settings(PhotoPicture *p)
 {
-    p->popin = on_setting("grass_full_detail");
+    {
+        const char *v = settings_get("character_foliage_detail");
+        p->detail = !_stricmp(v, "low") ? 0 : !_stricmp(v, "original") ? 1 : 2;
+    }
     p->grass = on_setting("popin_grass");
     p->chars = on_setting("popin_characters");
     p->fur = on_setting("popin_fur");
@@ -6980,7 +7122,13 @@ static float pp_field(const char *line, const char *name, float def)
 /* Over F2's values, so a line from an older version still works. */
 static void pp_from_saved(PhotoPicture *p, const char *line)
 {
-    p->popin = pp_field(line, "popin", p->popin) != 0.0f;
+    /* Before 0.3.4 a Pop-in Fix checkbox: popin=0 / 1 (to-do 219). */
+    if (strstr(line, "detail="))
+        p->detail = (int)pp_field(line, "detail", (float)p->detail);
+    else if (strstr(line, "popin="))
+        p->detail = pp_field(line, "popin", 1.0f) != 0.0f ? 2 : 1;
+    if (p->detail < 0 || p->detail > 2)
+        p->detail = 2;
     p->grass = pp_field(line, "grass", p->grass) != 0.0f;
     p->chars = pp_field(line, "chars", p->chars) != 0.0f;
     p->fur = pp_field(line, "fur", p->fur) != 0.0f;
@@ -6998,9 +7146,9 @@ static void pp_save(const PhotoPicture *p)
 {
     char line[160];
 
-    snprintf(line, sizeof(line), "popin=%d grass=%d chars=%d fur=%d particles=%d "
+    snprintf(line, sizeof(line), "detail=%d grass=%d chars=%d fur=%d particles=%d "
              "density=%.0f haze=%d vignette=%d drops=%d crt=%d strength=%.0f blur=%d",
-             p->popin, p->grass, p->chars, p->fur, p->particles, p->density,
+             p->detail, p->grass, p->chars, p->fur, p->particles, p->density,
              p->haze, p->vignette, p->drops, p->crt, p->crt_strength, p->cut_blur);
     save("photo_picture", line);
 }
@@ -7008,8 +7156,8 @@ static void pp_save(const PhotoPicture *p)
 /* As F2 does it: a setting the environment overrides stays with that. */
 static void pp_apply(const PhotoPicture *p)
 {
-    if (!settings_env_override("grass_full_detail"))
-        conker_SetGrassFull(p->popin);
+    if (!settings_env_override("character_foliage_detail"))
+        conker_SetDetailDistance(p->detail);
     if (!settings_env_override("popin_grass"))
         conker_SetPopinPart(0, p->grass);
     if (!settings_env_override("popin_characters"))
@@ -7067,22 +7215,30 @@ static void follow_photo_picture(void)
 /* The panel's section. */
 static void build_photo_picture(float right, float gap)
 {
-    static const char *const crt_names[] = { "Off", "Scanlines", "CRT" };
+    static const char *const crt_names[] = { N_("Off"), N_("Scanlines"), N_("CRT") };
+    static const char *const detail_names[] = { N_("Low"), N_("Original"), N_("Extended") };
+    const char *crt_shown[3], *detail_shown[3];
+    for (int i = 0; i < 3; i++) {
+        crt_shown[i] = T(crt_names[i]);
+        detail_shown[i] = T(detail_names[i]);
+    }
     bool keep = settings_get("photo_picture")[0] != 0;
     bool changed = false, moved = false, done = false;
 
     (void)gap;
-    ImGui::SeparatorText("Picture");
-    note("Only in photo mode: your own settings stay as they are.");
-    changed |= ImGui::Checkbox("Pop-in Fix", &s_pp.popin);
-    if (s_pp.popin) {
+    ImGui::SeparatorText(T("Picture"));
+    note(N_("Only in photo mode: your own settings stay as they are."));
+    ImGui::TextUnformatted(T("Character & foliage detail"));
+    ImGui::SetNextItemWidth(right);
+    changed |= ImGui::Combo("##pp_detail", &s_pp.detail, detail_shown, 3);
+    if (s_pp.detail == 2) {
         ImGui::Indent();
-        changed |= ImGui::Checkbox("Grass & flowers", &s_pp.grass);
-        changed |= ImGui::Checkbox("Characters", &s_pp.chars);
-        changed |= ImGui::Checkbox("Fur", &s_pp.fur);
-        changed |= ImGui::Checkbox("Ambient Particles (experimental)", &s_pp.particles);
+        changed |= checkbox_wrap(TL("Grass & flowers"), &s_pp.grass);
+        changed |= checkbox_wrap(TL("Characters"), &s_pp.chars);
+        changed |= checkbox_wrap(TL("Fur"), &s_pp.fur);
+        changed |= checkbox_wrap(TL("Ambient Particles (experimental)"), &s_pp.particles);
         if (s_pp.particles) {
-            ImGui::TextUnformatted("Particle density");
+            ImGui::TextUnformatted(T("Particle density"));
             ImGui::SetNextItemWidth(right);
             moved |= ImGui::SliderFloat("##pp_density", &s_pp.density, 0.0f, 100.0f,
                                         "%.0f %%", ImGuiSliderFlags_AlwaysClamp);
@@ -7090,14 +7246,14 @@ static void build_photo_picture(float right, float gap)
         }
         ImGui::Unindent();
     }
-    changed |= ImGui::Checkbox("Haze", &s_pp.haze);
-    changed |= ImGui::Checkbox("Vignette", &s_pp.vignette);
-    changed |= ImGui::Checkbox("Screen drops", &s_pp.drops);
-    ImGui::TextUnformatted("CRT / scanlines");
+    changed |= checkbox_wrap(TL("Haze"), &s_pp.haze);
+    changed |= checkbox_wrap(TL("Vignette"), &s_pp.vignette);
+    changed |= checkbox_wrap(TL("Screen drops"), &s_pp.drops);
+    ImGui::TextUnformatted(T("CRT / scanlines"));
     ImGui::SetNextItemWidth(right);
-    changed |= ImGui::Combo("##pp_crt", &s_pp.crt, crt_names, 3);
+    changed |= ImGui::Combo("##pp_crt", &s_pp.crt, crt_shown, 3);
     if (s_pp.crt) {
-        ImGui::TextUnformatted("CRT strength");
+        ImGui::TextUnformatted(T("CRT strength"));
         ImGui::SetNextItemWidth(right);
         moved |= ImGui::SliderFloat("##pp_crt_strength", &s_pp.crt_strength, 0.0f,
                                     100.0f, "%.0f %%", ImGuiSliderFlags_AlwaysClamp);
@@ -7105,7 +7261,7 @@ static void build_photo_picture(float right, float gap)
     }
     if (changed || moved)
         pp_apply(&s_pp);
-    if (ImGui::Checkbox("Save photo settings", &keep)) {
+    if (checkbox_wrap(TL("Save photo settings"), &keep)) {
         if (keep)
             pp_save(&s_pp);
         else
@@ -7113,8 +7269,8 @@ static void build_photo_picture(float right, float gap)
     } else if (keep && (changed || done)) {
         pp_save(&s_pp);
     }
-    ImGui::SetItemTooltip("Photo mode starts with these from now on, also after "
-                          "a restart. Off: it starts from your settings.");
+    ImGui::SetItemTooltip("%s", T("Photo mode starts with these from now on, also after "
+                                  "a restart. Off: it starts from your settings."));
 }
 
 static void build_photo(unsigned w, unsigned h, bool *close)
@@ -7122,25 +7278,25 @@ static void build_photo(unsigned w, unsigned h, bool *close)
     PhotoOptions *o = photo_options();
     float gap = ImGui::GetStyle().ItemInnerSpacing.x;
     float right = -(ImGui::GetFrameHeight() + gap);
-    char msg[160], v[32];
+    char msg[320], v[32];
     bool b;
 
     (void)close;
     place_window(MENU_PHOTO, "photo_window", w, h, 22.0f, 0.0f);
-    ImGui::Begin("Photo mode", NULL,
+    ImGui::Begin(TL("Photo mode"), NULL,
                  ImGuiWindowFlags_NoCollapse
                  | ImGuiWindowFlags_NoSavedSettings);
-    if (ImGui::Button("Take a photo"))
+    if (ImGui::Button(TL("Take a photo")))
         overlay_photo_shot();
     /* Where photos go (user 2026-10-29): another folder, or Explorer on it. */
     take_picked_folder();
     ImGui::BeginDisabled(s_picking != 0);
-    if (ImGui::Button("Change Photo Directory"))
+    if (ImGui::Button(TL("Change Photo Directory")))
         start_folder_job(true);
     ImGui::EndDisabled();
     {
-        const char *open = "Open Photo Directory";
-        float bw = ImGui::CalcTextSize(open).x
+        const char *open = TL("Open Photo Directory");
+        float bw = ImGui::CalcTextSize(open, NULL, true).x
                  + ImGui::GetStyle().FramePadding.x * 2.0f;
         if (ImGui::GetContentRegionAvail().x
             >= ImGui::GetItemRectSize().x + gap * 2.0f + bw)
@@ -7151,16 +7307,16 @@ static void build_photo(unsigned w, unsigned h, bool *close)
     if (settings_get("photo_folder")[0]) {
         ImGui::SameLine(0.0f, gap);
         if (reset_icon("##reset_folder",
-                       "Back to the default (Photos in the save folder)"))
+                       N_("Back to the default (Photos in the save folder)")))
             save("photo_folder", "");
     }
     {
         wchar_t dir[MAX_PATH];
-        char shown[MAX_PATH], line[MAX_PATH + 16];
+        char shown[MAX_PATH], line[MAX_PATH + 160];
         photo_dir(dir, MAX_PATH);
         if (WideCharToMultiByte(CP_UTF8, 0, dir, -1, shown, sizeof(shown),
                                 NULL, NULL) > 0) {
-            snprintf(line, sizeof(line), "Photos go to %s", shown);
+            snprintf(line, sizeof(line), T("Photos go to %s"), shown);
             note(line);
         }
     }
@@ -7168,24 +7324,24 @@ static void build_photo(unsigned w, unsigned h, bool *close)
     if (shot_message_now(msg, sizeof(msg)))
         note(msg);
 
-    ImGui::SeparatorText("Camera");
-    ImGui::TextUnformatted("Zoom (field of view)");
+    ImGui::SeparatorText(T("Camera"));
+    ImGui::TextUnformatted(T("Zoom (field of view)"));
     ImGui::SetNextItemWidth(right);
-    ImGui::SliderFloat("##fov", &o->fov, 5.0f, 100.0f, "%.0f degrees",
+    ImGui::SliderFloat("##fov", &o->fov, 5.0f, 100.0f, T("%.0f degrees"),
                        ImGuiSliderFlags_AlwaysClamp);
     ImGui::SameLine(0.0f, gap);
-    snprintf(msg, sizeof(msg), "Back to the game's (%.0f degrees)",
+    snprintf(msg, sizeof(msg), T("Back to the game's (%.0f degrees)"),
              o->fov_game);
     if (reset_icon("##reset_fov", msg))
         o->fov = o->fov_game;
-    ImGui::TextUnformatted("Roll");
+    ImGui::TextUnformatted(T("Roll"));
     ImGui::SetNextItemWidth(right);
-    ImGui::SliderAngle("##roll", &o->roll, -180.0f, 180.0f, "%.0f degrees",
+    ImGui::SliderAngle("##roll", &o->roll, -180.0f, 180.0f, T("%.0f degrees"),
                        ImGuiSliderFlags_AlwaysClamp);
     ImGui::SameLine(0.0f, gap);
-    if (reset_icon("##reset_roll", "Level (0 degrees)"))
+    if (reset_icon("##reset_roll", N_("Level (0 degrees)")))
         o->roll = 0.0f;
-    ImGui::TextUnformatted("Fly speed");
+    ImGui::TextUnformatted(T("Fly speed"));
     ImGui::SetNextItemWidth(right);
     ImGui::SliderFloat("##speed", &o->speed, 25.0f, 400.0f, "%.0f %%",
                        ImGuiSliderFlags_AlwaysClamp);
@@ -7194,40 +7350,40 @@ static void build_photo(unsigned w, unsigned h, bool *close)
         save("photo_speed", v);
     }
     ImGui::SameLine(0.0f, gap);
-    if (reset_icon("##reset_speed", "Back to the default (100 %)")) {
+    if (reset_icon("##reset_speed", N_("Back to the default (100 %)"))) {
         o->speed = 100.0f;
         save("photo_speed", "100");
     }
-    if (ImGui::Button("Camera back to the start"))
+    if (ImGui::Button(TL("Camera back to the start")))
         photo_ask_reset();
 
-    ImGui::SeparatorText("Show");
+    ImGui::SeparatorText(T("Show"));
     b = o->hud != 0;
-    if (ImGui::Checkbox("HUD and speech bubbles", &b))
+    if (checkbox_wrap(TL("HUD and speech bubbles"), &b))
         o->hud = b;
     b = o->hide_conker != 0;
-    if (ImGui::Checkbox("Hide Conker", &b))
+    if (checkbox_wrap(TL("Hide Conker"), &b))
         o->hide_conker = b;
 
     /* Off / the F2 choice ("updated" if that is off), photo mode only. */
     b = photo_cut_blur() >= 0 ? photo_cut_blur() != 0 : conker_CutsceneBlurOn();
-    if (ImGui::Checkbox("Cutscene blur (the game's own)", &b))
+    if (checkbox_wrap(TL("Cutscene blur (the game's own)"), &b))
         photo_toggle_cut_blur();
 
-    ImGui::SeparatorText("Depth of field");
+    ImGui::SeparatorText(T("Depth of field"));
     b = o->dof != 0;
-    if (ImGui::Checkbox("Depth of field (blur away from the focus)", &b))
+    if (checkbox_wrap(TL("Depth of field (blur away from the focus)"), &b))
         o->dof = b;
     ImGui::BeginDisabled(!o->dof);
-    ImGui::TextUnformatted("Focus distance");
+    ImGui::TextUnformatted(T("Focus distance"));
     ImGui::SetNextItemWidth(right);
     ImGui::SliderFloat("##focus", &o->focus, 10.0f, 20000.0f, "%.0f",
                        ImGuiSliderFlags_AlwaysClamp
                        | ImGuiSliderFlags_Logarithmic);
-    if (ImGui::Button("Focus on Conker"))
+    if (ImGui::Button(TL("Focus on Conker")))
         photo_ask_focus_conker();
-    note("Game units: Conker is about 60 tall.");
-    ImGui::TextUnformatted("Blur strength");
+    note(N_("Game units: Conker is about 60 tall."));
+    ImGui::TextUnformatted(T("Blur strength"));
     ImGui::SetNextItemWidth(right);
     ImGui::SliderFloat("##blur", &o->blur, 0.0f, 100.0f, "%.0f %%",
                        ImGuiSliderFlags_AlwaysClamp);
@@ -7236,7 +7392,7 @@ static void build_photo(unsigned w, unsigned h, bool *close)
         save("photo_blur", v);
     }
     ImGui::SameLine(0.0f, gap);
-    if (reset_icon("##reset_blur", "Back to the default (50 %)")) {
+    if (reset_icon("##reset_blur", N_("Back to the default (50 %)"))) {
         o->blur = 50.0f;
         save("photo_blur", "50");
     }
@@ -7244,7 +7400,7 @@ static void build_photo(unsigned w, unsigned h, bool *close)
 
     build_photo_picture(right, gap);
 
-    if (ImGui::CollapsingHeader("Keys")) {
+    if (ImGui::CollapsingHeader(TL("Keys"))) {
         if (ImGui::BeginTable("##photo_keys", 2,
                               ImGuiTableFlags_RowBg
                               | ImGuiTableFlags_SizingStretchProp)) {
@@ -7254,16 +7410,16 @@ static void build_photo(unsigned w, unsigned h, bool *close)
                 const char *k = ks ? controls_keys_label(ks) : "";
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextWrapped("%s", a->label);
+                ImGui::TextWrapped("%s", T(a->label));
                 ImGui::TableNextColumn();
                 ImGui::TextWrapped("%s%s%s", k[0] ? k : "", k[0] ? " / " : "",
-                                   controls_button(CONTROLS_PHOTO, i));
+                                   T(controls_button(CONTROLS_PHOTO, i)));
             }
             ImGui::EndTable();
         }
-        note("F3 > Photo mode changes the keys.");
+        note(N_("F3 > Photo mode changes the keys."));
     }
-    note("Start, Tab, B or Esc closes the panel.");
+    note(N_("Start, Tab, B or Esc closes the panel."));
     remember_window("photo_window", w, h);
     ImGui::End();
 }
@@ -7523,10 +7679,10 @@ static void build_report(unsigned w, unsigned h, bool *close)
                                   ImVec2(wide, ImGui::GetTextLineHeight()
                                                * 8.0f));
         ImGui::Checkbox("Include save files", &s_report_saves);
-        note("Makes a .zip to attach to a GitHub issue: this picture, the "
-             "game's last logs, its settings, the saves when ticked and the "
-             "PC's details (Windows, graphics card, processor). The Windows "
-             "user name is left out.");
+        note(N_("Makes a .zip to attach to a GitHub issue: this picture, the "
+                "game's last logs, its settings, the saves when ticked and the "
+                "PC's details (Windows, graphics card, processor). The Windows "
+                "user name is left out."));
         if (fresh && !s_report_by_key)
             ImGui::SetKeyboardFocusHere();
         if (ImGui::Button("Create Report"))
@@ -7551,10 +7707,10 @@ static void build_report(unsigned w, unsigned h, bool *close)
         ImGui::SameLine();
         if (ImGui::Button("Close"))
             *close = true;
-        note("Open GitHub Issue opens a new issue with its text filled in "
-             "and copies that text too: if the page comes up empty, paste "
-             "it there (Ctrl+V). Then drag the zip into the issue. Posting "
-             "needs a free GitHub account.");
+        note(N_("Open GitHub Issue opens a new issue with its text filled in "
+                "and copies that text too: if the page comes up empty, paste "
+                "it there (Ctrl+V). Then drag the zip into the issue. Posting "
+                "needs a free GitHub account."));
         if (s_report_note[0])
             ImGui::TextUnformatted(s_report_note);
     } else {
@@ -7590,21 +7746,21 @@ static void pause_label(unsigned h, bool photo)
                  | ImGuiWindowFlags_NoSavedSettings
                  | ImGuiWindowFlags_AlwaysAutoResize);
     if (photo && !s_paused) {
-        char msg[160];
-        ImGui::Text("Photo mode   Photo: %s / A   Settings: %s / Start   "
-                    "Leave: %s / %s",
+        char msg[320];
+        ImGui::Text(T("Photo mode   Photo: %s / A   Settings: %s / Start   "
+                      "Leave: %s / %s"),
                     controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_TAKE)),
                     controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_PANEL)),
                     controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_LEAVE)),
                     chords_fn_chord_label(CHORD_PHOTO));
         if (photo_world_resumed())
-            ImGui::Text("The world is running   Pause it: %s / %s",
+            ImGui::Text(T("The world is running   Pause it: %s / %s"),
                         controls_keys_label(controls_keys(CONTROLS_PHOTO, PHOTO_RESUME)),
                         chords_fn_chord_label(CHORD_PHOTO_PAUSE));
         if (shot_message_now(msg, sizeof(msg)))
             ImGui::TextUnformatted(msg);
     } else
-        ImGui::Text("Paused (%s to resume)",
+        ImGui::Text(T("Paused (%s to resume)"),
                     controls_keys_label(controls_hotkeys(PHOTO_PAUSE)));
     ImGui::End();
 }
@@ -7656,7 +7812,7 @@ static ImVec2 overlay_drag(const char *id, const char *key, unsigned w, unsigned
                  | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
     p = ImGui::GetWindowPos();
     if (ImGui::IsWindowHovered())
-        ImGui::SetTooltip("Drag to move (kept when let go)");
+        ImGui::SetTooltip("%s", T("Drag to move (kept when let go)"));
     ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + pw, p.y + ph),
                                         IM_COL32(255, 255, 255, 140), 6.0f, 0, 1.5f);
     ImGui::End();
@@ -7791,7 +7947,7 @@ static void speedrun_label(unsigned w, unsigned h)
                  | ImGuiWindowFlags_AlwaysAutoResize);
     if (!on) {
         ImGui::TextUnformatted("0:00.00");
-        ImGui::TextDisabled("starts with a game");
+        ImGui::TextDisabled("%s", T("starts with a game"));
     } else {
         fmt_time(t, sizeof t, total);
         ImGui::SetWindowFontScale(1.4f);
@@ -7825,25 +7981,25 @@ static void fps_label(unsigned h)
     else if (s_fps == 1)
         ImGui::Text("%.0f fps", s_fps_rate);
     else
-        ImGui::Text("%.1f fps  %.1f ms  (max %.1f)", s_fps_rate, s_fps_ms,
+        ImGui::Text(T("%.1f fps  %.1f ms  (max %.1f)"), s_fps_rate, s_fps_ms,
                     s_fps_long);
     if (s_fps == 3) {
         if (s_lim_have) {
             if (s_lim_busy >= 0.0)
-                ImGui::Text("game %.1f ms  graphics %.1f ms  GPU %.1f ms,"
-                            " %.0f %% busy", s_lim_game, s_lim_exec,
+                ImGui::Text(T("game %.1f ms  graphics %.1f ms  GPU %.1f ms,"
+                              " %.0f %% busy"), s_lim_game, s_lim_exec,
                             s_lim_gpu, 100.0 * s_lim_busy);
             else
-                ImGui::Text("game %.1f ms  graphics %.1f ms  GPU %.1f ms",
+                ImGui::Text(T("game %.1f ms  graphics %.1f ms  GPU %.1f ms"),
                             s_lim_game, s_lim_exec, s_lim_gpu);
-            ImGui::Text("limited by: %s", s_lim_verdict);
-            ImGui::TextDisabled("%s", s_lim_hint);
+            ImGui::Text(T("limited by: %s"), T(s_lim_verdict));
+            ImGui::TextDisabled("%s", T(s_lim_hint));
         } else {
-            ImGui::TextUnformatted("limited by: measuring...");
+            ImGui::TextUnformatted(T("limited by: measuring..."));
         }
         if (ar_on() && s_ar_cur) {
             char a[16], b[16];
-            ImGui::Text("automatic resolution: %s (at most %s)",
+            ImGui::Text(T("automatic resolution: %s (at most %s)"),
                         ar_x(s_ar_cur, a, sizeof a),
                         ar_x(s_ar_top, b, sizeof b));
         }
@@ -8013,7 +8169,7 @@ static void precompile_pad_stop(void)
 static void precompile_screen(unsigned w, unsigned h)
 {
     PrecompileStatus st;
-    char line[160];
+    char line[320];
 
     precompile_status(&st);
     ImGui::GetBackgroundDrawList()->AddRectFilled(
@@ -8025,43 +8181,43 @@ static void precompile_screen(unsigned w, unsigned h)
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs
                  | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings
                  | ImGuiWindowFlags_NoBackground);
-    ImGui::TextWrapped("%s", st.resumed ? "Precompiling shaders (continuing "
-                                          "where the last run stopped)"
-                                        : "Precompiling shaders");
+    ImGui::TextWrapped("%s", st.resumed ? T("Precompiling shaders (continuing "
+                                            "where the last run stopped)")
+                                        : T("Precompiling shaders"));
     ImGui::Spacing();
     ImGui::ProgressBar(st.progress, ImVec2(-1.0f, 0.0f));
     ImGui::Spacing();
     switch (st.stage) {
     case PRECOMPILE_BOOT:
-        snprintf(line, sizeof line, st.resumed
-                 ? "Starting the game, then skipping to where it stopped..."
-                 : "Starting the game...");
+        snprintf(line, sizeof line, "%s", st.resumed
+                 ? T("Starting the game, then skipping to where it stopped...")
+                 : T("Starting the game..."));
         break;
     case PRECOMPILE_LEVELS:
-        snprintf(line, sizeof line, "Levels: %d of %d", st.levels,
+        snprintf(line, sizeof line, T("Levels: %d of %d"), st.levels,
                  st.levels_total);
         break;
     case PRECOMPILE_CHAPTERS:
-        snprintf(line, sizeof line, "Chapters: %d of %d (part %d of %d)%s",
+        snprintf(line, sizeof line, T("Chapters: %d of %d (part %d of %d)%s"),
                  st.chapter, st.chapters, st.task, st.tasks,
-                 st.skipping ? ", skipping to where it stopped" : "");
+                 st.skipping ? T(", skipping to where it stopped") : "");
         break;
     default:
-        snprintf(line, sizeof line, "Finishing the last shaders...");
+        snprintf(line, sizeof line, "%s", T("Finishing the last shaders..."));
         break;
     }
     ImGui::TextUnformatted(line);
-    snprintf(line, sizeof line, "Shaders compiled: %u    Time: %u:%02u",
+    snprintf(line, sizeof line, T("Shaders compiled: %u    Time: %u:%02u"),
              st.shaders, st.seconds / 60u, st.seconds % 60u);
     ImGui::TextUnformatted(line);
     ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-    ImGui::TextWrapped("The game runs every level and chapter behind this "
-                       "screen with the sound off, so their shaders are ready "
-                       "before you play. The game closes by itself when it is "
-                       "done. Esc or B on a controller stops it; what is "
-                       "compiled so far is kept, and the next run continues "
-                       "from there.");
+    ImGui::TextWrapped("%s", T("The game runs every level and chapter behind this "
+                               "screen with the sound off, so their shaders are ready "
+                               "before you play. The game closes by itself when it is "
+                               "done. Esc or B on a controller stops it; what is "
+                               "compiled so far is kept, and the next run continues "
+                               "from there."));
     ImGui::PopStyleColor();
     ImGui::End();
 }
@@ -8210,6 +8366,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
         }
     }
 
+    ui_text_frame();
     ImGui_ImplDX11_NewFrame();
     ImGui::NewFrame();
     s_popup_open = false;
@@ -8480,6 +8637,8 @@ extern "C" void overlay_dump_settings(FILE *f)
     fputs(",\n", f);
     settings_dump_presets(f);
     fputs(",\n  \"menu\": [\n", f);
+    /* The launcher stays English (to-do 229, user 2026-11-17). */
+    ui_text_english(1);
     s_dump = f;
     s_dump_first = true;
     build_menu(1920, 1080, &close);

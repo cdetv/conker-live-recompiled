@@ -15,8 +15,8 @@
 </p>
 
 > **No game files are included.** You need your own copy of *Conker: Live &
-> Reloaded* for the original Xbox (PAL or USA). The launcher imports it from
-> your disc image.
+> Reloaded*: the original Xbox disc (PAL or USA) or the Xbox Store version.
+> The launcher imports it from your disc image or the installed Store copy.
 
 <p align="center">
   <img src="images/hero.png" alt="Conker: Live & Recompiled in game">
@@ -57,6 +57,8 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
    image (`.iso`, Redump or XISO), the disc's `default.xbe`, or a `.zip`,
    `.7z` or `.rar` holding either. The launcher checks it is the PAL or USA
    release and copies it in (about 4.5 GB).
+   Got the **Xbox Store version**? Install it from the Xbox app; the launcher
+   finds it by itself: click **Import Xbox Store version**.
 4. Click **Play**.
 
 <p align="center">
@@ -83,7 +85,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 | World shadows | Blocky edges | Smooth |
 | Anti-aliasing | — | FXAA or SMAA |
 | Sharpening | — | AMD FidelityFX CAS, adjustable |
-| Pop-in | Grass, fur and distant characters thin out or vanish | **Pop-in Fix**: full detail at any distance; foliage, characters, fur and ambient particle (experimental) can each be turned on or off |
+| Character & foliage detail | Grass, fur and distant characters thin out or vanish | **Extended**: full detail at any distance (grass and flowers, characters, fur and ambient particles (experimental) can each be turned on or off), and distant characters keep their full model twice as far; **Original** as on the Xbox; **Low** for a weaker PC |
 | Cutscene blur (depth of field) | Original | Off, original, updated or cinematic |
 | Glow | Always on | Adjustable 0–100 % |
 | Fog | Always on | Distance fog and the murky underwater fog can each be turned off for a clear view |
@@ -126,12 +128,12 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 
 <table>
   <tr>
-    <th width="50%">Pop-in Fix off (as on the Xbox)</th>
-    <th width="50%">Pop-in Fix on</th>
+    <th width="50%">Character & foliage detail: Original (as on the Xbox)</th>
+    <th width="50%">Character & foliage detail: Extended</th>
   </tr>
   <tr>
-    <td><img src="images/pop-in-before.png" alt="Grass thinned out in the distance with the Pop-in Fix off"></td>
-    <td><img src="images/pop-in-after.png" alt="Full grass and flowers in the distance with the Pop-in Fix on"></td>
+    <td><img src="images/pop-in-before.png" alt="Grass thinned out in the distance at Original detail"></td>
+    <td><img src="images/pop-in-after.png" alt="Full grass and flowers in the distance at Extended detail"></td>
   </tr>
 </table>
 
@@ -229,7 +231,7 @@ Press **F4** (or Back + RB) in gameplay or a cutscene to freeze the moment
 and fly a free camera: zoom, roll, hide the HUD and Conker, step frame by
 frame or let the world run at normal speed and freeze it again, adjust the
 depth of field, and take pictures (saved as PNG files). Its panel can also
-change the Pop-in Fix, haze, vignette, screen drops and CRT look for photo mode
+change Character & foliage detail, haze, vignette, screen drops and CRT look for photo mode
 alone. **P** freezes the game the same way, without photo mode's controls.
 
 <p align="center">
@@ -293,9 +295,9 @@ first.
 
 ### Loading
 
-- **Fast Load** (experimental, off by default): loads no longer wait for the
+- **Fast Load** (on by default; F2 → Fixes): loads no longer wait for the
   old level's music to fade out, so they take under a second instead of 3 to
-  8 seconds.
+  8 seconds. Turn it off for the original wait.
 - **Precompile Shaders** (launcher, Files tab): prepares the shaders of every
   story level and chapter in one go (a few minutes, once), so the short pauses
   the first time you see an area are mostly gone.
@@ -315,6 +317,11 @@ first.
 Text, menus and subtitles in English, French, German, Italian, Spanish or
 Japanese, chosen in F2 or the launcher (on the Xbox it followed the
 console's language). Voices are English in all of them.
+
+This port's own menus (F2, F3, photo mode) come in the same six languages:
+**Menu language** follows the text language, or pick one of its own. They are
+machine translations using the game's own words; corrections from native
+speakers are welcome in an [issue](../../issues).
 
 ### Uncensored
 
@@ -343,7 +350,11 @@ A few glitches the Xbox version has too are fixed:
 ### The launcher
 
 - Imports the game from a disc image, folder or archive (`.zip`, `.7z`,
-  `.rar`, multi-part included), and checks it is a supported release.
+  `.rar`, multi-part included), or the installed **Xbox Store version**
+  (found by itself, one click), and checks it is a supported release.
+- **Prepares game assets**: a few seconds after an import, it reads the parts
+  of your game files that some features need ahead (with the port's own
+  package reader); they stay with your saves, and **Delete Assets** clears them.
 - Every in-game setting and control before you start, in the same tabs as
   the game's menus, with the same quality presets.
 - **Works with a controller**: every tab, setting and button by pad, with
@@ -384,7 +395,8 @@ A few glitches the Xbox version has too are fixed:
 
 - Windows 10 or 11, 64-bit
 - A graphics card with DirectX 11
-- Your own copy of *Conker: Live & Reloaded* (Xbox; PAL or USA)
+- Your own copy of *Conker: Live & Reloaded*: the original Xbox disc (PAL or
+  USA) or the Xbox Store version
 - About 6 GB of free space
 - Optional: an Xbox, PlayStation or Switch controller (keyboard and mouse work too)
 
@@ -495,6 +507,10 @@ minutes.
   censor box, Creaky Crate and Heist dive at high frame rates, the squirrel
   soldiers' tails, fur, the English throne-room bubbles and BrontoThroat's
   music).
+- **[Txukie/xboxrecomp-conker](https://github.com/Txukie/xboxrecomp-conker)**:
+  the package reader's resource extraction follows their `conker_caff.c`
+  (MIT). They worked out how a single model can be written as a loose file;
+  thank you.
 - **[codepdbh/xboxrecomp-conker](https://github.com/codepdbh/xboxrecomp-conker)**,
   the *[Conker Xbox 60fps + Widescreen patch](https://www.moddb.com/mods/conker-live-reloaded-wip-60fps-patch)
   by picardsfish*, **[XboxDev/ghidra-xbe](https://github.com/XboxDev/ghidra-xbe)**

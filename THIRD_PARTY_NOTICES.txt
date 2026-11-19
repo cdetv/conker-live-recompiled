@@ -20,7 +20,7 @@ PART 1: conker.exe and xemu_apu.dll (the game)
 
 https://github.com/sp00nznet/xboxrecomp by Ned Heller (sp00nznet) and
 contributors, used through the fork https://github.com/cdetv/xboxrecomp
-(version v0.13.1-454-g0fe4cbf). It translated the game's code and provides
+(version v0.13.1-456-g9d27753). It translated the game's code and provides
 the runtime around it: the Xbox kernel, graphics, sound and controllers.
 MIT licence:
 
@@ -267,6 +267,37 @@ the toolkit (third_party/gamepadmotionhelpers).
 MIT License
 
 Copyright (c) 2020-2023 Julian "Jibb" Smart
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+10. Txukie's xboxrecomp-conker (the package reader's resource extraction)
+-------------------------------------------------------------------------
+
+https://github.com/Txukie/xboxrecomp-conker (commit d0edebc,
+work/conker/project/src/conker_caff.c).
+The package reader's resource extraction (src/caff.c: one model and all it
+needs written as a loose package) follows their conker_caff.c, written anew
+in this project. They worked out how a single model can be written as a
+loose file; thank you.
+MIT licence:
+
+Copyright (c) 2026 sp00nz
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

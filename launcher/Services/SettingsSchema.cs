@@ -16,7 +16,8 @@ public sealed record SettingOption(
 /// One entry of the F2 or F3 menu, in the menu's order: a section heading, checkbox, choice or
 /// slider; F3 also has tabs, notes, radio buttons, key rows, fixed keys (Menus tab), reset
 /// buttons and the Slots table. Parent: the checkbox the entry sits under (shown, indented, only
-/// while it is on). A key row's Button is the controller button it presses (shown
+/// while it is on), or a choice with ParentValue (shown only while it has that value: the Pop-in
+/// Fix's parts under Character & foliage detail "extended", to-do 219). A key row's Button is the controller button it presses (shown
 /// unless ButtonShown is false), Section the heading it is under, Scheme the single player scheme
 /// it belongs to (null: both), ClashesAll that its key clashes with every row of its tab. A reset
 /// button's Keys are what it puts back; a fixed row's FixedKeys its keys as text. Slot: the F3
@@ -30,7 +31,7 @@ public sealed record MenuEntry(
     bool ClashesAll = false, string? Question = null, IReadOnlyList<string>? Keys = null,
     string? FixedKeys = null, int Count = 0, string? KeyboardKey = null, string? KeyboardOnKey = null,
     string? Parent = null, string? Mute = null, int Slot = 0, ChordsInfo? Chords = null,
-    string? Pad = null, PadBindsInfo? PadBinds = null);
+    string? Pad = null, PadBindsInfo? PadBinds = null, string? ParentValue = null);
 
 /// <summary>A controller button an action can have (to-do 39): its settings.ini name ("rt") and label ("Right trigger").</summary>
 public sealed record PadChoice(string Name, string Label);
@@ -191,6 +192,7 @@ public sealed class SettingsSchema
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
+            StandardOutputEncoding = System.Text.Encoding.UTF8,    // the game prints UTF-8 (to-do 262)
         };
         using Process process = OwnProcesses.Start(start) ?? throw new IOException("conker.exe didn't start.");
         string json;
@@ -248,7 +250,8 @@ public sealed class SettingsSchema
         KeyboardKey: Str(m, "keyboard_key"), KeyboardOnKey: Str(m, "keyboard_on_key"), Parent: Str(m, "parent"),
         Mute: Str(m, "mute"), Slot: (int)Num(m, "slot"),
         Chords: Str(m, "type") == "chords" ? ParseChords(m) : null,
-        Pad: Str(m, "pad"), PadBinds: Str(m, "type") == "pad_binds" ? ParsePadBinds(m) : null);
+        Pad: Str(m, "pad"), PadBinds: Str(m, "type") == "pad_binds" ? ParsePadBinds(m) : null,
+        ParentValue: Str(m, "parent_value"));
 
     private static PadBindsInfo ParsePadBinds(JsonElement m)
     {

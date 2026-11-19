@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ConkerLauncher.Services;
@@ -59,6 +60,17 @@ public sealed partial class FilesViewModel : ObservableObject
 
     public string ImportButtonText => GameFilesImported ? "Re-import" : "Import Files";
 
+    /// <summary>
+    /// The installed Xbox Store version found on this PC (its <c>DefaultPackage</c>), or null
+    /// (to-do 37): the Files tab and the Welcome pop-up show Import Xbox Store version then.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StoreVersionFound))]
+    [NotifyCanExecuteChangedFor(nameof(ImportStoreVersionCommand))]
+    public partial string? FoundStorePackage { get; set; }
+
+    public bool StoreVersionFound => FoundStorePackage is not null;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DecensorText), nameof(DownloadButtonText), nameof(AddPatchButtonText))]
     public partial bool DecensorInstalled { get; set; }
@@ -83,13 +95,14 @@ public sealed partial class FilesViewModel : ObservableObject
 
     /// <summary>An import or download is running.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand), nameof(PrecompileShadersCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(ImportStoreVersionCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand),
+                                nameof(PrecompileShadersCommand), nameof(AskDeleteAssetsCommand))]
     [NotifyPropertyChangedFor(nameof(GameJobVisible), nameof(DecensorJobVisible))]
     public partial bool IsBusy { get; set; }
 
     /// <summary>The launcher is updating itself: no new job (the restart would cut it off).</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand), nameof(PrecompileShadersCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportGameCommand), nameof(ImportStoreVersionCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand), nameof(PrecompileShadersCommand))]
     public partial bool Updating { get; set; }
 
     [ObservableProperty]
@@ -127,7 +140,7 @@ public sealed partial class FilesViewModel : ObservableObject
     /// <summary>A Precompile Shaders run started from here is still going (the game's window shows it).</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PrecompileShadersCommand), nameof(AskDeleteShadersCommand), nameof(ImportGameCommand),
-                                nameof(AddPatchCommand), nameof(DownloadPatchCommand))]
+                                nameof(ImportStoreVersionCommand), nameof(AddPatchCommand), nameof(DownloadPatchCommand))]
     [NotifyPropertyChangedFor(nameof(ShadersText), nameof(PrecompileButtonText))]
     public partial bool IsPrecompiling { get; set; }
 
@@ -177,6 +190,7 @@ public sealed partial class FilesViewModel : ObservableObject
     {
         PrecompileShadersCommand.NotifyCanExecuteChanged();
         AskDeleteShadersCommand.NotifyCanExecuteChanged();
+        AskDeleteAssetsCommand.NotifyCanExecuteChanged();
         if (!IsPrecompiling)
         {
             Precompiled = ShaderCache.ReadResult();
@@ -198,11 +212,64 @@ public sealed partial class FilesViewModel : ObservableObject
 
         OnPropertyChanged(nameof(DecensorText));
         OnPropertyChanged(nameof(DownloadButtonText));
+        RefreshAssets();
         if (before != GameFilesImported)
         {
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
+
+        _ = FindStoreVersionAsync();
     }
+
+    private bool findingStore;
+
+    /// <summary>
+    /// Looks for an installed Xbox Store version (to-do 37) off the UI thread (a sleeping drive
+    /// can take seconds); again whenever the window comes to the front, so a copy installed
+    /// meanwhile shows up. <c>CONKER_LAUNCHER_STORE_ROOTS</c> (development only): the drive
+    /// tops to search instead of the fixed drives, separated by <c>;</c> (a missing folder = none found).
+    /// </summary>
+    private async Task FindStoreVersionAsync()
+    {
+        if (findingStore)
+        {
+            return;
+        }
+
+        findingStore = true;
+        try
+        {
+            string? roots = Environment.GetEnvironmentVariable("CONKER_LAUNCHER_STORE_ROOTS");
+            List<string> found = await Task.Run(() => roots is { Length: > 0 }
+                ? StorePackage.FindInstalled(roots.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                : StorePackage.FindInstalled());
+
+            // Bindings read it: set it on the UI thread, whatever thread the await came back on
+            // (the first search starts while the window is still being built).
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                FoundStorePackage = found.FirstOrDefault();
+            }
+            else
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => FoundStorePackage = found.FirstOrDefault());
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // The drive list couldn't be read: nothing offered (Import Files still takes the package).
+        }
+        finally
+        {
+            findingStore = false;
+        }
+    }
+
+    /// <summary>Import Xbox Store version: the found install, imported at once (no file browser).</summary>
+    [RelayCommand(CanExecute = nameof(CanImportStoreVersion))]
+    private Task ImportStoreVersionAsync() => FoundStorePackage is { } package ? ImportGameFromAsync(package) : Task.CompletedTask;
+
+    private bool CanImportStoreVersion() => StoreVersionFound && CanStartJob();
 
     /// <summary>Asks GitHub for the decensor patch's latest release (once, at start-up).</summary>
     public async Task CheckLatestDecensorAsync()
@@ -220,13 +287,13 @@ public sealed partial class FilesViewModel : ObservableObject
     }
 
     /// <summary>What Import Files takes, in words (the file browser's and the Welcome pop-up's error lines).</summary>
-    public const string GameFilterName = "Conker disc (.iso, .xiso, .zip, .7z, .rar, default.xbe)";
+    public const string GameFilterName = "Conker disc (.iso, .xiso, .zip, .7z, .rar, default.xbe) or Xbox Store version (DefaultPackage)";
 
     [RelayCommand(CanExecute = nameof(CanStartJob))]
     private async Task ImportGameAsync()
     {
         string? source = await picker.PickFileAsync(
-            "Choose your Conker disc image, an archive holding it, or the default.xbe of a game folder",
+            "Choose your Conker disc image, an archive holding it, the default.xbe of a game folder, or the Xbox Store version's DefaultPackage",
             GameFilterName,
             [.. GameImporter.Extensions.Select(x => "*" + x)]);
         if (source is null)
@@ -248,13 +315,128 @@ public sealed partial class FilesViewModel : ObservableObject
             return false;
         }
 
-        await RunJobAsync(false, cancel => Task.Run(() =>
+        await RunJobAsync(false, async cancel =>
         {
-            string region = importer.Import(source, Progress(), cancel);
-            return $"Game files imported ({region} disc).";
-        }, cancel));
+            string what = await Task.Run(() => importer.Import(source, Progress(), cancel), cancel);
+            return $"Game files imported ({what}).{await PrepareAssetsAfterImportAsync(cancel)}";
+        });
         return true;
     }
+
+    /// <summary>
+    /// The game assets right after an import (to-do 43): the import itself counts as done
+    /// whatever happens here, so a failure or a cancel only adds a sentence.
+    /// </summary>
+    private async Task<string> PrepareAssetsAfterImportAsync(CancellationToken cancel)
+    {
+        try
+        {
+            await AssetCache.CarveAsync(folder, Progress(), cancel);
+            return "";
+        }
+        catch (OperationCanceledException)
+        {
+            return " Preparing the game assets was cancelled: the launcher does it the next time it starts.";
+        }
+        catch (IOException e)
+        {
+            return $" The game assets couldn't be prepared ({e.Message}); the game plays without them.";
+        }
+        finally
+        {
+            RefreshAssets();
+        }
+    }
+
+    /// <summary>
+    /// At launcher start (to-do 43): game assets that are missing or stale (an update from an
+    /// older version brings no import; the game files changed) are made once, as a job of
+    /// their own; Play waits for it like for an import.
+    /// </summary>
+    public async Task PrepareAssetsIfStaleAsync()
+    {
+        RefreshAssets();
+        if (!GameFilesImported || !CanStartJob() || isGameRunning())
+        {
+            return;
+        }
+
+        if (await AssetCache.IsStaleAsync(folder, CancellationToken.None) != true || !CanStartJob())
+        {
+            return;
+        }
+
+        await RunJobAsync(false, async cancel =>
+        {
+            await AssetCache.CarveAsync(folder, Progress(), cancel);
+            return "Game assets prepared from your game files.";
+        });
+        RefreshAssets();
+    }
+
+    /// <summary>What the Game assets section says (to-do 43).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AskDeleteAssetsCommand))]
+    public partial string AssetsText { get; set; } = "";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AskDeleteAssetsCommand))]
+    public partial bool AssetsExist { get; set; }
+
+    /// <summary>Delete Assets asked its question (Yes / No in its place).</summary>
+    [ObservableProperty]
+    public partial bool ConfirmDeleteAssets { get; set; }
+
+    [ObservableProperty]
+    public partial string? AssetsError { get; set; }
+
+    private void RefreshAssets()
+    {
+        (int files, long bytes) = AssetCache.Size();
+        AssetsExist = files > 0;
+        AssetsText = !AssetCache.Prepared
+            ? "Some features need parts of the game prepared from your game files. The launcher prepares them "
+              + "after an import, or the next time it starts."
+            : $"Prepared from your game files ({files} {(files == 1 ? "file" : "files")}, {Size(bytes)}). "
+              + "The launcher prepares them again after an import or when your game files change.";
+    }
+
+    private static string Size(long bytes) =>
+        bytes < 1024 * 1024 ? $"{Math.Max(1, (bytes + 1023) / 1024)} KB" : $"{bytes / (1024.0 * 1024):0.#} MB";
+
+    [RelayCommand(CanExecute = nameof(CanDeleteAssets))]
+    private void AskDeleteAssets()
+    {
+        AssetsError = null;
+        ConfirmDeleteAssets = true;
+    }
+
+    [RelayCommand]
+    private void CancelDeleteAssets() => ConfirmDeleteAssets = false;
+
+    /// <summary>Yes: the assets folder goes; the launcher prepares it again at its next start.</summary>
+    [RelayCommand]
+    private void DeleteAssets()
+    {
+        ConfirmDeleteAssets = false;
+        if (!CanDeleteAssets())
+        {
+            return;     // the game or a job started meanwhile
+        }
+
+        try
+        {
+            AssetCache.Delete();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            AssetsError = $"The game assets couldn't all be deleted: {e.Message}";
+        }
+
+        RefreshAssets();
+    }
+
+    private bool CanDeleteAssets() => AssetsExist && !IsBusy && !IsPrecompiling && !UserFiles.IsBusy && !isGameRunning();
 
     [RelayCommand(CanExecute = nameof(CanStartJob))]
     private async Task AddPatchAsync()

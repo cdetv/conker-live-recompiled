@@ -254,6 +254,17 @@ public sealed partial class MainWindow : Window, IFilePicker
                 Dispatcher.UIThread.Post(FocusReportStage, DispatcherPriority.Loaded);
             }
         };
+
+        // The Welcome pop-up's Store row (to-do 37) appears after the first layout (the search runs
+        // in the background): the box kept its old height, its buttons hanging out below it, until
+        // measured again.
+        vm.Files.PropertyChanged += (_, p) =>
+        {
+            if (p.PropertyName == nameof(FilesViewModel.StoreVersionFound))
+            {
+                Dispatcher.UIThread.Post(() => WelcomeBox.InvalidateMeasure(), DispatcherPriority.Loaded);
+            }
+        };
     }
 
     private void FocusReportStage()

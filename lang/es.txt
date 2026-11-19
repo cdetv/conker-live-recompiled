@@ -1,0 +1,1732 @@
+# Spanish (Español): the menus of this port (to-do 229). "en:" is the English in the code (the key, never change it), "es:" the translation
+# (empty = English). \n = a line break. Keep every %s, %d, %.0f etc. in the same order. scripts/check_lang.py checks it.
+# Draft 2026-11-18: machine translation, using the game's own words where it has them. Corrections by native speakers are welcome (GitHub).
+
+## chords.c
+en: D-pad Up
+es: Cruceta arriba
+
+en: D-pad Down
+es: Cruceta abajo
+
+en: D-pad Left
+es: Cruceta izquierda
+
+en: D-pad Right
+es: Cruceta derecha
+
+## build_table
+en: Both sticks clicked
+es: Ambos sticks pulsados
+
+## chords_of_buttons
+en: Recomp Menu
+es: Menú Recomp
+
+en: The list of menus: Settings, Controls, Controller Options, Photo Mode, Report Bug. Every controller needs a way to it, so it can't be unbound
+es: La lista de menús: Ajustes, Controles, Opciones del controlador, Modo foto, Informar de error. Todos los controladores necesitan un acceso, así que no se puede quitar
+
+en: Settings Menu
+es: Menú de ajustes
+
+en: F2's settings. Also on the Recomp Menu
+es: Los ajustes de F2. También en el menú Recomp
+
+en: Photo Mode
+es: Modo foto
+
+en: Photo mode on and off (in photo mode or freecam: leave). Also on the Recomp Menu
+es: Activa y desactiva el modo foto (en modo foto o cámara libre: salir). También en el menú Recomp
+
+en: Pause / Resume
+es: Pausa / Reanudar
+
+en: In photo mode: the world frozen or running
+es: En modo foto: el mundo parado o en marcha
+
+en: Freecam: camera or Conker
+es: Cámara libre: cámara o Conker
+
+en: In freecam: the controller flies the camera or plays Conker
+es: En cámara libre: el controlador mueve la cámara o juega con Conker
+
+en: No-clip
+es: Sin colisiones
+
+en: Conker flies through walls (debug mode)
+es: Conker vuela a través de las paredes (modo depuración)
+
+en: Bullet Time
+es: Tiempo bala
+
+en: Bullet time on and off, while its cheat is on
+es: Activa y desactiva el tiempo bala, mientras su truco esté activado
+
+en: Free Camera
+es: Cámara libre
+
+en: Freecam on from gameplay (debug mode): photo mode's camera with the world running. The Photo Mode chord leaves it
+es: Cámara libre desde el juego (modo depuración): la cámara del modo foto con el mundo en marcha. El atajo del modo foto la cierra
+
+en: Universal
+es: Universal
+
+en: Cheats / Debug
+es: Trampas / Depuración
+
+en: Anywhere. A chord used here can't be used for anything else
+es: En cualquier parte. Un atajo usado aquí no puede usarse para nada más
+
+en: In photo mode only. May share a chord with a Cheats / Debug function, not with a Universal one
+es: Solo en modo foto. Puede compartir atajo con una función de Trampas / Depuración, no con una Universal
+
+en: In gameplay only. May share a chord with a Photo Mode function, not with a Universal one
+es: Solo durante el juego. Puede compartir atajo con una función del modo foto, no con una Universal
+
+## chords_apply
+en: (none)
+es: (ninguno)
+
+## list_combos
+en: Swimming
+es: Nadando
+
+en: Bat (Count Batula)
+es: Murciélago (Conde Batula)
+
+en: Move forward
+es: Mover adelante
+
+en: Left stick up
+es: Stick izquierdo arriba
+
+en: Move back
+es: Mover atrás
+
+en: Left stick down
+es: Stick izquierdo abajo
+
+en: Move left
+es: Mover a la izquierda
+
+en: Left stick left
+es: Stick izquierdo izquierda
+
+en: Move right
+es: Mover a la derecha
+
+en: Left stick right
+es: Stick izquierdo derecha
+
+en: Walk (hold)
+es: Caminar (mantener)
+
+en: Left stick half way
+es: Stick izquierdo a medias
+
+en: Jump
+es: Saltar
+
+en: Crouch (hold)
+es: Agacharse (mantener)
+
+en: Right trigger
+es: Gatillo derecho
+
+en: Weapon out / away, context action
+es: Sacar / guardar arma, acción contextual
+
+en: Context action (on a B pad)
+es: Acción contextual (en una plataforma B)
+
+en: Aim weapon (hold)
+es: Apuntar arma (mantener)
+
+en: Left trigger
+es: Gatillo izquierdo
+
+en: Attack (while aiming)
+es: Atacar (al apuntar)
+
+en: Reload
+es: Recargar
+
+en: Head-cam (hold)
+es: Cámara en primera persona (mantener)
+
+en: Head-cam (toggle)
+es: Cámara en primera persona (alternar)
+
+en: Zoom (Unlocked Camera: reset camera)
+es: Zoom (Cámara libre: restablecer cámara)
+
+en: Right stick click
+es: Pulsar stick derecho
+
+en: Camera zoom in (Unlocked Camera)
+es: Acercar cámara (Cámara libre)
+
+en: D-pad up + right stick up
+es: Cruceta arriba + stick derecho arriba
+
+en: Camera zoom out (Unlocked Camera)
+es: Alejar cámara (Cámara libre)
+
+en: D-pad up + right stick down
+es: Cruceta arriba + stick derecho abajo
+
+en: Pause
+es: Pausa
+
+en: Back button
+es: Botón Atrás
+
+en: D-pad up
+es: Cruceta arriba
+
+en: D-pad down
+es: Cruceta abajo
+
+en: D-pad left
+es: Cruceta izquierda
+
+en: D-pad right
+es: Cruceta derecha
+
+en: Look up (keys)
+es: Mirar arriba (teclas)
+
+en: Right stick up
+es: Stick derecho arriba
+
+en: Look down (keys)
+es: Mirar abajo (teclas)
+
+en: Right stick down
+es: Stick derecho abajo
+
+en: Look left (keys)
+es: Mirar a la izquierda (teclas)
+
+en: Right stick left
+es: Stick derecho izquierda
+
+en: Look right (keys)
+es: Mirar a la derecha (teclas)
+
+en: Right stick right
+es: Stick derecho derecha
+
+en: Dive Under
+es: Sumergirse
+
+en: Swim up
+es: Nadar hacia arriba
+
+en: Swim down
+es: Nadar hacia abajo
+
+en: Launch (on the ground)
+es: Despegar (en el suelo)
+
+en: Fly up
+es: Volar hacia arriba
+
+en: Fly down
+es: Volar hacia abajo
+
+en: Poop
+es: Cagar
+
+en: Aim (toggle)
+es: Apuntar (alternar)
+
+en: Aim (hold)
+es: Apuntar (mantener)
+
+en: Left trigger held
+es: Gatillo izquierdo mantenido
+
+en: Left stick click
+es: Pulsar stick izquierdo
+
+en: Fire
+es: Disparar
+
+en: Zoom
+es: Zoom
+
+en: Interact (terminals)
+es: Interactuar (terminales)
+
+en: Weapon mode
+es: Modo de arma
+
+en: Abilities (tap) / abilities wheel (hold, aim with the mouse)
+es: Habilidades (pulsar) / rueda de habilidades (mantener, apuntar con el ratón)
+
+en: Next weapon (tap) / weapon wheel (hold, aim with the mouse)
+es: Arma siguiente (pulsar) / rueda de armas (mantener, apuntar con el ratón)
+
+en: Crouch / prone
+es: Agacharse / tumbarse
+
+en: Vote
+es: Votar
+
+en: Radio mode
+es: Modo radio
+
+en: Pause / options
+es: Pausa / opciones
+
+en: Multiplayer menu
+es: Menú multijugador
+
+en: Navigate
+es: Navegar
+
+en: Choose
+es: Elegir
+
+en: Go back
+es: Volver
+
+en: Map options
+es: Opciones del mapa
+
+en: Close the menu
+es: Cerrar el menú
+
+en: Resume
+es: Reanudar
+
+en: Quit
+es: Abandonar
+
+en: Confirm quit
+es: Confirmar abandonar
+
+en: Open / close options
+es: Abrir / cerrar opciones
+
+en: Left stick
+es: Stick izquierdo
+
+en: Skip
+es: Saltar
+
+en: Toggle
+es: Alternar
+
+en: In photo mode
+es: En modo foto
+
+en: Photo mode on / off
+es: Modo foto sí / no
+
+en: Pause (hold the picture)
+es: Pausa (congelar la imagen)
+
+en: Report Bug
+es: Informar de error
+
+en: Debug menu
+es: Menú de depuración
+
+en: Noclip
+es: Sin colisiones
+
+en: Bullet time (cheat)
+es: Tiempo bala (truco)
+
+en: LS + RS click
+es: Pulsar LS + RS
+
+en: Mark (log line + shot)
+es: Marca (línea de registro + captura)
+
+en: Fly forward
+es: Volar adelante
+
+en: Fly back
+es: Volar atrás
+
+en: Fly left
+es: Volar a la izquierda
+
+en: Fly right
+es: Volar a la derecha
+
+en: Roll left (anticlockwise)
+es: Girar a la izquierda (antihorario)
+
+en: Roll right (clockwise)
+es: Girar a la derecha (horario)
+
+en: Fly slower (hold)
+es: Volar más lento (mantener)
+
+en: Fly faster (hold)
+es: Volar más rápido (mantener)
+
+en: Zoom in
+es: Acercar
+
+en: Zoom out
+es: Alejar
+
+en: Take a photo
+es: Hacer una foto
+
+en: Leave photo mode
+es: Salir del modo foto
+
+en: Camera back to the start
+es: Cámara al inicio
+
+en: Show / hide the HUD and speech bubbles
+es: Mostrar / ocultar el HUD y los bocadillos
+
+en: Show / hide Conker
+es: Mostrar / ocultar a Conker
+
+en: Frame step (one frame; hold: normal speed)
+es: Avance de fotograma (uno; mantener: velocidad normal)
+
+en: Pause / resume the world
+es: Pausar / reanudar el mundo
+
+en: Photo settings
+es: Ajustes de foto
+
+en: Cutscene blur on / off
+es: Desenfoque de escenas sí / no
+
+## lim_window
+en: a lower frame rate helps most; a lower resolution a little
+es: una tasa de fotogramas menor ayuda más; una resolución menor, un poco
+
+en: a lower resolution won't help; a lower frame rate will
+es: una resolución menor no ayuda; una tasa de fotogramas menor sí
+
+en: nothing (frame rate cap / VSync)
+es: nada (límite de fotogramas / VSync)
+
+en: the PC keeps up with this frame rate
+es: el PC aguanta esta tasa de fotogramas
+
+en: CPU (game logic)
+es: CPU (lógica del juego)
+
+en: CPU (graphics translation)
+es: CPU (traducción de gráficos)
+
+en: GPU
+es: GPU
+
+en: a lower render scale, resolution or the Low preset helps
+es: ayuda una escala de render o resolución menor, o el ajuste Bajo
+
+en: CPU (game and graphics in turn)
+es: CPU (juego y gráficos por turnos)
+
+## option_note
+en: %s is set, so this is not used
+es: %s está activado, así que esto no se usa
+
+en: applies when the game is started again
+es: se aplica al reiniciar el juego
+
+## save
+en: Could not save %s = %s (see the log)
+es: No se pudo guardar %s = %s (ver el registro)
+
+## apply_resolution
+en: Could not work out a size for %s
+es: No se pudo calcular un tamaño para %s
+
+en: %ux%u is too small or too big
+es: %ux%u es demasiado pequeño o demasiado grande
+
+## apply_render_scale
+en: Render scale %s %% not taken
+es: Escala de render %s %% no aplicada
+
+## slider
+en: Mute
+es: Silenciar
+
+en: Mute %s
+es: Silenciar %s
+
+## ask_quit
+en: Close game
+es: Cerrar juego
+
+en: Do you want to close the game?
+es: ¿Quieres cerrar el juego?
+
+en: Yes
+es: Sí
+
+en: No
+es: No
+
+## display_tab
+en: Auto (monitor shape, max 1440p)
+es: Auto (forma del monitor, máx. 1440p)
+
+en: Auto 4:3 (max 1440p)
+es: Auto 4:3 (máx. 1440p)
+
+en: Native (monitor size)
+es: Nativa (tamaño del monitor)
+
+en: 640x480 (original Xbox)
+es: 640x480 (Xbox original)
+
+en: 3840x2160 (16:9, slow)
+es: 3840x2160 (16:9, lento)
+
+en: Windowed
+es: Ventana
+
+en: Borderless (instant Alt+Tab)
+es: Sin bordes (Alt+Tab instantáneo)
+
+en: Full screen (exclusive)
+es: Pantalla completa (exclusiva)
+
+en: On (no tearing)
+es: Activado (sin tearing)
+
+en: Off (lowest delay, may tear)
+es: Desactivado (menor retardo, puede haber tearing)
+
+en: G-Sync / FreeSync (VRR)
+es: G-Sync / FreeSync (VRR)
+
+en: 30 fps (original)
+es: 30 fps (original)
+
+en: Same as Text language
+es: Igual que el idioma del texto
+
+en: Display mode
+es: Modo de pantalla
+
+en: Render resolution
+es: Resolución de render
+
+en: Frame rate
+es: Tasa de fotogramas
+
+en: Off = original (runs fast when the frame rate dips)
+es: Desactivado = original (va rápido cuando bajan los fotogramas)
+
+en: VSync
+es: VSync
+
+en: Text language
+es: Idioma del texto
+
+en: Voices are English in every language
+es: Las voces están en inglés en todos los idiomas
+
+en: Menu language
+es: Idioma del menú
+
+en: The language of this port's own menus: F2, F3, photo mode and the F1 line (the game's own menus follow Text language)
+es: El idioma de los menús propios de este port: F2, F3, modo foto y la línea de F1 (los menús del juego siguen el idioma del texto)
+
+en: No Japanese font found in Windows: shown in English
+es: No hay fuente japonesa en Windows: se muestra en inglés
+
+en: On screen
+es: En pantalla
+
+en: Hide HUD
+es: Ocultar HUD
+
+en: Energy, lives, money, the counters and the weapon sight hidden while playing
+es: Energía, vidas, dinero, contadores y mira del arma ocultos al jugar
+
+en: Hide Speech Bubbles
+es: Ocultar bocadillos
+
+en: Speech bubbles hidden, in cutscenes and in play (photo mode's HUD key hides them anyway)
+es: Bocadillos ocultos, en escenas y en juego (la tecla de HUD del modo foto los oculta igualmente)
+
+en: Speedrun Timer
+es: Cronómetro de speedrun
+
+en: Game time without loads from a new game, in the top right corner: the total and the current chapter's part
+es: Tiempo de juego sin cargas desde una partida nueva, arriba a la derecha: el total y la parte del capítulo actual
+
+en: Time cutscenes
+es: Contar escenas
+
+en: The timer runs while a cutscene plays (off: it stops for them)
+es: El cronómetro corre durante las escenas (desactivado: se detiene)
+
+en: Input Display
+es: Mostrar entradas
+
+en: Controller 1 drawn in the bottom left corner: buttons, sticks and triggers as you press them (keys bound to it show as the buttons they press)
+es: Controlador 1 dibujado abajo a la izquierda: botones, sticks y gatillos al pulsarlos (las teclas asignadas se muestran como los botones que pulsan)
+
+## character_foliage_detail_choice
+en: Low (faster)
+es: Bajo (más rápido)
+
+en: Original (as on the Xbox)
+es: Original (como en Xbox)
+
+en: Extended (no pop-in)
+es: Ampliado (sin aparición brusca)
+
+en: Character & foliage detail
+es: Detalle de personajes y vegetación
+
+en: How far away characters, grass and fur keep their detail. Low: characters hide, fur and grass thin out and far characters switch to a simpler model sooner than on the Xbox (faster, but far enemies are harder to see). Original: as on the Xbox. Extended: no pop-in (grass, fur and characters at full detail at any distance), and far characters keep their full model twice as far
+es: Hasta qué distancia conservan el detalle personajes, hierba y pelo. Bajo: los personajes se ocultan, el pelo y la hierba se aclaran y los personajes lejanos pasan antes a un modelo más simple que en Xbox (más rápido, pero los enemigos lejanos se ven peor). Original: como en Xbox. Ampliado: sin aparición brusca (hierba, pelo y personajes con todo el detalle a cualquier distancia) y los personajes lejanos conservan su modelo completo al doble de distancia
+
+en: Grass & flowers
+es: Hierba y flores
+
+en: Grass keeps waving and flowers never thin out or vanish with distance
+es: La hierba sigue moviéndose y las flores no se aclaran ni desaparecen con la distancia
+
+en: Characters
+es: Personajes
+
+en: Characters no longer fade out far from the camera
+es: Los personajes ya no se desvanecen lejos de la cámara
+
+en: Fur
+es: Pelo
+
+en: Fur stays full at any distance instead of thinning out
+es: El pelo se mantiene lleno a cualquier distancia en vez de aclararse
+
+en: Ambient Particles (experimental)
+es: Partículas ambientales (experimental)
+
+en: Falling leaves, fluff and dust fill the whole area instead of only a small box around the camera
+es: Hojas, pelusa y polvo llenan toda la zona en vez de solo una pequeña caja alrededor de la cámara
+
+en: Particle density
+es: Densidad de partículas
+
+en: Back to the default (15 %)
+es: Volver al valor predeterminado (15 %)
+
+## graphics_tab
+en: Off (sharpest, shimmers far away)
+es: Desactivado (más nítido, parpadea a lo lejos)
+
+en: Anisotropic 2x
+es: Anisotrópico 2x
+
+en: Anisotropic 4x
+es: Anisotrópico 4x
+
+en: Anisotropic 8x
+es: Anisotrópico 8x
+
+en: Anisotropic 16x (sharpest steady)
+es: Anisotrópico 16x (más nítido y estable)
+
+en: 0.5x (fastest, softest)
+es: 0.5x (más rápido, más suave)
+
+en: 1x (default)
+es: 1x (predeterminado)
+
+en: 4x (sharpest, slowest)
+es: 4x (más nítido, más lento)
+
+en: Bilinear (plain, soft)
+es: Bilineal (simple, suave)
+
+en: AMD FSR 1 (sharper edges)
+es: AMD FSR 1 (bordes más nítidos)
+
+en: Off (original)
+es: Desactivado (original)
+
+en: FXAA (quick, slightly soft)
+es: FXAA (rápido, algo suave)
+
+en: SMAA (cleaner edges, sharper)
+es: SMAA (bordes más limpios, más nítido)
+
+en: Scanlines
+es: Líneas de exploración
+
+en: CRT (scanlines, curve, glow)
+es: CRT (líneas, curvatura, brillo)
+
+en: Original (soft, blocky)
+es: Original (suave, pixelado)
+
+en: 4x (sharper)
+es: 4x (más nítido)
+
+en: 8x (very sharp)
+es: 8x (muy nítido)
+
+en: 16x (sharpest, more GPU)
+es: 16x (el más nítido, más GPU)
+
+en: Off (always sharp)
+es: Desactivado (siempre nítido)
+
+en: Original (blocky at high resolutions)
+es: Original (pixelado a resoluciones altas)
+
+en: Updated (original look, smooth)
+es: Actualizado (aspecto original, suave)
+
+en: Cinematic (stronger, bokeh)
+es: Cinematográfico (más fuerte, bokeh)
+
+en: Render scale
+es: Escala de render
+
+en: Automatic resolution
+es: Resolución automática
+
+en: Lowers the render scale by itself when the graphics card can't keep up with the frame rate, and raises it again when it can: never above the render scale chosen here, never below 0.5x. Helps only when the graphics card is what slows the game (F1 pressed three times shows what does)
+es: Baja la escala de render sola cuando la tarjeta gráfica no sigue la tasa de fotogramas, y la sube de nuevo cuando puede: nunca por encima de la escala elegida aquí ni por debajo de 0.5x. Solo ayuda cuando la tarjeta gráfica es lo que frena el juego (pulsar F1 tres veces muestra qué es)
+
+en: Drawn at %ux%u now: lowered to %s by Automatic resolution
+es: Dibujado a %ux%u ahora: bajado a %s por Resolución automática
+
+en: Drawn at %ux%u: capped at %.2gx, the largest the renderer and this graphics card take here
+es: Dibujado a %ux%u: limitado a %.2gx, lo máximo que admiten el renderizador y esta tarjeta gráfica
+
+en: Drawn at %ux%u
+es: Dibujado a %ux%u
+
+en: Upscaler (render scale below 1x)
+es: Reescalado (escala de render menor de 1x)
+
+en: Texture filtering
+es: Filtrado de texturas
+
+en: Anti-aliasing
+es: Antialiasing
+
+en: Shadows
+es: Sombras
+
+en: Shadow softness
+es: Suavidad de sombras
+
+en: Back to off (0 %: as sharp as Shadows draws them)
+es: Volver a desactivado (0 %: tan nítidas como las dibuja Sombras)
+
+en: Smooth world shadows
+es: Sombras de mundo suaves
+
+en: The shadows baked into the levels (fences, plants, buildings) read smoothly instead of as blocky steps. Off = as the original
+es: Las sombras integradas en los niveles (vallas, plantas, edificios) se ven suaves en vez de a escalones. Desactivado = como el original
+
+en: Back to the original (1.00)
+es: Volver al original (1.00)
+
+en: Gamma
+es: Gamma
+
+en: Contrast
+es: Contraste
+
+en: Saturation
+es: Saturación
+
+en: Sharpening
+es: Nitidez
+
+en: Back to off (0 %)
+es: Volver a desactivado (0 %)
+
+en: Glow (the game's own)
+es: Brillo (el propio del juego)
+
+en: Back to the original (100 %)
+es: Volver al original (100 %)
+
+en: Fog
+es: Niebla
+
+en: The distance fog that fades far scenery into the level's colour. Off = far scenery as clear as near (the level's far end may show). Under water, Underwater Fog decides
+es: La niebla de distancia que funde el paisaje lejano con el color del nivel. Desactivado = el paisaje lejano tan claro como el cercano (puede verse el final del nivel). Bajo el agua decide Niebla submarina
+
+en: Underwater Fog
+es: Niebla submarina
+
+en: The murky water colour while the camera is under water. Off = clear water
+es: El color turbio del agua cuando la cámara está bajo el agua. Desactivado = agua clara
+
+en: Haze
+es: Neblina
+
+en: The mist or colour wash in some levels. Off = a clear view (e.g. no green gas in Chemical Warfare)
+es: La bruma o el tinte de color en algunos niveles. Desactivado = vista despejada (p. ej. sin gas verde en Guerra química)
+
+en: Vignette
+es: Viñeteado
+
+en: The dark corners round the picture in some levels. Off = the picture as bright at the edges as in the middle
+es: Las esquinas oscuras alrededor de la imagen en algunos niveles. Desactivado = imagen igual de brillante en los bordes que en el centro
+
+en: Screen drops
+es: Gotas en pantalla
+
+en: Water and blood drops on the screen and the streaks they leave. Off = a clean screen
+es: Gotas de agua y sangre en la pantalla y las marcas que dejan. Desactivado = pantalla limpia
+
+en: Stretch FMV
+es: Estirar vídeos
+
+en: The movies (boot intro, idle demo, multiplayer briefings) stretched to the window. Off = their own 4:3 shape with black bars at the sides. Story cutscenes: Cutscenes in 4:3
+es: Los vídeos (intro, demo en reposo, presentaciones multijugador) estirados a la ventana. Desactivado = su forma 4:3 con barras negras a los lados. Escenas de la historia: Escenas en 4:3
+
+en: Cutscenes in 4:3
+es: Escenas en 4:3
+
+en: Story cutscenes in the original 4:3 shape with black bars at the sides. Off = they fill the window as gameplay does
+es: Escenas de la historia en su forma original 4:3 con barras negras a los lados. Desactivado = llenan la ventana como el juego
+
+en: Underwater Shimmer
+es: Reflejos submarinos
+
+en: The shimmering haze round Conker under water, which shows as a band at eye level. Off = a clear view under water
+es: La bruma centelleante alrededor de Conker bajo el agua, que se ve como una banda a la altura de los ojos. Desactivado = vista clara bajo el agua
+
+en: Cutscene blur
+es: Desenfoque de escenas
+
+en: CRT / scanlines
+es: CRT / líneas de exploración
+
+en: CRT strength
+es: Intensidad CRT
+
+en: Back to the default (50 %)
+es: Volver al valor predeterminado (50 %)
+
+## sound_tab
+en: xemu (default)
+es: xemu (predeterminado)
+
+en: speakers (wider stereo)
+es: altavoces (estéreo más amplio)
+
+en: Back to full (100 %)
+es: Volver al máximo (100 %)
+
+en: Master volume
+es: Volumen general
+
+en: Music
+es: Música
+
+en: Effects
+es: Efectos
+
+en: Dialogue
+es: Diálogos
+
+en: Other (ambience, menu sounds)
+es: Otros (ambiente, sonidos de menú)
+
+en: Cutscene volume
+es: Volumen de escenas
+
+en: Mix
+es: Mezcla
+
+en: 3D sound (HRTF)
+es: Sonido 3D (HRTF)
+
+en: Silence sound while paused
+es: Silenciar sonido en pausa
+
+## fixes_tab
+en: Uncensored
+es: Sin censura
+
+en: Uncensored audio
+es: Audio sin censura
+
+en: Cutscene voices and songs without the bleeps (decensor patch). Changes when the game is started again
+es: Voces y canciones de las escenas sin los pitidos (parche de descensura). Cambia al reiniciar el juego
+
+en: Uncensored text
+es: Texto sin censura
+
+en: Subtitles and other text without the censoring (decensor patch). Changes from the next level that loads
+es: Subtítulos y otros textos sin censura (parche de descensura). Cambia desde el siguiente nivel que se cargue
+
+en: Needs the decensor patch in a "decensor" folder next to the game (or paths.decensor_dir in settings.ini)
+es: Necesita el parche de descensura en una carpeta "decensor" junto al juego (o paths.decensor_dir en settings.ini)
+
+en: Cutscenes
+es: Escenas
+
+en: Skippable Cutscenes
+es: Escenas saltables
+
+en: Every story cutscene can be skipped, also the ones the game does not let you skip; a scene in parts skips one part at a time
+es: Todas las escenas de la historia se pueden saltar, también las que el juego no deja saltar; una escena en partes salta una parte cada vez
+
+en: Hold to Skip
+es: Mantener para saltar
+
+en: Scenes the game does not let you skip need the skip button held for 3 seconds (off: a press skips them)
+es: Las escenas que el juego no deja saltar necesitan el botón de saltar mantenido 3 segundos (desactivado: una pulsación las salta)
+
+en: The hold-to-skip ring drawn as Conker's curled-up tail
+es: El anillo de mantener para saltar dibujado como la cola enroscada de Conker
+
+en: Camera
+es: Cámara
+
+en: Unlocked Camera
+es: Cámara desbloqueada
+
+en: Single player: tilt the camera from straight down on Conker to looking up, zoom smoothly with the mouse wheel or D-pad up + right stick, and reset it with the zoom button (right stick click / V). Off: the original camera, where the zoom button switches between near and far
+es: Un jugador: inclina la cámara desde mirar a Conker desde arriba hasta mirar hacia arriba, haz zoom con la rueda del ratón o cruceta arriba + stick derecho, y restablécela con el botón de zoom (pulsar stick derecho / V). Desactivado: la cámara original, donde el botón de zoom alterna entre cerca y lejos
+
+en: %%.0f° (%.0f° across)
+es: %%.0f° (%.0f° de ancho)
+
+en: Field of view
+es: Campo de visión
+
+en: Back to the original (50°)
+es: Volver al original (50°)
+
+en: Main Menu Speed
+es: Velocidad del menú principal
+
+en: Above 60 fps the main menu turns between its boards and zooms into them at the original speed (off: faster, twice as fast at 120)
+es: A más de 60 fps el menú principal gira entre sus paneles y hace zoom a la velocidad original (desactivado: más rápido, el doble a 120)
+
+en: Sub-menu Speed
+es: Velocidad de submenús
+
+en: Above 60 fps game select and the chapter list fade at the original speed (off: faster, twice as fast at 120)
+es: A más de 60 fps la selección de partida y la lista de capítulos se desvanecen a la velocidad original (desactivado: más rápido, el doble a 120)
+
+en: Idle Demo
+es: Demo en reposo
+
+en: The demo movie after about 2 minutes on the main menu without a press, as the original (off: it never starts)
+es: El vídeo de demostración tras unos 2 minutos en el menú principal sin pulsar nada, como el original (desactivado: nunca empieza)
+
+en: Skip Intro
+es: Saltar intro
+
+en: Start straight at the main menu, without the logo and the intro movie. From the next start
+es: Empezar directamente en el menú principal, sin el logo ni el vídeo de la intro. Desde el próximo inicio
+
+en: Skip Walk In
+es: Saltar entrada
+
+en: With Skip Intro: no walk into the bar either, straight to the menu as when the movie is skipped (off: Conker walks in). From the next start
+es: Con Saltar intro: tampoco la entrada al bar, directo al menú como al saltar el vídeo (desactivado: Conker entra). Desde el próximo inicio
+
+en: Loading Screen
+es: Pantalla de carga
+
+en: The game's loading screen while a level loads (off: black, then the level fades in). From the next load
+es: La pantalla de carga del juego mientras se carga un nivel (desactivado: negro, luego el nivel aparece). Desde la próxima carga
+
+en: Fast Load
+es: Carga rápida
+
+en: Loads don't wait for the old music to fade out, so a load from the main menu takes about half a second instead of 3 or more; the music stops at once when a load starts (off: the original wait). From the next load
+es: Las cargas no esperan a que la música anterior se apague, así que cargar desde el menú principal tarda medio segundo en vez de 3 o más; la música se detiene de golpe al empezar una carga (desactivado: la espera original). Desde la próxima carga
+
+en: Poo Fix
+es: Arreglo del cieno
+
+en: Under the poo after the Bull fight, the haze is brown to match instead of a blue band. Off = the original. Normal water is never changed. Needs Underwater Shimmer (Picture) on
+es: Bajo el cieno tras el combate del Toro, la neblina es marrón a juego en vez de una banda azul. Desactivado = el original. El agua normal nunca cambia. Necesita Reflejos submarinos (Imagen) activado
+
+en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
+es: A más de 30 fps las colas, ragdolls y telas se mueven a la velocidad original (desactivado: más rápido, 4 veces más a 120)
+
+en: Display
+es: Pantalla
+
+en: Graphics
+es: Gráficos
+
+en: Sound
+es: Sonido
+
+en: Fixes
+es: Arreglos
+
+## preset_tip
+en: Upscaler
+es: Reescalado
+
+en: on
+es: activado
+
+en: off
+es: desactivado
+
+## presets_choice
+en: Quality preset
+es: Ajuste de calidad
+
+en: Custom
+es: Personalizado
+
+en: Could not save the %s preset (see the log)
+es: No se pudo guardar el ajuste %s (ver el registro)
+
+en: Sets the options below and the frame rate and 3D sound at once. High is the default; Low suits a weak PC.
+es: Fija a la vez las opciones de abajo, la tasa de fotogramas y el sonido 3D. Alto es el predeterminado; Bajo sirve para un PC débil.
+
+en: 3D sound applies when the game is started again
+es: El sonido 3D se aplica al reiniciar el juego
+
+## build_menu
+en: Settings
+es: Ajustes
+
+en: Pause the game (%s)
+es: Pausar el juego (%s)
+
+en: Controller: the game. Click this menu (or F2 twice) to use it.
+es: Controlador: el juego. Haz clic en este menú (o F2 dos veces) para usarlo.
+
+en: Controls
+es: Controles
+
+en: Keyboard and mouse (F3)
+es: Teclado y ratón (F3)
+
+en: Back to the game
+es: Volver al juego
+
+en: (F2, Esc, B or Start)
+es: (F2, Esc, B o Start)
+
+en: Report Bug...
+es: Informar de error...
+
+## build_pad_menu
+en: Menu
+es: Menú
+
+en: Controller Options
+es: Opciones del controlador
+
+en: Cheats
+es: Trampas
+
+## combo_notes
+en: %s is also %s: that happens too
+es: %s también es %s: eso también ocurre
+
+en: While %s is held, %s is this, not %s
+es: Mientras se mantiene %s, %s es esto, no %s
+
+en: %s also starts %s (%s): this happens too
+es: %s también inicia %s (%s): esto también ocurre
+
+en: While %s is held, %s is %s, not this
+es: Mientras se mantiene %s, %s es %s, no esto
+
+## ask_key
+en: Set a key
+es: Asignar una tecla
+
+en: Press a key or a mouse button for:
+es: Pulsa una tecla o un botón del ratón para:
+
+en: Keys now: %s
+es: Teclas ahora: %s
+
+en: none
+es: ninguna
+
+en: A key it doesn't have is added (up to 3), a key it has is taken off. For a combo hold one key and press another. Clicking here (not on a button) is that mouse button. Esc cancels.
+es: Una tecla que no tiene se añade (hasta 3), una que tiene se quita. Para una combinación mantén una tecla y pulsa otra. Hacer clic aquí (no en un botón) es ese botón del ratón. Esc cancela.
+
+en: Holding %s: press another key for a combo, or let go
+es: Manteniendo %s: pulsa otra tecla para una combinación, o suelta
+
+en: Already 3 keys: press one to remove it first
+es: Ya hay 3 teclas: pulsa una para quitarla primero
+
+en: No key
+es: Sin tecla
+
+en: Cancel
+es: Cancelar
+
+en: multiplayer
+es: de multijugador
+
+en: photo mode
+es: del modo foto
+
+en: single player
+es: de un jugador
+
+## ask_reset
+en: Reset controls
+es: Restablecer controles
+
+en: Put every %s key back to the defaults?
+es: ¿Restablecer todas las teclas %s a sus valores predeterminados?
+
+en: Put every %s key and the mouse back to the defaults?
+es: ¿Restablecer todas las teclas %s y el ratón a sus valores predeterminados?
+
+## begin_keys
+en: Action
+es: Acción
+
+en: Keys
+es: Teclas
+
+en: Controller
+es: Controlador
+
+## set_pad_bind
+en: %s needs a button
+es: %s necesita un botón
+
+en: %s is %s's, and %s needs a button: give %s another first
+es: %s es de %s, y %s necesita un botón: dale otro a %s antes
+
+en: takes
+es: usa
+
+en: has no button now:
+es: no tiene botón ahora:
+
+en: pick one
+es: elige uno
+
+## ask_pad_bind
+en: Set a controller button
+es: Asignar un botón del controlador
+
+en: On slot 1's controller, press the button for:
+es: En el controlador del puesto 1, pulsa el botón para:
+
+en: Modern
+es: Moderno
+
+en: Classic
+es: Clásico
+
+en: Button now: %s
+es: Botón ahora: %s
+
+en: A button another action uses at the same moment swaps with this one. Back, Esc or Cancel: no change. Back and the D-pad can't be bound.
+es: Un botón que otra acción usa a la vez se intercambia con este. Atrás, Esc o Cancelar: sin cambios. Atrás y la cruceta no se pueden asignar.
+
+en: None
+es: Ninguno
+
+en: %s  (%s's)
+es: %s  (de %s)
+
+## row_hidden
+en: Cheat menu
+es: Menú de trampas
+
+## keys_table
+en: Also used for: %s
+es: También usado para: %s
+
+en: Back to the default (%s)
+es: Volver al valor predeterminado (%s)
+
+en: The controller's own: not rebindable
+es: Propio del controlador: no reasignable
+
+en: Click, then press a button on slot 1's controller (or pick one)
+es: Haz clic y pulsa un botón del controlador del puesto 1 (o elige uno)
+
+## reset_binds_button
+en: Put every %s controller button back to its default?
+es: ¿Restablecer todos los botones del controlador %s a su valor predeterminado?
+
+en: Yes##binds_reset
+es: Sí##binds_reset
+
+en: No##binds_reset
+es: No##binds_reset
+
+en: Reset the controller buttons
+es: Restablecer botones del controlador
+
+## reset_button
+en: Reset all %s controls
+es: Restablecer todos los controles %s
+
+## controls_tab
+en: Mouse (looking around)
+es: Ratón (mirar alrededor)
+
+en: Sensitivity left and right
+es: Sensibilidad izquierda y derecha
+
+en: Back to the default (100 %)
+es: Volver al valor predeterminado (100 %)
+
+en: Sensitivity up and down
+es: Sensibilidad arriba y abajo
+
+en: Invert up and down
+es: Invertir arriba y abajo
+
+en: Keys and controller
+es: Teclas y controlador
+
+en: Click an action's keys to add or remove one (up to 3). Click its controller button to change it: slot 1's controller, for the scheme above (Classic and Modern each have their own). Button names are an Xbox controller's: on a PlayStation controller A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options.
+es: Haz clic en las teclas de una acción para añadir o quitar una (hasta 3). Haz clic en su botón del controlador para cambiarlo: el del puesto 1, para el esquema de arriba (Clásico y Moderno tienen cada uno el suyo). Los nombres de botones son los de un controlador Xbox: en un controlador PlayStation A / B / X / Y = Cruz / Círculo / Cuadrado / Triángulo, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options.
+
+en: Click an action's keys to add or remove one (up to 3). In brackets: the controller button it presses.
+es: Haz clic en las teclas de una acción para añadir o quitar una (hasta 3). Entre paréntesis: el botón del controlador que pulsa.
+
+## photo_tab
+en: Click an action's keys to add or remove one (up to 3). In brackets: the controller button that does the same.
+es: Haz clic en las teclas de una acción para añadir o quitar una (hasta 3). Entre paréntesis: el botón del controlador que hace lo mismo.
+
+## key_list
+en: or arrow keys
+es: o flechas
+
+en: Arrow keys
+es: Flechas
+
+## pad_label
+en: Controller %d
+es: Controlador %d
+
+en: PlayStation / Switch controller %d
+es: Controlador PlayStation / Switch %d
+
+en: %s (not connected)
+es: %s (no conectado)
+
+## port_source_name
+en: No input
+es: Sin entrada
+
+en: Any controller (%s)
+es: Cualquier controlador (%s)
+
+en: Any controller
+es: Cualquier controlador
+
+## slot_options
+en: Rumble
+es: Vibración
+
+en: This controller rumbles (when the game's own Vibration option is on too); off: never
+es: Este controlador vibra (si la opción Vibración del juego también está activada); desactivado: nunca
+
+en: Rumble strength
+es: Intensidad de vibración
+
+en: Back to the default (100 %: as the game asks)
+es: Volver al valor predeterminado (100 %: como lo pide el juego)
+
+en: Sticks
+es: Sticks
+
+en: How far a stick tilts before it moves anything: lower responds sooner, higher helps a stick that drifts (14 % is the game's own).
+es: Cuánto se inclina un stick antes de mover algo: menos responde antes, más ayuda a un stick que se desvía (14 % es el del juego).
+
+en: Stick dead zone
+es: Zona muerta del stick
+
+en: Back to the default (10 %)
+es: Volver al valor predeterminado (10 %)
+
+en: Single player camera speed
+es: Velocidad de cámara de un jugador
+
+en: Multiplayer camera speed
+es: Velocidad de cámara multijugador
+
+en: Gyro aiming
+es: Apuntado con giroscopio
+
+en: This controller has no gyro. PlayStation controllers (DualShock 4, DualSense) and Switch controllers have one: these settings are used when one is in this slot.
+es: Este controlador no tiene giroscopio. Los controladores PlayStation (DualShock 4, DualSense) y los Switch lo tienen: estos ajustes se usan cuando hay uno en este puesto.
+
+en: Aim with the gyro in single player
+es: Apuntar con giroscopio en un jugador
+
+en: Turning the controller aims while a weapon is out and the left trigger is held
+es: Girar el controlador apunta mientras hay un arma fuera y se mantiene el gatillo izquierdo
+
+en: Aim with the gyro in multiplayer
+es: Apuntar con giroscopio en multijugador
+
+en: Turning the controller aims all match long
+es: Girar el controlador apunta durante toda la partida
+
+en: Gyro speed left / right
+es: Velocidad del giroscopio izquierda / derecha
+
+en: Back to the default (200 %: the aim turns twice as far as the controller)
+es: Volver al valor predeterminado (200 %: la mira gira el doble que el controlador)
+
+en: Gyro speed up / down
+es: Velocidad del giroscopio arriba / abajo
+
+en: Invert gyro up / down
+es: Invertir giroscopio arriba / abajo
+
+en: Tilting the controller up aims down
+es: Inclinar el controlador hacia arriba apunta hacia abajo
+
+en: Correct gyro drift automatically
+es: Corregir la deriva del giroscopio automáticamente
+
+en: While a controller is held still, its gyro's slow drift is measured and taken off (every controller). Off: only the Calibrate button does it.
+es: Mientras un controlador está quieto, se mide la lenta deriva de su giroscopio y se resta (todos los controladores). Desactivado: solo lo hace el botón Calibrar.
+
+en: Calibrate
+es: Calibrar
+
+en: Lay the controller down, still, and press: its gyro is measured for 2 seconds
+es: Deja el controlador quieto en una superficie y pulsa: su giroscopio se mide durante 2 segundos
+
+en: Calibrating: keep it still...
+es: Calibrando: no lo muevas...
+
+en: Held still
+es: Quieto
+
+en: Turn the controller: the dot follows
+es: Gira el controlador: el punto te sigue
+
+en: left
+es: izquierda
+
+en: right
+es: derecha
+
+en: down
+es: abajo
+
+en: up
+es: arriba
+
+## slot_options_window
+en: Slot %d controller
+es: Controlador del puesto %d
+
+en: Close
+es: Cerrar
+
+## ask_chord
+en: Set a chord
+es: Asignar un atajo
+
+en: On slot 1's controller, hold two buttons together for:
+es: En el controlador del puesto 1, mantén dos botones a la vez para:
+
+en: Chord now: %s
+es: Atajo ahora: %s
+
+en: Hold one button and press the other: Back or RB with another button, a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both sticks clicked. B alone, Esc or Cancel: no change.
+es: Mantén un botón y pulsa el otro: Atrás o RB con otro botón, una dirección de la cruceta con A, B, X, Y, LB, Start, RB o Atrás, o ambos sticks pulsados. B sola, Esc o Cancelar: sin cambios.
+
+en: %s is %s's: pick another
+es: %s es de %s: elige otro
+
+en: No chord
+es: Sin atajo
+
+## chord_row
+en: (required)
+es: (obligatorio)
+
+en: Press
+es: Pulsar
+
+en: Set it by holding the chord on slot 1's controller
+es: Asígnalo manteniendo el atajo en el controlador del puesto 1
+
+en: %s is %s's now: change that one first
+es: %s es de %s ahora: cambia primero ese
+
+## chords_window
+en: Controller chords###chords
+es: Atajos del controlador###chords
+
+en: Two buttons held together for our own extras, on slot 1's controller; one set for every controller, apart from its normal controls. Button names are an Xbox controller's: on a PlayStation controller Back = Share / Create, Start = Options, LB / RB = L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle.
+es: Dos botones mantenidos a la vez para nuestros extras, en el controlador del puesto 1; un conjunto para todos los controladores, aparte de sus controles normales. Los nombres de botones son los de un controlador Xbox: en un controlador PlayStation Atrás = Share / Create, Start = Options, LB / RB = L1 / R1, A / B / X / Y = Cruz / Círculo / Cuadrado / Triángulo.
+
+en: Put every chord back to its default?
+es: ¿Restablecer todos los atajos a su valor predeterminado?
+
+en: Yes##chords_reset
+es: Sí##chords_reset
+
+en: No##chords_reset
+es: No##chords_reset
+
+en: Reset all chords
+es: Restablecer todos los atajos
+
+## ports_tab
+en: Which controller is each player: slot 1 is player 1 (controller port 1 on the Xbox). The list shows the connected controllers by the names in Windows' game controller list; PlayStation controllers (DualShock 4, DualSense) and Switch controllers (Pro Controller, a pair of Joy-Cons) work without other programs. A slot with no controller and no keyboard is empty, as if nothing were plugged in there; the game sees the change after a second.
+es: Qué controlador es cada jugador: el puesto 1 es el jugador 1 (puerto de controlador 1 en Xbox). La lista muestra los controladores conectados con los nombres de la lista de controladores de juego de Windows; los controladores PlayStation (DualShock 4, DualSense) y Switch (Pro Controller, un par de Joy-Cons) funcionan sin otros programas. Un puesto sin controlador ni teclado queda vacío, como si no hubiera nada enchufado; el juego ve el cambio tras un segundo.
+
+en: Slot
+es: Puesto
+
+en: Keyboard
+es: Teclado
+
+en: Slot %d
+es: Puesto %d
+
+en: The keyboard and mouse are this player
+es: El teclado y el ratón son este jugador
+
+en: Make the keyboard and mouse this player
+es: Hacer que el teclado y el ratón sean este jugador
+
+en: Options
+es: Opciones
+
+en: Rumble, sticks and gyro aiming for slot %d's controller
+es: Vibración, sticks y apuntado con giroscopio del controlador del puesto %d
+
+en: Chords
+es: Atajos
+
+en: Two buttons held together for the menus, photo mode and cheats (every controller)
+es: Dos botones mantenidos a la vez para los menús, el modo foto y las trampas (todos los controladores)
+
+en: The mouse turns the camera directly only on slot 1; on another slot it works as that player's right stick.
+es: El ratón gira la cámara directamente solo en el puesto 1; en otro puesto funciona como el stick derecho de ese jugador.
+
+en: Control when out of focus
+es: Control sin foco
+
+en: Controllers keep playing the game while another window is in front. Off: they do nothing until the game window is in front again (the keyboard always waits).
+es: Los controladores siguen jugando mientras otra ventana está delante. Desactivado: no hacen nada hasta que la ventana del juego vuelva a estar delante (el teclado siempre espera).
+
+## story_tab
+en: Scheme
+es: Esquema
+
+en: Hold
+es: Mantener
+
+en: Slingshot Aim
+es: Apuntar con tirachinas
+
+## mp_tab
+en: Toggle (press to zoom in, press again to zoom out)
+es: Alternar (pulsar para acercar, pulsar de nuevo para alejar)
+
+en: Hold (zoomed in while the key is held)
+es: Mantener (acercado mientras se mantiene la tecla)
+
+en: These keys follow the game's "Emily" control scheme: choose Emily in the multiplayer controller options.
+es: Estas teclas siguen el esquema de control "Emily" del juego: elige Emily en las opciones del controlador multijugador.
+
+en: Zoom key
+es: Tecla de zoom
+
+## menus_tab
+en: Mouse in menus
+es: Ratón en menús
+
+en: The mouse in the game's menus: the pointer shows when the mouse moves; on the main menu the arrows at the sides (or a drag) turn, a click in the middle opens; right click goes back, the wheel moves up and down.
+es: El ratón en los menús del juego: el puntero aparece al mover el ratón; en el menú principal las flechas de los lados (o arrastrar) giran, un clic en el centro abre; clic derecho vuelve, la rueda sube y baja.
+
+en: Fixed keys, the same in every menu: the main menu, the multiplayer menus and pause menu. Esc goes back on the main menu and the multiplayer menus, and closes the multiplayer pause menu.
+es: Teclas fijas, iguales en todos los menús: el menú principal, los menús multijugador y el de pausa. Esc vuelve en el menú principal y los menús multijugador, y cierra el menú de pausa multijugador.
+
+en: Menus
+es: Menús
+
+en: Single player pause screen
+es: Pantalla de pausa de un jugador
+
+en: Single player
+es: Un jugador
+
+en: Multiplayer
+es: Multijugador
+
+en: Photo mode
+es: Modo foto
+
+en: Slots
+es: Puestos
+
+## build_controls
+en: Use keyboard and mouse
+es: Usar teclado y ratón
+
+en: In use now: the single player keys.
+es: En uso ahora: las teclas de un jugador.
+
+en: In use now: the multiplayer keys (the game is in multiplayer).
+es: En uso ahora: las teclas multijugador (el juego está en multijugador).
+
+en: In use now: the menu keys (see Menus).
+es: En uso ahora: las teclas de menú (ver Menús).
+
+en: In use now: the pause screen keys (see Menus).
+es: En uso ahora: las teclas de la pantalla de pausa (ver Menús).
+
+en: In use now: the menu keys, Esc closes the menu (see Menus).
+es: En uso ahora: las teclas de menú, Esc cierra el menú (ver Menús).
+
+en: In use now: the cutscene keys (see Menus).
+es: En uso ahora: las teclas de escenas (ver Menús).
+
+en: In use now: the single player keys, swimming at the surface.
+es: En uso ahora: las teclas de un jugador, nadando en la superficie.
+
+en: In use now: the single player keys, underwater.
+es: En uso ahora: las teclas de un jugador, bajo el agua.
+
+en: In use now: the single player keys on the beehive gun (Forward aims up, Back aims down).
+es: En uso ahora: las teclas de un jugador en el cañón de abejas (Adelante apunta arriba, Atrás apunta abajo).
+
+en: In use now: the multiplayer keys in the Mule 52's gun seat (Forward aims up, Back aims down).
+es: En uso ahora: las teclas multijugador en el asiento del cañón del Mule 52 (Adelante apunta arriba, Atrás apunta abajo).
+
+en: In use now: the single player keys, the bat on the ground.
+es: En uso ahora: las teclas de un jugador, el murciélago en el suelo.
+
+en: In use now: the single player keys, the bat flying.
+es: En uso ahora: las teclas de un jugador, el murciélago volando.
+
+en: In use now: the photo mode keys.
+es: En uso ahora: las teclas del modo foto.
+
+en: (F3, Esc, B or Start)
+es: (F3, Esc, B o Start)
+
+## write_png
+en: Photo saved: %s
+es: Foto guardada: %s
+
+en: The photo could not be saved (%s)
+es: No se pudo guardar la foto (%s)
+
+## take_shot
+en: The photo could not be taken (%s)
+es: No se pudo hacer la foto (%s)
+
+## build_photo_picture
+en: Off
+es: Desactivado
+
+en: CRT
+es: CRT
+
+en: Low
+es: Bajo
+
+en: Original
+es: Original
+
+en: Extended
+es: Ampliado
+
+en: Picture
+es: Imagen
+
+en: Only in photo mode: your own settings stay as they are.
+es: Solo en modo foto: tus propios ajustes se quedan como están.
+
+en: Save photo settings
+es: Guardar ajustes de foto
+
+en: Photo mode starts with these from now on, also after a restart. Off: it starts from your settings.
+es: El modo foto empieza con estos a partir de ahora, también tras reiniciar. Desactivado: empieza con tus ajustes.
+
+## build_photo
+en: Change Photo Directory
+es: Cambiar carpeta de fotos
+
+en: Open Photo Directory
+es: Abrir carpeta de fotos
+
+en: Back to the default (Photos in the save folder)
+es: Volver al valor predeterminado (Photos en la carpeta de guardado)
+
+en: Photos go to %s
+es: Las fotos van a %s
+
+en: Zoom (field of view)
+es: Zoom (campo de visión)
+
+en: %.0f degrees
+es: %.0f grados
+
+en: Back to the game's (%.0f degrees)
+es: Volver al del juego (%.0f grados)
+
+en: Roll
+es: Giro
+
+en: Level (0 degrees)
+es: Nivelado (0 grados)
+
+en: Fly speed
+es: Velocidad de vuelo
+
+en: Show
+es: Mostrar
+
+en: HUD and speech bubbles
+es: HUD y bocadillos
+
+en: Hide Conker
+es: Ocultar a Conker
+
+en: Cutscene blur (the game's own)
+es: Desenfoque de escenas (el propio del juego)
+
+en: Depth of field
+es: Profundidad de campo
+
+en: Depth of field (blur away from the focus)
+es: Profundidad de campo (desenfoque lejos del foco)
+
+en: Focus distance
+es: Distancia de enfoque
+
+en: Focus on Conker
+es: Enfocar a Conker
+
+en: Game units: Conker is about 60 tall.
+es: Unidades del juego: Conker mide unos 60.
+
+en: Blur strength
+es: Intensidad del desenfoque
+
+en: F3 > Photo mode changes the keys.
+es: F3 > Modo foto cambia las teclas.
+
+en: Start, Tab, B or Esc closes the panel.
+es: Start, Tab, B o Esc cierra el panel.
+
+## build_report
+en: Makes a .zip to attach to a GitHub issue: this picture, the game's last logs, its settings, the saves when ticked and the PC's details (Windows, graphics card, processor). The Windows user name is left out.
+es: Crea un .zip para adjuntar a una incidencia de GitHub: esta imagen, los últimos registros del juego, sus ajustes, las partidas guardadas si se marca y los datos del PC (Windows, tarjeta gráfica, procesador). Se omite el nombre de usuario de Windows.
+
+en: Open GitHub Issue opens a new issue with its text filled in and copies that text too: if the page comes up empty, paste it there (Ctrl+V). Then drag the zip into the issue. Posting needs a free GitHub account.
+es: Abrir incidencia de GitHub abre una incidencia nueva con su texto rellenado y también copia ese texto: si la página sale vacía, pégalo ahí (Ctrl+V). Luego arrastra el zip a la incidencia. Publicar requiere una cuenta gratuita de GitHub.
+
+## pause_label
+en: Photo mode   Photo: %s / A   Settings: %s / Start   Leave: %s / %s
+es: Modo foto   Foto: %s / A   Ajustes: %s / Start   Salir: %s / %s
+
+en: The world is running   Pause it: %s / %s
+es: El mundo está en marcha   Pausarlo: %s / %s
+
+en: Paused (%s to resume)
+es: En pausa (%s para reanudar)
+
+## overlay_drag
+en: Drag to move (kept when let go)
+es: Arrastra para mover (se mantiene al soltar)
+
+## speedrun_label
+en: starts with a game
+es: empieza con una partida
+
+## fps_label
+en: %.1f fps  %.1f ms  (max %.1f)
+es: %.1f fps  %.1f ms  (máx. %.1f)
+
+en: game %.1f ms  graphics %.1f ms  GPU %.1f ms, %.0f %% busy
+es: juego %.1f ms  gráficos %.1f ms  GPU %.1f ms, %.0f %% ocupada
+
+en: game %.1f ms  graphics %.1f ms  GPU %.1f ms
+es: juego %.1f ms  gráficos %.1f ms  GPU %.1f ms
+
+en: limited by: %s
+es: limitado por: %s
+
+en: limited by: measuring...
+es: limitado por: midiendo...
+
+en: automatic resolution: %s (at most %s)
+es: resolución automática: %s (como máximo %s)
+
+## precompile_screen
+en: Precompiling shaders (continuing where the last run stopped)
+es: Precompilando shaders (continuando donde se detuvo la última vez)
+
+en: Precompiling shaders
+es: Precompilando shaders
+
+en: Starting the game, then skipping to where it stopped...
+es: Iniciando el juego y saltando hasta donde se detuvo...
+
+en: Starting the game...
+es: Iniciando el juego...
+
+en: Levels: %d of %d
+es: Niveles: %d de %d
+
+en: Chapters: %d of %d (part %d of %d)%s
+es: Capítulos: %d de %d (parte %d de %d)%s
+
+en: , skipping to where it stopped
+es: , saltando hasta donde se detuvo
+
+en: Finishing the last shaders...
+es: Terminando los últimos shaders...
+
+en: Shaders compiled: %u    Time: %u:%02u
+es: Shaders compilados: %u    Tiempo: %u:%02u
+
+en: The game runs every level and chapter behind this screen with the sound off, so their shaders are ready before you play. The game closes by itself when it is done. Esc or B on a controller stops it; what is compiled so far is kept, and the next run continues from there.
+es: El juego recorre cada nivel y capítulo tras esta pantalla con el sonido apagado, para que sus shaders estén listos antes de jugar. El juego se cierra solo al terminar. Esc o B en un controlador lo detiene; lo compilado hasta ahora se conserva y la próxima vez continúa desde ahí.
+
+## pad_binds_parse
+en: Context action
+es: Acción contextual
+
+en: Zoom (Unlocked Camera: reset)
+es: Zoom (Cámara libre: restablecer)
+
+en: Dive under
+es: Sumergirse
+
+en: Launch
+es: Despegar
+
+## settings.c
+en: Medium
+es: Medio
+
+en: High
+es: Alto
+
+en: Ultra
+es: Ultra

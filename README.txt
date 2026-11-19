@@ -18,7 +18,8 @@ WHAT YOU NEED
 - Windows 10 or 11, 64-bit, and a graphics card with DirectX 11.
 - Your own copy of Conker: Live & Reloaded for the original Xbox, PAL
   (Europe) or USA, as a disc image (.iso, Redump or XISO) or as the
-  disc's files. It may be packed in a .zip, .7z or .rar.
+  disc's files. It may be packed in a .zip, .7z or .rar. Or the Xbox
+  Store version, installed from the Xbox app.
 - About 6 GB of free space (more while unpacking an archive).
 - A controller is optional: Xbox controllers, PlayStation 4 and 5
   controllers (DualShock 4, DualSense), Switch controllers (Pro Controller,
@@ -41,6 +42,8 @@ GETTING STARTED
    launcher checks it is a supported copy (PAL or USA) and copies the
    game into the "game" folder here (about 4.5 GB). Your original file is
    only read, never changed.
+   Got the Xbox Store version? Install it from the Xbox app; the launcher
+   finds it by itself: click "Import Xbox Store version".
 
 4. Click Play.
 

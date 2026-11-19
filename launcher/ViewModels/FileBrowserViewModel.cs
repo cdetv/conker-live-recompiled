@@ -46,8 +46,9 @@ public sealed record AddressTarget(string? Folder, string? File, string? Error);
 /// <remarks>
 /// Folders are read on a background task; a newer open wins over a slow older one (network
 /// drives). Hidden and system entries are skipped. A game folder is picked by its
-/// <c>default.xbe</c> (no other <c>.xbe</c> counts). The folder a file is picked from goes
-/// to <see cref="LauncherPrefs.RecentFolders"/>.
+/// <c>default.xbe</c> (no other <c>.xbe</c> counts), the Xbox Store version by its
+/// <c>DefaultPackage</c> or a <c>Data####</c> file (<see cref="StorePackage"/>). The folder a
+/// file is picked from goes to <see cref="LauncherPrefs.RecentFolders"/>.
 /// </remarks>
 public sealed partial class FileBrowserViewModel : ObservableObject
 {
@@ -308,30 +309,48 @@ public sealed partial class FileBrowserViewModel : ObservableObject
     /// <summary>Would the browser take a drop of these paths: a file it takes, a game folder, or a folder to open.</summary>
     public bool TakesDrop(IReadOnlyList<string> paths) => DropTarget(paths) is not null || paths.Any(Directory.Exists);
 
-    /// <summary>The first path of a type taken, or a dropped game folder's <c>default.xbe</c>; null if none.</summary>
+    /// <summary>
+    /// The first path of a type taken, a dropped game folder's <c>default.xbe</c>, or a dropped
+    /// folder's Xbox Store version package (its <c>DefaultPackage</c>, when the choice takes it); null if none.
+    /// </summary>
     public static string? DropTarget(IReadOnlyList<string> paths, IReadOnlyList<string> extensions)
     {
         foreach (string p in paths)
         {
-            if (File.Exists(p) && Matches(Path.GetFileName(p), extensions))
+            if (File.Exists(p) && Matches(p, extensions))
             {
                 return p;
             }
 
-            if (extensions.Contains(".xbe") && Directory.Exists(p) && Path.Combine(p, GameXbe) is var xbe && File.Exists(xbe))
+            if (!Directory.Exists(p))
+            {
+                continue;
+            }
+
+            if (extensions.Contains(".xbe") && Path.Combine(p, GameXbe) is var xbe && File.Exists(xbe))
             {
                 return xbe;
+            }
+
+            if (StorePackage.Takes(extensions) && StorePackage.Find(p) is { } package)
+            {
+                return package;
             }
         }
 
         return null;
     }
 
-    /// <summary>A file name of a type taken (an <c>.xbe</c> only as <c>default.xbe</c>).</summary>
-    public static bool Matches(string name, IReadOnlyList<string> extensions)
+    /// <summary>
+    /// A file of a type taken (by its name: an <c>.xbe</c> only as <c>default.xbe</c>; the Store
+    /// package as <c>DefaultPackage</c> or a <c>Data####</c> in <c>DefaultPackage.data</c>).
+    /// </summary>
+    public static bool Matches(string path, IReadOnlyList<string> extensions)
     {
+        string name = Path.GetFileName(path);
         string ext = Path.GetExtension(name).ToLowerInvariant();
-        return extensions.Contains(ext) && (ext != ".xbe" || name.Equals(GameXbe, StringComparison.OrdinalIgnoreCase));
+        return (extensions.Contains(ext) && (ext != ".xbe" || name.Equals(GameXbe, StringComparison.OrdinalIgnoreCase)))
+            || (StorePackage.Takes(extensions) && StorePackage.IsPackageName(path));
     }
 
     /// <summary>
@@ -478,7 +497,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         {
             bool folder = info is DirectoryInfo;
             list.Add(new(info.Name, info.FullName, folder, folder ? 0 : ((FileInfo)info).Length, info.LastWriteTime,
-                !folder && Matches(info.Name, extensions)));
+                !folder && Matches(info.FullName, extensions)));
         }
 
         list.Sort((a, b) => a.IsFolder != b.IsFolder ? (a.IsFolder ? -1 : 1) : ShellFolders.CompareNames(a.Name, b.Name));

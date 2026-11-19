@@ -13,7 +13,8 @@
     3. Copies only the files a release ships into a staging folder: conker.exe,
        xemu_apu.dll (the xemu audio emulation, LGPL: SPEC 9.5), conker-launcher.exe (not
        the .pdb files dotnet publish drops next to it), the title
-       logo and the cheat words (fire_imps.journal) in textures\, LICENSE.txt,
+       logo and the cheat words (fire_imps.journal) in textures\, the menus' translations
+       (lang\*.txt, checked by scripts\check_lang.py first), LICENSE.txt,
        THIRD_PARTY_NOTICES.txt, README.txt, DEBUG_MODE.txt (release\DEBUG_MODE.md).
     4. Zips it and checks the zip holds exactly that list: never settings.ini or anything
        else from a save folder (SPEC 9.6), never game\ or decensor\ (SPEC 9.1).
@@ -68,6 +69,10 @@ $Files = [ordered]@{
     'DEBUG_MODE.txt'                               = Join-Path $Repo 'release\DEBUG_MODE.md'
 }
 $Docs = 'LICENSE.txt', 'THIRD_PARTY_NOTICES.txt', 'README.txt', 'DEBUG_MODE.txt'
+# The menus' translations (to-do 229, SPEC 10.1 "Menu language"): our own text, from the repo.
+foreach ($Lang in Get-ChildItem -LiteralPath (Join-Path $Repo 'lang') -Filter '*.txt' | Sort-Object Name) {
+    $Files["lang\$($Lang.Name)"] = $Lang.FullName
+}
 
 function Invoke-Checked([string]$What, [scriptblock]$Command) {
     & $Command
@@ -112,6 +117,13 @@ foreach ($Entry in $Files.GetEnumerator()) {
         throw "$($Entry.Key) is missing ($($Entry.Value))"
     }
 }
+
+# A translation that drops or reorders a %s would print garbage or crash: refused here.
+$env:PYTHONIOENCODING = 'utf-8'
+$LangReport = & (Join-Path $Repo '.venv\Scripts\python.exe') (Join-Path $Repo 'scripts\check_lang.py')
+$LangCode = $LASTEXITCODE
+$LangReport | Select-String -Pattern 'translated|PRINTF|LINES' | ForEach-Object { Write-Host "  $_" }
+if ($LangCode -ne 0) { throw 'scripts\check_lang.py: a translation breaks a %s or a line break (see above)' }
 
 foreach ($Exe in 'conker.exe', 'conker-launcher.exe') {
     $Info = [Diagnostics.FileVersionInfo]::GetVersionInfo($Files[$Exe])

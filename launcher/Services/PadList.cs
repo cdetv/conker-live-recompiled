@@ -17,6 +17,7 @@ public static class PadList
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
+            StandardOutputEncoding = System.Text.Encoding.UTF8,    // pad names are UTF-8 (to-do 262)
         };
         using Process process = OwnProcesses.Start(start) ?? throw new IOException("conker.exe didn't start.");
         string json;

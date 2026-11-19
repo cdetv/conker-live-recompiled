@@ -48,8 +48,8 @@ public sealed class UserFiles(GameFolder folder)
 
     private const string MovingSuffix = ".moving";
 
-    // Rebuilt by the game when missing: never asked about, never backed up.
-    private static readonly string[] CacheFolders = ["Cache", "CacheUncensored", "shader_cache", "HddCache", "SystemData"];
+    // Rebuilt by the game (or, assets, the launcher: to-do 43) when missing: never asked about, never backed up.
+    private static readonly string[] CacheFolders = ["Cache", "CacheUncensored", "shader_cache", "HddCache", "SystemData", "assets"];
 
     // Kept side by side under another name when both places have one (photos, logs, backups).
     private static readonly string[] KeepBothFolders = ["logs", "Photos", BackupsName];

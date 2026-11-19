@@ -44,6 +44,23 @@
  *
  * RECOMP_VOICE_PITCH=0 = off (his voice as recorded with either cheat);
  * [VOICE] lines: the waves found, each wave pitched the first time.
+ *
+ * Conversations (to-do 216; docs/research/r4-216-mouse-bear-voice.md): most
+ * cutscene speech tracks, Birdy's talk among them, are one wave with every
+ * speaker. Their lip-sync timelines (assets\lipsync.bin, carved from the
+ * packages: src/caff_cache.c) move only the talker's mouth, and the talker
+ * is Conker, so the stretches with a mouth shape are his lines. At the speech
+ * start (ad_mpeg_Start 0x0001AF70, recomp_manual.c) voice_mixed_start gets the
+ * cue, the lip name the game's own map gives and the talker; the cue's wave
+ * is marked with those stretches (or our own times, s_table: instead of them,
+ * or added for lines heard while his mouth is off screen), before the
+ * stream's first read. At its first read the stretches' edges move to the
+ * quietest point near them, a stretch that ends inside sound reaches on to
+ * the next pause (his laugh or grunt after a line), and only the stretches
+ * are pitched, blended in with 15-ms fades; the rest of the wave is as
+ * recorded and the length never changes. On with either cheat, like his own
+ * lines. RECOMP_VOICE_MIXED=0 = off, =2 = [VOICEMIX] lines only;
+ * RECOMP_VOICE_MIXED_EXTEND=0 = no reaching on.
  */
 #include <windows.h>
 #include <ctype.h>
@@ -55,6 +72,7 @@
 #include <wchar.h>
 
 #include "voice_pitch.h"
+#include "caff_cache.h"
 
 extern void (*g_xbox_file_opened)(const wchar_t *host_path, HANDLE h);
 extern void (*g_xbox_file_read)(HANDLE h, unsigned long long offset, void *buf,
@@ -65,8 +83,9 @@ extern void (*g_xbox_file_write)(HANDLE h, unsigned long long offset, void *buf,
 
 float conker_SizeFactor(void);          /* recomp_manual.c: 0.5, 2 or 1 */
 
-#define MAX_BANKS   64
+#define MAX_BANKS   128
 #define MAX_OPEN    64
+#define MAX_SDBK    128
 #define MOUSE_PITCH 1.4983f             /* +7 semitones */
 #define BEAR_PITCH  0.6674f             /* -7 semitones */
 
@@ -85,6 +104,8 @@ typedef struct {
     int nwaves;
     Wave *waves;                        /* sorted by off */
     int ready;                          /* 1 = header read, -1 = failed */
+    uint8_t *ent;                       /* every wave's header entry (mixed tracks) */
+    uint32_t count, esz, data;
 } Bank;
 
 static Bank s_bank[MAX_BANKS];
@@ -169,6 +190,10 @@ static const char *const s_also[] = {
     "mocash", "eatled", "bitchhelmet", "getheadpiece",  /* cutscene tracks */
     "tenoclock", "zombrise", "barrelnight", "whichway", "finalkey",
     "cantgetworse",
+    /* His thoughts in play (no lip data; the user's picks 2026-11-18, to-do
+     * 264): training (cut_hungover) and Windy (cut_windy). Whole names: the
+     * neighbours (mancata2..9 and the rest) aren't his picks. */
+    "trainth1", "trainth5", "hung_new03", "mancata1", "mancata6", "swimman1",
 };
 
 /* Named for him but not his voice: conka (an effect, user 2026-11-13),
@@ -222,12 +247,17 @@ static int effects_bank(const char *name)
         || !_strnicmp(name, "sfx_looped", 10);
 }
 
-/* One SDBK being read: its bytes [0, end) and its wave bank list. */
+/* One SDBK being read: its bytes [0, end) and its wave bank list. With obank
+ * set, the waves found go there (a mixed track's, to-do 216) instead of into
+ * his wanted lists. */
 typedef struct {
     const uint8_t *s;
     uint32_t end, list;
     uint16_t nbank;
     int waves;                          /* his waves added from it */
+    char (*obank)[17];
+    uint16_t *owave;
+    int omax, on;
 } Sdbk;
 
 static int sd_ok(const Sdbk *k, uint32_t off, uint32_t n)
@@ -244,6 +274,13 @@ static void sd_wave(Sdbk *k, uint16_t wave, uint16_t bi)
         return;
     memcpy(bname, k->s + k->list + bi * 16u, 16);
     bname[16] = 0;
+    if (k->obank) {
+        if (k->on < k->omax && !effects_bank(bname)) {
+            memcpy(k->obank[k->on], bname, sizeof bname);
+            k->owave[k->on++] = wave;
+        }
+        return;
+    }
     if (effects_bank(bname) || (b = bank_named(bname, 1)) == NULL)
         return;
     want_add(b, wave);
@@ -301,6 +338,13 @@ static int sd_sound(Sdbk *k, const uint8_t *r)
     return 2;
 }
 
+/* conker_sb.bin kept (to-do 216: a mixed track's cue is looked up at its
+ * start), and where each SDBK lies in it, in file order = the sound table's
+ * bank numbers. */
+static uint8_t *s_sb;
+static uint32_t s_sdbk[MAX_SDBK][2];    /* offset, size */
+static int s_nsdbk;
+
 /* conker_sb.bin: every bank's sounds that are his, by wave bank and wave. */
 static void parse_sound_banks(HANDLE f)
 {
@@ -332,11 +376,16 @@ static void parse_sound_banks(HANDLE f)
                 k.end = n - p;
                 break;
             }
+        if (s_nsdbk < MAX_SDBK) {
+            s_sdbk[s_nsdbk][0] = p;
+            s_sdbk[s_nsdbk++][1] = k.end;
+        }
         ncue = *(uint16_t *)(d + p + 0x1A);
         nsnd = *(uint16_t *)(d + p + 0x1C);
         k.nbank = *(uint16_t *)(d + p + 0x22);
         k.list = *(uint32_t *)(d + p + 8);
         k.waves = 0;
+        k.obank = NULL;
         recs = 0x38u + ncue * 20u;
         if (!sd_ok(&k, recs, nsnd * 20u) || !sd_ok(&k, k.list, k.nbank * 16u))
             continue;
@@ -355,11 +404,64 @@ static void parse_sound_banks(HANDLE f)
         waves += k.waves;
         p += k.end - 1;
     }
-    free(d);
+    s_sb = d;
     s_parsed = 1;
-    fprintf(stderr, "[VOICE] Conker's sounds: %d simple, %d random takes, %d events; "
-            "%d wave uses in %d wave banks\n", sounds[0], sounds[1], sounds[2], waves, s_nbank);
+    /* Every wave bank is followed from its first open (mixed tracks, to-do
+     * 216), so one opened before this file may have read its header with
+     * none of his waves known: it reads it again at its next read. */
+    {
+        int with = 0;
+        for (int i = 0; i < s_nbank; i++)
+            if (s_bank[i].nwant) {
+                with++;
+                if (s_bank[i].ready > 0 && !s_bank[i].nwaves)
+                    s_bank[i].ready = 0;
+            }
+        fprintf(stderr, "[VOICE] Conker's sounds: %d simple, %d random takes, %d events; "
+                "%d wave uses in %d wave banks\n", sounds[0], sounds[1], sounds[2], waves, with);
+    }
     fflush(stderr);
+}
+
+/* The waves cue `cue` of SDBK `sdbk` plays, when its name is `name`; else
+ * those of the first cue named so in any SDBK. How many (0: not found). */
+static int cue_waves(int sdbk, int cue, const char *name, char (*bank)[17], uint16_t *wave, int max)
+{
+    for (int pass = 0; pass < 2 && s_sb; pass++)
+        for (int i = pass ? 0 : sdbk; i < (pass ? s_nsdbk : sdbk + 1); i++) {
+            const uint8_t *s;
+            uint16_t ncue, nsnd;
+            uint32_t recs;
+            Sdbk k;
+
+            if (i < 0 || i >= s_nsdbk)
+                continue;
+            s = s_sb + s_sdbk[i][0];
+            memset(&k, 0, sizeof k);
+            k.s = s;
+            k.end = s_sdbk[i][1];
+            ncue = *(const uint16_t *)(s + 0x1A);
+            nsnd = *(const uint16_t *)(s + 0x1C);
+            k.nbank = *(const uint16_t *)(s + 0x22);
+            k.list = *(const uint32_t *)(s + 8);
+            k.obank = bank;
+            k.owave = wave;
+            k.omax = max;
+            recs = 0x38u + ncue * 20u;
+            if (!sd_ok(&k, recs, nsnd * 20u) || !sd_ok(&k, k.list, k.nbank * 16u))
+                continue;
+            for (uint32_t c = pass ? 0 : (uint32_t)cue; c < (pass ? ncue : (uint32_t)cue + 1u) && c < ncue; c++) {
+                const uint8_t *r = s + 0x38 + c * 20;
+                uint32_t no = *(const uint32_t *)(r + 4);
+                uint16_t snd = *(const uint16_t *)(r + 2);
+                if (no >= k.end || snd >= nsnd
+                    || _strnicmp((const char *)s + no, name, k.end - no) != 0)
+                    continue;
+                sd_sound(&k, s + recs + snd * 20u);
+                return k.on;
+            }
+        }
+    return 0;
 }
 
 /* The wave bank's header: where each of his waves lies in the file. */
@@ -374,6 +476,12 @@ static void read_bank(Bank *b, HANDLE f)
     uint8_t hdr[0x60], *ent = NULL;
     uint32_t seg[4][2], count, esz, data;
 
+    /* Read again (parse_sound_banks): the old tables go. */
+    free(b->waves);
+    free(b->ent);
+    b->waves = NULL;
+    b->ent = NULL;
+    b->nwaves = 0;
     b->ready = -1;
     if (!read_at(f, 0, hdr, sizeof hdr) || memcmp(hdr, "WBND", 4)
         || *(uint32_t *)(hdr + 4) != 3)
@@ -386,10 +494,10 @@ static void read_bank(Bank *b, HANDLE f)
     data = seg[3][0];
     if (esz < 16 || count > 10000)
         goto out;
-    ent = malloc((size_t)count * esz);
+    ent = malloc((size_t)count * esz + 1);
     if (!ent || !read_at(f, seg[1][0], ent, count * esz))
         goto out;
-    b->waves = calloc((size_t)b->nwant, sizeof *b->waves);
+    b->waves = calloc((size_t)b->nwant + 1, sizeof *b->waves);
     if (!b->waves)
         goto out;
     for (int i = 0; i < b->nwant; i++) {
@@ -408,14 +516,37 @@ static void read_bank(Bank *b, HANDLE f)
     }
     qsort(b->waves, (size_t)b->nwaves, sizeof *b->waves, wave_cmp);
     b->ready = 1;
-    fprintf(stderr, "[VOICE] %s: %d of his waves\n", b->name, b->nwaves);
-    fflush(stderr);
+    b->ent = ent;                       /* kept: a mixed track's wave is found later */
+    b->count = count;
+    b->esz = esz;
+    b->data = data;
+    ent = NULL;
+    if (b->nwant) {
+        fprintf(stderr, "[VOICE] %s: %d of his waves\n", b->name, b->nwaves);
+        fflush(stderr);
+    }
 out:
     if (b->ready < 0) {
         fprintf(stderr, "[VOICE] %s: header unreadable\n", b->name);
         fflush(stderr);
     }
     free(ent);
+}
+
+/* Wave w of bank b: where it lies, when it is plain 16-bit mono PCM. */
+static int wave_loc(const Bank *b, uint32_t w, uint32_t *off, uint32_t *len, uint32_t *rate)
+{
+    uint32_t fmt;
+
+    if (b->ready <= 0 || !b->ent || w >= b->count)
+        return 0;
+    fmt = *(const uint32_t *)(b->ent + w * b->esz + 4);
+    *rate = (fmt >> 5) & 0x3FFFFFFu;
+    if ((fmt & 3) || ((fmt >> 2) & 7) != 1 || !(fmt >> 31) || *rate < 8000)
+        return 0;
+    *off = b->data + *(const uint32_t *)(b->ent + w * b->esz + 8);
+    *len = *(const uint32_t *)(b->ent + w * b->esz + 0xC) & ~1u;
+    return 1;
 }
 
 /* ---- the pitch --------------------------------------------------------- */
@@ -560,6 +691,787 @@ static const int16_t *pitched(Bank *b, Wave *w, int which, HANDLE f)
     return w->pitched[which];
 }
 
+/* ---- conversations: his stretches of a mixed track (to-do 216) --------- */
+
+#define MAX_MIX      6                  /* mixed waves kept (a scene's few tracks) */
+#define MAX_RUNS     128
+#define MIX_RAMP_S   0.015f             /* fade in / out at a stretch's edges */
+#define MIX_GAP_F    8                  /* a pause of 8 frames (160 ms) ends a reach */
+#define MIX_FWD_F    75                 /* reach on after a line: 1.5 s at most */
+#define MIX_BACK_F   25                 /* and back before one: 0.5 s */
+
+typedef struct {
+    char cue[32];                       /* "" = a free slot */
+    char bank[17];
+    uint16_t wave;
+    const char *src;                    /* "lip" or "table" */
+    float runs[MAX_RUNS][2];            /* seconds, as found */
+    uint8_t fixed[MAX_RUNS];            /* 1 = our own time: snapped, not reached on */
+    int nruns, table;                   /* table: every run is ours */
+    uint32_t off, len, rate;
+    int located;                        /* 1 known, -1 not plain PCM */
+    int16_t *raw, *out[2];
+    unsigned stamp;
+    unsigned gen;                       /* this registration (a worker's result fits it) */
+    int building;                       /* a worker is making out[] */
+} MixWave;
+
+static MixWave s_mix[MAX_MIX];
+static unsigned s_mix_stamp, s_mix_gen;
+static CONDITION_VARIABLE s_built = CONDITION_VARIABLE_INIT;   /* a worker finished */
+
+/* The lip table (caff_cache.h): each track's record (name[32], u32 n,
+ * n x 12 bytes), sorted by name. */
+static uint8_t *s_lips;
+static const uint8_t **s_lip;
+static int s_nlip;
+
+/* Scenes that switch the lip-sync talker (scene action 0x7E: haunted house
+ * 1, 4, 14, end arena 18, 19): their lip runs may be someone else's, so these
+ * tracks stay as recorded until checked (conkturnback and zombrise there are
+ * his own lines, pitched whole). */
+static const char *const s_switch[] = {
+    "enterhouse", "dinning1", "alien7", "alien8", "alien9", "alien10", "alien11", "alien12",
+    "alien13",
+};
+
+/* Our own times of his lines (seconds, by ear and by the waves; no game data)
+ * for tracks whose lip data misses lines. add 0: these times instead of the
+ * lip data; add 1: added to the lip runs (lines heard while his mouth is off
+ * screen). hung_new04: the gargoyle scene (TrainingLevel 11, scene 9 after
+ * it); its lip data covers only the third (docs/research/r3-gargoyle.md,
+ * r4-216). intro1 / intro1b: the New Game opening (MainMenu 3, to-do 216 (b)):
+ * his voice from Berri's answering machine while the camera is in her room;
+ * intro1 has no lip data (her greeting, the beep at 36.6-37.8 s, then his
+ * message), intro1b's lip runs stop at the cut to her room ("Anyway... I'll
+ * see ya. Love you!") and start again back in the bar at 17 s. */
+static const struct {
+    const char *cue;
+    int n;
+    float s[8][2];
+    int add;
+} s_table[] = {
+    { "hung_new04", 5, { { 0.0f, 1.9f }, { 7.1f, 10.7f }, { 13.9f, 15.5f }, { 37.6f, 42.2f },
+                         { 47.0f, 50.7f } }, 0 },
+    { "intro1", 1, { { 38.2f, 46.3f } }, 0 },
+    { "intro1b", 1, { { 9.0f, 15.6f } }, 1 },
+};
+
+static int mixed_mode(void)             /* RECOMP_VOICE_MIXED: 1 on, 0 off, 2 log only */
+{
+    static int m = -1;
+    if (m < 0) {
+        const char *e = getenv("RECOMP_VOICE_MIXED");
+        m = !e || !*e ? 1 : *e == '0' ? 0 : *e == '2' ? 2 : 1;
+    }
+    return m;
+}
+
+static int extend_on(void)              /* RECOMP_VOICE_MIXED_EXTEND=0: no reaching on */
+{
+    static int x = -1;
+    if (x < 0) {
+        const char *e = getenv("RECOMP_VOICE_MIXED_EXTEND");
+        x = !(e && *e == '0');
+    }
+    return x;
+}
+
+static uint32_t u32le(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+static void lips_load(const char *save_dir)
+{
+    size_t n = 0, at = 12;
+    uint8_t *d = save_dir && *save_dir ? caff_cache_lips(save_dir, &n) : NULL;
+    uint32_t cnt;
+
+    if (!d) {
+        fprintf(stderr, "[VOICEMIX] no lip table in the asset cache: conversations stay as recorded "
+                "with the Mouse / Bear cheat this run (the launcher's Preparing game assets makes it; the "
+                "game at its start once the cheat menu or either cheat is unlocked)\n");
+        return;
+    }
+    cnt = u32le(d + 8);
+    s_lip = malloc((size_t)cnt * sizeof *s_lip + 1);
+    for (uint32_t i = 0; s_lip && i < cnt; i++) {
+        uint32_t e;
+        if (at + 36 > n || (e = u32le(d + at + 32)) > (n - at - 36) / 12)
+            break;
+        s_lip[s_nlip++] = d + at;
+        at += 36 + (size_t)e * 12;
+    }
+    s_lips = d;
+    fprintf(stderr, "[VOICEMIX] lip table: %d tracks\n", s_nlip);
+}
+
+static const uint8_t *lip_find(const char *name)
+{
+    char low[32];
+    size_t i;
+    int lo = 0, hi = s_nlip;
+
+    for (i = 0; i + 1 < sizeof low && name[i]; i++)
+        low[i] = (char)tolower((unsigned char)name[i]);
+    low[i] = 0;
+    while (lo < hi) {
+        const int mid = (lo + hi) / 2, c = strncmp((const char *)s_lip[mid], low, 32);
+        if (!c)
+            return s_lip[mid];
+        if (c < 0)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return NULL;
+}
+
+/* The runs of a lip timeline with a mouth shape (a shape ending in 0 is the
+ * mouth closed): each entry lasts its length, 0.5 s at most (a mouth parked
+ * on a shape while the other one talks), 0.4167 s when none; gaps under
+ * 0.25 s joined. */
+static int lip_runs(const uint8_t *rec, float (*out)[2], int max)
+{
+    const uint32_t n = u32le(rec + 32);
+    int k = 0;
+
+    for (uint32_t i = 0; i < n; i++) {
+        const uint8_t *e = rec + 36 + i * 12;
+        const uint16_t shape = (uint16_t)(e[2] | e[3] << 8);
+        float t, len, end;
+
+        memcpy(&t, e + 4, 4);
+        memcpy(&len, e + 8, 4);
+        if (shape % 10 == 0 || !(t >= 0.0f) || t > 3600.0f)
+            continue;
+        if (!(len > 0.0f))
+            len = 0.4167f;
+        if (len > 0.5f)
+            len = 0.5f;
+        end = t + len;
+        if (k && t - out[k - 1][1] < 0.25f) {
+            if (end > out[k - 1][1])
+                out[k - 1][1] = end;
+        } else if (k < max) {
+            out[k][0] = t;
+            out[k][1] = end;
+            k++;
+        }
+    }
+    return k;
+}
+
+static void mix_free(MixWave *m)
+{
+    free(m->raw);
+    free(m->out[0]);
+    free(m->out[1]);
+    memset(m, 0, sizeof *m);
+}
+
+/* A mixed track's wave with his stretches, kept for its first read. The same
+ * wave again keeps what was built; the oldest of MAX_MIX goes. */
+static MixWave *mix_register(const char *cue, const char *bank, uint16_t wave, const char *src,
+                             float (*runs)[2], const uint8_t *fixed, int nr, int table)
+{
+    MixWave *m = NULL;
+    int i;
+
+    for (i = 0; i < MAX_MIX && !m; i++)
+        if (s_mix[i].cue[0] && s_mix[i].wave == wave && !_stricmp(s_mix[i].bank, bank))
+            m = &s_mix[i];
+    if (m && m->nruns == nr && !memcmp(m->runs, runs, (size_t)nr * sizeof *runs)
+        && !memcmp(m->fixed, fixed, (size_t)nr)) {
+        m->stamp = ++s_mix_stamp;
+        return m;
+    }
+    if (!m) {
+        for (i = 0; i < MAX_MIX && s_mix[i].cue[0]; i++)
+            ;
+        if (i == MAX_MIX)
+            for (int j = i = 0; j < MAX_MIX; j++)
+                if (s_mix[j].stamp < s_mix[i].stamp)
+                    i = j;
+        m = &s_mix[i];
+    }
+    mix_free(m);
+    snprintf(m->cue, sizeof m->cue, "%s", cue);
+    snprintf(m->bank, sizeof m->bank, "%s", bank);
+    m->wave = wave;
+    m->src = src;
+    m->nruns = nr;
+    memcpy(m->runs, runs, (size_t)nr * sizeof *runs);
+    memcpy(m->fixed, fixed, (size_t)nr);
+    m->table = table;
+    m->stamp = ++s_mix_stamp;
+    m->gen = ++s_mix_gen;
+    return m;
+}
+
+/* The quietest 20-ms frame from f + lo to f + hi (a slight pull toward f). */
+static int snap_frame(const float *db, int nf, int f, int lo, int hi)
+{
+    int best = f;
+    float bv = 1e30f;
+
+    for (int g = f + lo; g <= f + hi; g++) {
+        float v;
+        if (g < 0 || g >= nf)
+            continue;
+        v = db[g] + 0.05f * (float)abs(g - f);
+        if (v < bv) {
+            bv = v;
+            best = g;
+        }
+    }
+    return best;
+}
+
+/* From a stretch's edge f outward (dir +1 / -1): on through sound and pauses
+ * shorter than MIX_GAP_F, up to `most` frames; the frame just past the last
+ * sound, or f when there was none. */
+static int reach(const float *db, int nf, float thr, int f, int dir, int most)
+{
+    int last = -1, quiet = 0;
+
+    for (int g = f + dir, k = 1; k <= most && g >= 0 && g < nf; g += dir, k++) {
+        if (db[g] > thr) {
+            last = g;
+            quiet = 0;
+        } else if (++quiet >= MIX_GAP_F) {
+            break;
+        }
+    }
+    return last < 0 ? f : last + dir;
+}
+
+/* Whose voice a reach takes in (the reach guard): his lines' pitch against the
+ * other speakers'. A reach into the next speaker's line (frankbroke2 23.0 s:
+ * 364 Hz, his lines 172-291, the others' 375-403) is left out. */
+#define MIX_SHORT_F  20                 /* 0.4 s: taken without a pitch to go by */
+#define MIX_APART    1.12f              /* voices told apart by pitch from 12 % */
+
+typedef struct {
+    float *x;                           /* the wave at ~11 kHz (dec samples averaged) */
+    int n, rate, dec, F;                /* its samples and rate; the wave's frame length */
+    float *f0;                          /* per frame: Hz, 0 = none, -1 = not yet */
+    const float *db;
+    float thr;
+    int nf;
+} Pitch;
+
+static float frame_f0(Pitch *p, int f)
+{
+    const int L = p->rate / 25, lo = p->rate / 500, hi = p->rate / 70;
+    int s0;
+    double e = 0.0, best = 0.0;
+    int bk = 0;
+
+    if (f < 0 || f >= p->nf)
+        return 0.0f;
+    if (p->f0[f] >= 0.0f)
+        return p->f0[f];
+    p->f0[f] = 0.0f;
+    s0 = (int)(((long long)f * p->F + p->F / 2) / p->dec) - L / 2;
+    if (p->db[f] <= p->thr || s0 < 0 || s0 + L > p->n || lo < 2 || hi >= L)
+        return 0.0f;
+    double ac[512];
+
+    if (hi - lo >= 512)
+        return 0.0f;
+    for (int i = 0; i < L; i++)
+        e += (double)p->x[s0 + i] * p->x[s0 + i];
+    for (int k = lo; k <= hi; k++) {
+        double s = 0.0;
+        for (int i = 0; i + k < L; i++)
+            s += (double)p->x[s0 + i] * p->x[s0 + i + k];
+        ac[k - lo] = s;
+        if (s > best)
+            best = s;
+    }
+    /* The shortest lag nearly as strong as the best: two periods match about
+     * as well as one, and taking them halves the pitch (an octave low). */
+    for (int k = lo + 1; k < hi; k++) {
+        const double s = ac[k - lo];
+        if (s >= 0.85 * best && s >= ac[k - lo - 1] && s >= ac[k - lo + 1]) {
+            bk = k;
+            break;
+        }
+    }
+    if (bk && ac[bk - lo] > 0.35 * e)
+        p->f0[f] = (float)p->rate / (float)bk;
+    return p->f0[f];
+}
+
+static int float_cmp(const void *a, const void *b)
+{
+    const float x = *(const float *)a, y = *(const float *)b;
+    return x < y ? -1 : x > y;
+}
+
+/* Median pitch of the frames [a, b) that `want` says (1 = his runs, 0 =
+ * well away from them, -1 = all); how many had one in *cnt. */
+static float median_f0(Pitch *p, int a, int b, const uint8_t *near_run, int want, int *cnt)
+{
+    float *v = malloc((size_t)(b - a > 0 ? b - a : 1) * sizeof *v), m = 0.0f;
+    int k = 0;
+
+    for (int f = a > 0 ? a : 0; v && f < b && f < p->nf; f++) {
+        float x;
+        if (want >= 0 && near_run[f] != (want ? 2 : 0))
+            continue;
+        if ((x = frame_f0(p, f)) > 0.0f)
+            v[k++] = x;
+    }
+    if (k) {
+        qsort(v, (size_t)k, sizeof *v, float_cmp);
+        m = v[k / 2];
+    }
+    free(v);
+    *cnt = k;
+    return m;
+}
+
+/* Take in the reached frames [a, b)? Their pitch closer to his lines' than
+ * to the others' (when the two differ and they have one); else only short. */
+static int reach_ok(Pitch *p, int a, int b, float his, float oth)
+{
+    int c;
+    float fr;
+
+    if (b <= a)
+        return 1;
+    fr = median_f0(p, a, b, NULL, -1, &c);
+    if (his > 0.0f && oth > 0.0f && (his > oth ? his / oth : oth / his) >= MIX_APART && c >= 3)
+        return fabsf(logf(fr / his)) < fabsf(logf(fr / oth));
+    return b - a <= MIX_SHORT_F;
+}
+
+static float ramp(float x)              /* raised cosine, 0 at x 0, 1 at x 1 */
+{
+    if (x <= 0.0f)
+        return 0.0f;
+    if (x >= 1.0f)
+        return 1.0f;
+    return 0.5f - 0.5f * cosf(3.14159265f * x);
+}
+
+/* The wave (raw, as recorded) with only his stretches pitched by k. Any
+ * thread; touches nothing shared (m is the caller's to read). */
+static int16_t *mix_build(const MixWave *m, const int16_t *raw, float k, const char *who)
+{
+    const int n = (int)(m->len / 2), rate = (int)m->rate, F = rate / 50;
+    const int nf = F > 0 ? n / F : 0, R = (int)(MIX_RAMP_S * (float)rate), ctx = rate / 10;
+    int16_t *out = malloc((size_t)n * sizeof *out + 2);
+    float *db = malloc((size_t)(nf > 0 ? nf : 1) * sizeof *db), maxdb = 0.0f, thr;
+    int (*st)[2] = malloc(MAX_RUNS * sizeof *st);
+    int ns = 0, voiced = 0, covered = 0;
+    double pitched_s = 0.0;
+    char list[512];
+    size_t ll = 0;
+    DWORD t0 = GetTickCount();
+    Pitch pc;
+    uint8_t *near_run = NULL;
+    float his = 0.0f, oth = 0.0f;
+    int reach_on = 0, kept = 0, dropped = 0, nh = 0, no = 0;
+
+    /* Reaching on (and the pitch guard it needs) only from lip runs. */
+    for (int r = 0; r < m->nruns && extend_on(); r++)
+        reach_on |= !m->fixed[r];
+    memset(&pc, 0, sizeof pc);
+    if (!out || !db || !st || nf < 4) {
+        free(db);
+        free(st);
+        if (out)
+            memcpy(out, raw, (size_t)n * sizeof *out);
+        return out;
+    }
+    memcpy(out, raw, (size_t)n * sizeof *out);
+    for (int f = 0; f < nf; f++) {
+        double s = 0.0;
+        for (int i = 0; i < F; i++)
+            s += (double)raw[f * F + i] * raw[f * F + i];
+        db[f] = 20.0f * log10f(sqrtf((float)(s / F)) + 1.0f);
+        if (db[f] > maxdb)
+            maxdb = db[f];
+    }
+    /* Sound = within 25 dB of the loudest frame: the tracks' levels have two
+     * humps, voices ~64-84 dB and the room, breaths and pauses ~43-57 (trainin1);
+     * 35 dB down took the second hump for sound and reached into Birdy. */
+    thr = maxdb - 25.0f > 30.0f ? maxdb - 25.0f : 30.0f;
+
+    /* The reach guard's pitch: his (inside the lip runs) and the others'
+     * (voiced frames 0.3 s or more from any run). */
+    if (reach_on) {
+        pc.dec = rate >= 16000 ? rate / 11025 : 1;
+        pc.F = F;
+        pc.rate = rate / pc.dec;
+        pc.n = n / pc.dec;
+        pc.db = db;
+        pc.thr = thr;
+        pc.nf = nf;
+        pc.x = malloc((size_t)(pc.n > 0 ? pc.n : 1) * sizeof *pc.x);
+        pc.f0 = malloc((size_t)nf * sizeof *pc.f0);
+        near_run = calloc((size_t)nf, 1);
+        if (!pc.x || !pc.f0 || !near_run) {
+            reach_on = 0;
+        } else {
+            for (int i = 0; i < pc.n; i++) {
+                float s = 0.0f;
+                for (int j = 0; j < pc.dec; j++)
+                    s += (float)raw[i * pc.dec + j];
+                pc.x[i] = s / (float)pc.dec;
+            }
+            for (int f = 0; f < nf; f++)
+                pc.f0[f] = -1.0f;
+            for (int r = 0; r < m->nruns; r++) {
+                const int a = (int)(m->runs[r][0] * (float)rate) / F, b = (int)(m->runs[r][1] * (float)rate) / F;
+                for (int f = a - 15; f < b + 15; f++)
+                    if (f >= 0 && f < nf)
+                        /* Our own times (his voice through a phone: its
+                         * pitch reads an octave up) count as neither. */
+                        near_run[f] = f >= a && f < b && !m->fixed[r] ? 2 : near_run[f] == 2 ? 2 : 1;
+            }
+            his = median_f0(&pc, 0, nf, near_run, 1, &nh);
+            oth = median_f0(&pc, 0, nf, near_run, 0, &no);
+        }
+    }
+
+    /* Stretches in frames: edges snapped to the quietest frame near them
+     * (lips lead his voice by 0.05-0.1 s: a start looks mostly before, an
+     * end mostly after), then reached on over his laugh or grunt. */
+    for (int r = 0; r < m->nruns; r++) {
+        int a = (int)(m->runs[r][0] * (float)rate) / F, b = (int)(m->runs[r][1] * (float)rate) / F;
+
+        if (a >= nf)
+            continue;
+        if (b >= nf)
+            b = nf - 1;
+        a = snap_frame(db, nf, a, -12, 4);
+        b = snap_frame(db, nf, b, -5, 12);
+        if (reach_on && !m->fixed[r]) {
+            const int floor_f = ns ? st[ns - 1][1] : 0;
+            int na = reach(db, nf, thr, a, -1, MIX_BACK_F), nb = reach(db, nf, thr, b, +1, MIX_FWD_F);
+            /* A reached edge sits on the pause's first frame under thr, which
+             * can still hold sound (a step at the fade, bullshit1 26.6 s):
+             * moved to the pause's quietest frame. */
+            if (na != a)
+                na = snap_frame(db, nf, na, -(MIX_GAP_F - 1), 0);
+            if (nb != b)
+                nb = snap_frame(db, nf, nb, 0, MIX_GAP_F - 1);
+            if (na < a) {
+                if (reach_ok(&pc, na, a, his, oth))
+                    kept++;
+                else
+                    na = a, dropped++;
+            }
+            if (nb > b) {
+                if (reach_ok(&pc, b + 1, nb + 1, his, oth))
+                    kept++;
+                else
+                    nb = b, dropped++;
+            }
+            b = nb;
+            a = na > floor_f ? na : floor_f;
+        }
+        if (b <= a)
+            continue;
+        if (ns && a <= st[ns - 1][1]) {
+            if (b > st[ns - 1][1])
+                st[ns - 1][1] = b;
+        } else if (ns < MAX_RUNS) {
+            st[ns][0] = a;
+            st[ns++][1] = b;
+        }
+    }
+
+    /* Each stretch pitched with 0.1 s around it (the pitch settles there),
+     * then blended in: full inside, fading over R samples outside its edges
+     * (in the pause the edge was snapped to). */
+    for (int s = 0; s < ns; s++) {
+        const int sa = st[s][0] * F + F / 2, sb = st[s][1] * F + F / 2;
+        const int ra = sa - R - ctx > 0 ? sa - R - ctx : 0, rb = sb + R + ctx < n ? sb + R + ctx : n;
+        int16_t *p = pitch_wave(raw + ra, rb - ra, k, rate);
+
+        if (!p)
+            continue;
+        for (int i = sa - R > 0 ? sa - R : 0; i < (sb + R < n ? sb + R : n); i++) {
+            const float w = i < sa ? ramp((float)(i - (sa - R)) / (float)R)
+                          : i >= sb ? ramp((float)(sb + R - i) / (float)R) : 1.0f;
+            float v = (float)raw[i] * (1.0f - w) + (float)p[i - ra] * w;
+            if (v > 32767.0f)
+                v = 32767.0f;
+            if (v < -32768.0f)
+                v = -32768.0f;
+            out[i] = (int16_t)lrintf(v);
+        }
+        free(p);
+        pitched_s += (double)(sb - sa) / rate;
+        if (ll + 32 < sizeof list)
+            ll += (size_t)snprintf(list + ll, sizeof list - ll, "%s%.2f-%.2f", s ? " " : "",
+                                   (double)sa / rate, (double)sb / rate);
+    }
+    for (int f = 0, s = 0; f < nf; f++) {
+        while (s < ns && st[s][1] <= f)
+            s++;
+        if (db[f] > thr) {
+            voiced++;
+            covered += s < ns && f >= st[s][0];
+        }
+    }
+    list[ll] = 0;
+    fprintf(stderr, "[VOICEMIX] %s pitched for the %s (%s): %d stretch(es) %s s; %.1f of %.1f s, "
+            "%d %% of the voiced time, in %lu ms", m->cue, who, m->src, ns, list, pitched_s,
+            (double)n / rate, voiced ? covered * 100 / voiced : 0, GetTickCount() - t0);
+    if (reach_on)
+        fprintf(stderr, "; reached %d, left out %d (his pitch %.0f Hz from %d frames, the others' %.0f "
+                "from %d)", kept, dropped, his, nh, oth, no);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    free(db);
+    free(st);
+    free(pc.x);
+    free(pc.f0);
+    free(near_run);
+    return out;
+}
+
+/* Where mixed wave m lies in bank b's file (once its header was read). */
+static void mix_locate(Bank *b, MixWave *m)
+{
+    m->located = wave_loc(b, m->wave, &m->off, &m->len, &m->rate) ? 1 : -1;
+    if (m->located < 0) {
+        fprintf(stderr, "[VOICEMIX] %s: wave %s/%u isn't plain PCM: as recorded\n", m->cue,
+                m->bank, m->wave);
+        fflush(stderr);
+    }
+}
+
+/* A worker making a mixed wave's pitched copy from the speech start (the
+ * stream's first read comes ~0.5 s later; building it in that read held the
+ * scene, whose clock waits for the line, 0.36 s for Birdy's 53-s track). It
+ * reads the wave through its own handle on the bank's file and hands the
+ * result over only if the slot still holds the same registration. */
+typedef struct {
+    MixWave copy;                       /* runs, place, names; no buffers */
+    int slot, which;
+    WCHAR path[MAX_PATH];
+} MixJob;
+
+static DWORD WINAPI mix_worker(void *p)
+{
+    MixJob *j = p;
+    const DWORD len = j->copy.len;
+    int16_t *raw = malloc(len ? len : 2), *out = NULL;
+    HANDLE f = CreateFileW(j->path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    LARGE_INTEGER at;
+    DWORD got = 0;
+    int ok;
+
+    at.QuadPart = j->copy.off;
+    ok = raw && f != INVALID_HANDLE_VALUE && SetFilePointerEx(f, at, NULL, FILE_BEGIN)
+      && ReadFile(f, raw, len, &got, NULL) && got == len;
+    if (f != INVALID_HANDLE_VALUE)
+        CloseHandle(f);
+    if (ok)
+        out = mix_build(&j->copy, raw, j->which ? BEAR_PITCH : MOUSE_PITCH, j->which ? "Bear" : "Mouse");
+    EnterCriticalSection(&s_lock);
+    {
+        MixWave *m = &s_mix[j->slot];
+        if (m->gen == j->copy.gen) {
+            m->building = 0;
+            if (ok && !m->raw) {
+                m->raw = raw;
+                raw = NULL;
+            }
+            if (out && !m->out[j->which]) {
+                m->out[j->which] = out;
+                out = NULL;
+            }
+        }
+    }
+    WakeAllConditionVariable(&s_built);
+    LeaveCriticalSection(&s_lock);
+    if (!ok) {
+        fprintf(stderr, "[VOICEMIX] %s: the worker couldn't read the wave (error %lu): made at its first read\n",
+                j->copy.cue, GetLastError());
+        fflush(stderr);
+    }
+    free(raw);
+    free(out);
+    free(j);
+    return 0;
+}
+
+/* Start the worker for m (s_lock held) when its bank's header is known. */
+static void mix_prebuild(MixWave *m, const char *bank)
+{
+    const float k = conker_SizeFactor();
+    Bank *b = bank_named(bank, 0);
+    MixJob *j;
+    HANDLE t;
+
+    if (k == 1.0f || !b || b->ready <= 0 || !b->path[0] || m->building)
+        return;
+    if (!m->located)
+        mix_locate(b, m);
+    if (m->located < 0 || m->out[k > 1.0f] || !(j = calloc(1, sizeof *j)))
+        return;
+    j->copy = *m;
+    j->copy.raw = j->copy.out[0] = j->copy.out[1] = NULL;
+    j->slot = (int)(m - s_mix);
+    j->which = k > 1.0f;
+    wcsncpy(j->path, b->path, MAX_PATH - 1);
+    m->building = 1;
+    if ((t = CreateThread(NULL, 0, mix_worker, j, 0, NULL)) != NULL) {
+        CloseHandle(t);
+    } else {
+        m->building = 0;
+        free(j);
+    }
+}
+
+/* The bytes to hand out for mixed wave m of bank b (read through h; s_lock
+ * held). A worker still at it is waited for (3 s at most); without one, or
+ * when it failed, the copy is made here. */
+static const int16_t *mix_out(Bank *b, MixWave *m, int which, HANDLE h)
+{
+    const unsigned gen = m->gen;
+    DWORD t0 = GetTickCount();
+
+    if (!m->located)
+        mix_locate(b, m);
+    if (m->located < 0)
+        return NULL;
+    if (m->building && !m->out[which]) {
+        while (m->building && m->gen == gen && GetTickCount() - t0 < 3000)
+            SleepConditionVariableCS(&s_built, &s_lock, 100);
+        if (m->gen != gen)
+            return NULL;                /* replaced meanwhile: as recorded */
+        fprintf(stderr, "[VOICEMIX] %s: its first read waited %lu ms for the worker\n", m->cue,
+                GetTickCount() - t0);
+        fflush(stderr);
+    }
+    if (!m->raw) {
+        int16_t *raw = malloc(m->len ? m->len : 2);
+        if (raw && read_at(h, m->off, raw, m->len))
+            m->raw = raw;
+        else
+            free(raw);
+    }
+    if (!m->out[which] && m->raw)
+        m->out[which] = mix_build(m, m->raw, which ? BEAR_PITCH : MOUSE_PITCH, which ? "Bear" : "Mouse");
+    return m->out[which];
+}
+
+int voice_mixed_wanted(void)
+{
+    const int mode = mixed_mode();
+    return mode && on() && (mode == 2 || conker_SizeFactor() != 1.0f);
+}
+
+void voice_mixed_start(unsigned sound, int sdbk, int cue, const char *cue_name,
+                       const char *lip_name, const char *talker)
+{
+    static float runs[MAX_RUNS][2];
+    static uint8_t fixed[MAX_RUNS];
+    char bank[4][17], why[80] = "", low[32];
+    uint16_t wave[4];
+    const uint8_t *rec = NULL;
+    const char *src = "";
+    int nw = 0, nr = 0, table = 0, te = -1, ours = 0;
+    size_t i;
+
+    if (!voice_mixed_wanted() || !cue_name || !*cue_name)
+        return;
+    for (i = 0; i + 1 < sizeof low && cue_name[i]; i++)
+        low[i] = (char)tolower((unsigned char)cue_name[i]);
+    low[i] = 0;
+    EnterCriticalSection(&s_lock);
+    if (s_parsed <= 0)
+        snprintf(why, sizeof why, "sound banks not read");
+    else if ((nw = cue_waves(sdbk, cue, cue_name, bank, wave, 4)) == 0)
+        snprintf(why, sizeof why, "no wave found");
+    else if (his(cue_name))
+        snprintf(why, sizeof why, "his own line, pitched whole");
+    else {
+        for (i = 0; i < sizeof s_switch / sizeof *s_switch; i++)
+            if (!strcmp(low, s_switch[i]))
+                snprintf(why, sizeof why, "a talker-switch scene: as recorded");
+        if (!why[0] && (!talker || strcmp(talker, "Conker")))
+            snprintf(why, sizeof why, "talker %s: as recorded", talker && *talker ? talker : "?");
+    }
+    if (!why[0]) {
+        for (i = 0; i < sizeof s_table / sizeof *s_table && te < 0; i++)
+            if (!strcmp(low, s_table[i].cue))
+                te = (int)i;
+        if (te >= 0 && !s_table[te].add) {
+            nr = s_table[te].n;
+            memcpy(runs, s_table[te].s, (size_t)nr * sizeof *runs);
+            memset(fixed, 1, (size_t)nr);
+            ours = nr;
+            src = "table";
+            table = 1;
+        }
+        if (!nr) {
+            char alt[40];
+            if (lip_name && *lip_name)
+                rec = lip_find(lip_name);
+            if (!rec)
+                rec = lip_find(low);
+            if (!rec && snprintf(alt, sizeof alt, "%s_22", low) > 0)
+                rec = lip_find(alt);
+            if (!rec && snprintf(alt, sizeof alt, "%s-22", low) > 0)
+                rec = lip_find(alt);
+            if (rec && (nr = lip_runs(rec, runs, MAX_RUNS)) > 0) {
+                src = "lip";
+                memset(fixed, 0, (size_t)nr);
+            }
+            /* Our own times added to the lip runs, in order of start. */
+            if (nr && te >= 0 && s_table[te].add) {
+                for (int t = 0; t < s_table[te].n && nr < MAX_RUNS; t++) {
+                    int at = nr;
+                    while (at > 0 && runs[at - 1][0] > s_table[te].s[t][0]) {
+                        runs[at][0] = runs[at - 1][0];
+                        runs[at][1] = runs[at - 1][1];
+                        fixed[at] = fixed[at - 1];
+                        at--;
+                    }
+                    runs[at][0] = s_table[te].s[t][0];
+                    runs[at][1] = s_table[te].s[t][1];
+                    fixed[at] = 1;
+                    nr++;
+                    ours++;
+                }
+                src = "lip and our times";
+            }
+        }
+        if (!nr)
+            snprintf(why, sizeof why, "%s: as recorded",
+                     !s_nlip ? "no lip table until the next start" : rec ? "no mouth shapes" : "no lip data");
+    }
+    fprintf(stderr, "[VOICEMIX] speech 0x%03X %s (bank %d cue %d) wave %s/%u lip %s talker %s: ",
+            sound, cue_name, sdbk, cue, nw ? bank[0] : "-", nw ? wave[0] : 0,
+            rec ? (const char *)rec : lip_name && *lip_name ? lip_name : "-",
+            talker && *talker ? talker : "-");
+    if (why[0])
+        fprintf(stderr, "%s\n", why);
+    else {
+        fprintf(stderr, "%d run(s) from the %s%s", nr, src, mixed_mode() == 2 ? " (log only)" : "");
+        for (int r = 0; r < nr && r < 40; r++)
+            fprintf(stderr, " %.2f-%.2f%s", runs[r][0], runs[r][1], fixed[r] && !table ? "*" : "");
+        fprintf(stderr, "%s%s\n", nr > 40 ? " ..." : "", ours && !table ? " (* = ours)" : "");
+        if (mixed_mode() == 1)
+            for (int w = 0; w < nw; w++)
+                mix_prebuild(mix_register(low, bank[w], wave[w], src, runs, fixed, nr, table), bank[w]);
+    }
+    fflush(stderr);
+    LeaveCriticalSection(&s_lock);
+}
+
 /* ---- the hooks --------------------------------------------------------- */
 
 static void opened(const wchar_t *path, HANDLE h)
@@ -636,9 +1548,10 @@ static void opened(const wchar_t *path, HANDLE h)
     /* The disc's file and the cache partition's copy (Z:) alike: the game
      * streams from either. What it writes into the copy gets his original
      * voice back (written, below), so the cache never keeps a pitched one. */
+    /* Every wave bank: his waves (b->nwant) or a mixed track's (to-do 216). */
     EnterCriticalSection(&s_lock);
-    b = bank_named(name, 0);
-    if (b && b->nwant) {
+    b = bank_named(name, 1);
+    if (b) {
         int i;
         if (!b->path[0])
             wcsncpy(b->path, path, MAX_PATH - 1);
@@ -699,6 +1612,27 @@ static void read_done(HANDLE h, unsigned long long off, void *buf, unsigned long
         if ((p = pitched(b, v, which, h)) != NULL)
             memcpy((uint8_t *)buf + (lo - off), (const uint8_t *)p + (lo - a), (size_t)(hi - lo));
     }
+    /* Mixed tracks marked at their speech start (to-do 216). */
+    for (int x = 0; b->ready > 0 && mixed_mode() == 1 && x < MAX_MIX; x++) {
+        MixWave *m = &s_mix[x];
+        unsigned long long a, z, lo, hi;
+        const int16_t *p;
+
+        if (!m->cue[0] || _stricmp(m->bank, b->name))
+            continue;
+        if (!m->located)
+            mix_locate(b, m);
+        if (m->located < 0)
+            continue;
+        a = m->off;
+        z = (unsigned long long)m->off + m->len;
+        if (z <= off || a >= end)
+            continue;
+        lo = a > off ? a : off;
+        hi = z < end ? z : end;
+        if ((p = mix_out(b, m, which, h)) != NULL)
+            memcpy((uint8_t *)buf + (lo - off), (const uint8_t *)p + (lo - a), (size_t)(hi - lo));
+    }
     LeaveCriticalSection(&s_lock);
 }
 
@@ -728,12 +1662,27 @@ static void written(HANDLE h, unsigned long long off, void *buf, unsigned long b
         hi = z < end ? z : end;
         memcpy((uint8_t *)buf + (lo - off), (const uint8_t *)v->raw + (lo - a), (size_t)(hi - lo));
     }
+    for (int x = 0; b && x < MAX_MIX; x++) {
+        MixWave *m = &s_mix[x];
+        unsigned long long a, z, lo, hi;
+
+        if (!m->cue[0] || !m->raw || m->located <= 0 || _stricmp(m->bank, b->name))
+            continue;
+        a = m->off;
+        z = (unsigned long long)m->off + m->len;
+        if (z <= off || a >= end)
+            continue;
+        lo = a > off ? a : off;
+        hi = z < end ? z : end;
+        memcpy((uint8_t *)buf + (lo - off), (const uint8_t *)m->raw + (lo - a), (size_t)(hi - lo));
+    }
     LeaveCriticalSection(&s_lock);
 }
 
-void voice_pitch_init(void)
+void voice_pitch_init(const char *save_dir)
 {
     InitializeCriticalSection(&s_lock);
+    lips_load(save_dir);
     g_xbox_file_opened = opened;
     g_xbox_file_read = read_done;
     g_xbox_file_closed = closed;

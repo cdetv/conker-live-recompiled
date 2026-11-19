@@ -74,6 +74,7 @@
 #include "controls.h"
 #include "settings.h"
 #include "xbox_kbm.h"
+#include "legacy_cp.h"          /* WM_CHAR's code page (to-do 262) */
 
 extern "C" {
 int conker_MenuBoards(float *turn);
@@ -414,15 +415,9 @@ int menu_mouse_name_key(HWND h, UINT m, WPARAM w, LPARAM l)
         if (!s_nk_char)
             return 0;
         if (m == WM_CHAR && w >= 0x20 && w != 0x7F) {
-            /* The game window is an ANSI one: past ASCII, the ANSI code page. */
-            unsigned c = (unsigned)w;
-            if (c >= 0x80 && c < 0x100) {
-                char b = (char)c;
-                wchar_t wc;
-                if (MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, &b, 1, &wc, 1) == 1)
-                    c = wc;
-            }
-            conker_NameKbType((int)c);
+            /* The game window is an ANSI one: past ASCII, the PC's own code
+             * page (not CP_ACP: that is UTF-8 under the manifest). */
+            conker_NameKbType((int)conker_wm_char((unsigned)w));
         }
         return 1;
     }

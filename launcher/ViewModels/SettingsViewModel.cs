@@ -21,6 +21,9 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     private readonly Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
     private PresetItem? presetRow;
     private bool haveDecensor;
+
+    /// <summary>settings.ini was written before 0.3.4 (no <c>character_foliage_detail</c> line): see Load.</summary>
+    private bool before034;
     private readonly DispatcherTimer saveTimer;
     private SettingsSchema? schema;
 
@@ -142,6 +145,22 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
                 : fresh ? schema.NewFileValue(option) : option.Default;
         }
 
+        // The Pop-in Fix's switch before 0.3.4 (to-do 219): the game reads 0 as character & foliage detail "original".
+        if (values.ContainsKey("character_foliage_detail") && !file.ContainsKey("character_foliage_detail")
+            && file.TryGetValue("grass_full_detail", out string? oldPopin) && oldPopin.Trim() == "0")
+        {
+            values["character_foliage_detail"] = "original";
+        }
+
+        // Fast Load on by default from 0.3.4 (to-do 265, once for every player): the game writes every option, so a
+        // file without character_foliage_detail (new in 0.3.4) is older, and the game reads its fast_loads as on
+        // (settings_load in src/settings.c). Flush writes both lines with the first change, so the file says so.
+        before034 = !fresh && values.ContainsKey("character_foliage_detail") && !file.ContainsKey("character_foliage_detail");
+        if (before034 && values.ContainsKey("fast_loads"))
+        {
+            values["fast_loads"] = "1";
+        }
+
         foreach (SettingItem item in items)
         {
             if (item.Key is not { } key || !schema.ByKey.TryGetValue(key, out SettingOption? option))
@@ -184,6 +203,11 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             {
                 item.IsShown = check.IsOn && check.IsShown;
             }
+            else if (item.Parent is { } chosen && items.OfType<ChoiceItem>().FirstOrDefault(c => c.Key == chosen) is { } choice)
+            {
+                item.IsShown = choice.IsShown && (item.ParentValue is null
+                    || string.Equals(choice.Selected?.Value, item.ParentValue, StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         presetRow?.Update(values);
@@ -217,9 +241,22 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             return;
         }
 
+        // A file from before 0.3.4 (see Load): with any change, the two lines that make the game read it as it shows here.
+        if (before034)
+        {
+            foreach (string key in new[] { "character_foliage_detail", "fast_loads" })
+            {
+                if (values.TryGetValue(key, out string? v))
+                {
+                    pending.TryAdd(key, v);
+                }
+            }
+        }
+
         try
         {
             SettingsFile.Write(SaveFolder.SettingsIni, schema, pending);
+            before034 = false;
             ErrorText = null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

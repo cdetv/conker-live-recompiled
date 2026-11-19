@@ -32,6 +32,7 @@
 #include "chords.h"
 #include "settings.h"
 #include "dev_logs.h"
+#include "ui_text.h"   /* N_(): the menus' text (to-do 229) */
 
 #define TRIGGER_ON 30            /* XBOX_ANALOG_BUTTON_THRESHOLD */
 
@@ -47,10 +48,10 @@ static const struct {
     { CHORD_Y, "y", "Y" },
     { CHORD_LB, "lb", "LB" },
     { CHORD_RB, "rb", "RB" },
-    { PADB_LT, "lt", "Left trigger" },
-    { PADB_RT, "rt", "Right trigger" },
-    { CHORD_LS, "ls", "Left stick click" },
-    { CHORD_RS, "rs", "Right stick click" },
+    { PADB_LT, "lt", N_("Left trigger") },
+    { PADB_RT, "rt", N_("Right trigger") },
+    { CHORD_LS, "ls", N_("Left stick click") },
+    { CHORD_RS, "rs", N_("Right stick click") },
     { CHORD_START, "start", "Start" },
 };
 #define NUM_BUTTONS ((int)(sizeof(s_buttons) / sizeof(s_buttons[0])))
@@ -101,25 +102,25 @@ static const struct {
     const char *label[2];         /* Classic, Modern; NULL = not in it */
     int place;
 } s_actions[PADB_ACTIONS] = {
-    { "jump", { "Jump", "Jump" }, 0 },
-    { "crouch", { "Crouch (hold)", "Crouch (hold)" }, 0 },
-    { "context", { "Weapon out / away, context action", "Context action" }, 0 },
-    { "aim", { NULL, "Aim weapon (hold)" }, 0 },
-    { "attack", { "Attack (while aiming)", "Attack (while aiming)" }, 0 },
-    { "reload", { "Reload", "Reload" }, 0 },
-    { "head_cam_hold", { "Head-cam (hold)", "Head-cam (hold)" }, 0 },
-    { "head_cam_toggle", { "Head-cam (toggle)", "Head-cam (toggle)" }, 0 },
-    { "zoom", { "Zoom (Unlocked Camera: reset)", "Zoom (Unlocked Camera: reset)" }, 0 },
-    { "pause", { "Pause", "Pause" }, 0 },
-    { "dive", { "Dive under", "Dive under" }, PADB_SURFACE + 1 },
-    { "swim_up", { "Swim up", "Swim up" }, PADB_UNDER + 1 },
-    { "swim_down", { "Swim down", "Swim down" }, PADB_UNDER + 1 },
-    { "bat_launch", { "Launch", "Launch" }, PADB_BAT_GROUND + 1 },
-    { "bat_up", { "Fly up", "Fly up" }, PADB_BAT_AIR + 1 },
-    { "bat_down", { "Fly down", "Fly down" }, PADB_BAT_AIR + 1 },
-    { "bat_poop", { "Poop", "Poop" }, PADB_BAT_AIR + 1 },
-    { "bat_aim_toggle", { "Aim (toggle)", "Aim (toggle)" }, PADB_BAT_AIR + 1 },
-    { "bat_aim_hold", { "Aim (hold)", "Aim (hold)" }, PADB_BAT_AIR + 1 },
+    { "jump", { N_("Jump"), N_("Jump") }, 0 },
+    { "crouch", { N_("Crouch (hold)"), N_("Crouch (hold)") }, 0 },
+    { "context", { N_("Weapon out / away, context action"), N_("Context action") }, 0 },
+    { "aim", { NULL, N_("Aim weapon (hold)") }, 0 },
+    { "attack", { N_("Attack (while aiming)"), N_("Attack (while aiming)") }, 0 },
+    { "reload", { N_("Reload"), N_("Reload") }, 0 },
+    { "head_cam_hold", { N_("Head-cam (hold)"), N_("Head-cam (hold)") }, 0 },
+    { "head_cam_toggle", { N_("Head-cam (toggle)"), N_("Head-cam (toggle)") }, 0 },
+    { "zoom", { N_("Zoom (Unlocked Camera: reset)"), N_("Zoom (Unlocked Camera: reset)") }, 0 },
+    { "pause", { N_("Pause"), N_("Pause") }, 0 },
+    { "dive", { N_("Dive under"), N_("Dive under") }, PADB_SURFACE + 1 },
+    { "swim_up", { N_("Swim up"), N_("Swim up") }, PADB_UNDER + 1 },
+    { "swim_down", { N_("Swim down"), N_("Swim down") }, PADB_UNDER + 1 },
+    { "bat_launch", { N_("Launch"), N_("Launch") }, PADB_BAT_GROUND + 1 },
+    { "bat_up", { N_("Fly up"), N_("Fly up") }, PADB_BAT_AIR + 1 },
+    { "bat_down", { N_("Fly down"), N_("Fly down") }, PADB_BAT_AIR + 1 },
+    { "bat_poop", { N_("Poop"), N_("Poop") }, PADB_BAT_AIR + 1 },
+    { "bat_aim_toggle", { N_("Aim (toggle)"), N_("Aim (toggle)") }, PADB_BAT_AIR + 1 },
+    { "bat_aim_hold", { N_("Aim (hold)"), N_("Aim (hold)") }, PADB_BAT_AIR + 1 },
 };
 
 static char s_key[2][PADB_ACTIONS][40];

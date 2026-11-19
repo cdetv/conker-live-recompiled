@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- conker.exe's own manifest entries, merged by the linker into the one it
+     makes (asInvoker, Common Controls 6). To-do 262: a UTF-8 process code
+     page (Windows 10 1903+; older Windows ignores it), so the command line,
+     GetModuleFileNameA, fopen and every other ANSI call carry folder names
+     with any letters (a Japanese / Polish name came in as ???_l). Window messages keep the
+     PC's own code page: src/legacy_cp.h. -->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>

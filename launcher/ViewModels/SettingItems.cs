@@ -53,6 +53,9 @@ public abstract partial class SettingItem(MenuEntry entry) : ObservableObject
     /// <summary>The checkbox this row sits under (indented, shown only while it is on); null for none.</summary>
     public string? Parent { get; } = entry.Parent;
 
+    /// <summary>When the parent is a choice: the value it must have for this row to show.</summary>
+    public string? ParentValue { get; } = entry.ParentValue;
+
     /// <summary>How many parents up the row has (set by the tab as it builds its rows, before showing them).</summary>
     public int Depth { get; set; }
 

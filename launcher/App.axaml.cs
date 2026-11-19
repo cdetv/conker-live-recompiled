@@ -34,7 +34,9 @@ public sealed partial class App : Application
                 // Before the tabs read settings.ini: an older version's may still be in AppData.
                 await viewModel.UserFiles.MoveInAsync();
                 await viewModel.LoadAsync();
-                await Task.WhenAll(viewModel.Files.CheckLatestDecensorAsync(), viewModel.CheckForUpdateAsync(justUpdated));
+                // Game assets missing or stale (to-do 43; an update brings no import): made once now.
+                await Task.WhenAll(viewModel.Files.CheckLatestDecensorAsync(), viewModel.CheckForUpdateAsync(justUpdated),
+                                   viewModel.Files.PrepareAssetsIfStaleAsync());
             };
             // A change made just before closing is still waiting to be written.
             window.Closing += (_, _) => viewModel.Flush();

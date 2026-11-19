@@ -145,6 +145,12 @@ int cheat_unlocked(int id)
     return settings_debug() || (s_unlocked & CHEAT_BIT(id));
 }
 
+int cheat_unlocked_saved(int id)
+{
+    load();
+    return (s_unlocked & CHEAT_BIT(id)) != 0;
+}
+
 int cheat_is_set(int id)
 {
     load();
