@@ -11,9 +11,9 @@ namespace ConkerLauncher.Views;
 
 /// <summary>
 /// The file browser pop-up (to-do 122): what the mouse and keyboard do in it. Rows: a
-/// double-click or Enter opens a folder or picks a file; a click on a place opens it;
-/// Backspace = up one folder; Esc = Cancel; Enter in the address field goes there. The pad's
-/// rules live in <see cref="PadNavigator"/>.
+/// double-click or Enter opens a folder or picks a file (on "..": up one folder, to-do 268); a
+/// click on a place opens it; Backspace or the up button = up one folder; Esc = Cancel; Enter
+/// in the address field goes there. The pad's rules live in <see cref="PadNavigator"/>.
 /// </summary>
 public sealed partial class FileBrowserView : UserControl
 {
@@ -98,7 +98,7 @@ public sealed partial class FileBrowserView : UserControl
             return;
         }
 
-        int index = vm.SelectedEntry is { } sel ? IndexOf(vm.Entries, sel) : -1;
+        int index = vm.SelectedEntry is { } sel ? IndexOf(vm.Entries, sel) : FirstRow();
         if (vm.Entries.Count > 0)
         {
             EntryList.ScrollIntoView(Math.Max(index, 0));
@@ -156,7 +156,13 @@ public sealed partial class FileBrowserView : UserControl
 
     /// <summary>The focus on the list's selected row, else its first (the pad: LB/RB, Right from Places, after B).</summary>
     public bool FocusList(bool ring) =>
-        vm is not null && FocusRow(vm.SelectedEntry is { } sel ? IndexOf(vm.Entries, sel) : 0, ring);
+        vm is not null && FocusRow(vm.SelectedEntry is { } sel ? IndexOf(vm.Entries, sel) : FirstRow(), ring);
+
+    /// <summary>
+    /// The row the focus starts on with nothing selected: the first after ".." (to-do 268: A on
+    /// a new list shouldn't go straight back up); ".." itself when the folder has nothing else.
+    /// </summary>
+    private int FirstRow() => vm is { Entries: [{ IsUp: true }, _, ..] } ? 1 : 0;
 
     /// <summary>The focus on Places: the folder listed when it is a place, else the first (LB/RB, Left from the list, B at a drive's top).</summary>
     public bool FocusPlaces(bool ring)
@@ -232,7 +238,7 @@ public sealed partial class FileBrowserView : UserControl
         await vm.GoToAddressCommand.ExecuteAsync(null);
         if (vm.Message is null)
         {
-            int index = vm.SelectedEntry is { } sel ? IndexOf(vm.Entries, sel) : 0;
+            int index = vm.SelectedEntry is { } sel ? IndexOf(vm.Entries, sel) : FirstRow();
             FocusRow(index, ring: true);
         }
     }

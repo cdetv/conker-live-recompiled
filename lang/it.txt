@@ -576,6 +576,12 @@ it: Visualizza input
 en: Controller 1 drawn in the bottom left corner: buttons, sticks and triggers as you press them (keys bound to it show as the buttons they press)
 it: Controller 1 disegnato in basso a sinistra: pulsanti, stick e grilletti mentre li premi (i tasti associati appaiono come i pulsanti che premono)
 
+en: Show cursor for touch
+it: Mostra cursore al tocco
+
+en: The mouse pointer shows on the game's menus after a tap on a touchscreen too (off: only a mouse or a trackpad shows it; this port's own menus always show it)
+it: Il puntatore del mouse appare nei menu del gioco anche dopo un tocco sul touchscreen (disattivato: solo un mouse o un trackpad lo mostrano; i menu propri di questo port lo mostrano sempre)
+
 ## character_foliage_detail_choice
 en: Low (faster)
 it: Basso (più veloce)
@@ -1033,6 +1039,9 @@ it: Opzioni controller
 
 en: Cheats
 it: Trucchi
+
+en: Close Game
+it: Chiudi gioco
 
 ## combo_notes
 en: %s is also %s: that happens too

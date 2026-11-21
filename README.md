@@ -7,7 +7,8 @@
 <p align="center">
   A native Windows PC version of <i>Conker: Live & Reloaded</i> (Xbox, 2005),<br>
   made by recompiling the original game's code. Higher resolutions, up to 120 fps,<br>
-  keyboard and mouse, an unlocked camera, photo mode and more.
+  keyboard and mouse, an unlocked camera, photo mode and more.<br>
+  Also runs on Linux and the Steam Deck.
 </p>
 
 <p align="center">
@@ -61,10 +62,74 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
    finds it by itself: click **Import Xbox Store version**.
 4. Click **Play**.
 
+On Linux or a Steam Deck, see [Linux and Steam Deck](#linux-and-steam-deck) below.
+
 <p align="center">
   <img src="images/launcher-files.png" alt="The launcher's Files tab"><br>
   <i>The launcher's Files tab</i>
 </p>
+
+## Linux and Steam Deck
+
+The same download runs on Linux and the Steam Deck through Steam's **Proton 11**.
+It was tested on a Steam Deck LCD, in Desktop Mode and Gaming Mode. Other Linux
+PCs with Steam should work the same way: tell us how it goes in an
+[issue](../../issues). Other ways of running Windows programs (Wine, Lutris,
+Bottles) haven't been tested.
+
+**Setting it up** (on a Steam Deck in Desktop Mode: Steam button → Power →
+Switch to Desktop):
+
+1. Unpack `conker-live-recompiled-<version>.zip` into a folder of its own,
+   for example `~/Games/Conker` (the internal drive or a microSD card), and
+   copy your disc image onto the Deck.
+2. In Steam: **Games → Add a Non-Steam Game to My Library → Browse**, set the
+   file type to **All Files**, pick **`conker-launcher.exe`** in that folder
+   and click **Add Selected Programs**.
+3. Right-click it in your library → **Properties → Compatibility**: tick
+   **Force the use of a specific Steam Play compatibility tool** and choose
+   **Proton 11.0**.
+4. Start it from Steam and import your game on the **Files** tab, as on
+   Windows. In the file browser your home folder is `Z:` → `home` → your user
+   name (`deck` on a Steam Deck), and a Deck's microSD card is `D:`. The Xbox
+   Store version installs only on Windows: import it there and copy the whole
+   folder over.
+5. Click **Play**. From now on it starts from your Steam library like any
+   game, in Gaming Mode too: the launcher first, then **Play**. **Back +
+   Start → Close Game** takes you back to Steam.
+
+To go straight into the game, add `conker.exe` the same way (with Proton
+11.0 too); the launcher is still there for settings, Precompile Shaders and
+updates.
+
+**On the Steam Deck:**
+
+- The first start picks the **Medium** quality preset at **60 fps**. For a
+  longer battery life choose **30 fps** in F2 → Graphics: in busy scenes it
+  uses about a quarter less power. Steam's own frame limit (Performance menu)
+  doesn't save power with this game.
+- Run **Precompile Shaders** once (launcher, Files tab; about 7 minutes).
+  Without it the first minute or so stutters while the shaders are made;
+  after it, only the very first walk into the main menu stutters for a few
+  seconds.
+- The Deck's controls work as an Xbox controller with Steam's default
+  layout, and touch works in the launcher and the game's menus. **Back +
+  Start** (the ⧉ and ☰ buttons) opens a menu with settings, controls, photo
+  mode, **Report Bug** and **Close Game**; **Back + LB** opens the F2
+  settings menu; **Steam + X** shows Steam's keyboard.
+- The right trackpad is a mouse only while the Steam button is held; the
+  **Gamepad with Mouse Trackpad** layout (the shortcut's controller
+  settings) makes it one all the time.
+- **Gyro aiming** with a PlayStation controller: in the shortcut's
+  **Properties → Controller** choose **Disable Steam Input**.
+- In Desktop Mode Steam's keyboard opens *behind* a full-screen game: set F2
+  → Display → **Display mode** to **Windowed** before typing a bug report.
+  Gaming Mode is fine.
+
+Saves, settings, photos and logs are in `userdata` inside the game's folder,
+as on Windows (Steam doesn't back them up). Something wrong? **Back + Start →
+Report Bug** makes the same `.zip` as on Windows, with the Linux details
+included.
 
 ---
 
@@ -191,7 +256,8 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
   (F3 menu or the launcher's Controls tab).
 - **Mouse in menus**: point and click in the game's own menus, from the main
   menu (drag the room around by hand) and the pause screen to every
-  multiplayer menu.
+  multiplayer menu. Touchscreens work too, without the mouse cursor showing
+  (F2 → Display → **Show cursor for touch** brings it back).
 - Two single-player layouts: **Classic** (the controller one-to-one) and
   **Modern** (hold the right mouse button to aim, a separate action key).
 - **PlayStation 4 and 5 controllers** (DualShock 4, DualSense) and **Switch
@@ -204,7 +270,7 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
 - **Slots**: choose which controller, or the keyboard, is which player.
 - Multiplayer keyboard and mouse controls, with a zoom key.
 - **Back + Start** opens a small menu on the controller: settings, controls,
-  photo mode, Report Bug and controller options.
+  photo mode, Report Bug, controller options and Close Game.
 - **Chords**: the controller's button pairs for these extras (Back + Start,
   Back + LB, Back + RB...) can be changed in F3 > Slots > Chords.
 - The [launcher](#the-launcher) works fully with a controller too.
@@ -360,7 +426,7 @@ A few glitches the Xbox version has too are fixed:
 - **Works with a controller**: every tab, setting and button by pad, with
   on-screen button hints.
 - Its own **file browser** for choosing your game or the patch, by mouse,
-  keyboard or controller; or drag the file from Explorer onto it.
+  touch, keyboard or controller; or drag the file from Explorer onto it.
 - **Precompile Shaders** (see [Loading](#loading)), and **Delete Shaders** to
   clear them again.
 - **Updates itself**: when a new version is out, one click installs it and
@@ -393,8 +459,9 @@ A few glitches the Xbox version has too are fixed:
 
 ## Requirements
 
-- Windows 10 or 11, 64-bit
-- A graphics card with DirectX 11
+- Windows 10 or 11, 64-bit; or Linux or a Steam Deck with Steam's Proton 11
+  ([Linux and Steam Deck](#linux-and-steam-deck))
+- A graphics card with DirectX 11 (on Linux: Vulkan)
 - Your own copy of *Conker: Live & Reloaded*: the original Xbox disc (PAL or
   USA) or the Xbox Store version
 - About 6 GB of free space
@@ -411,7 +478,7 @@ The controller's button pairs are the defaults: F3 > Slots > Chords changes them
 | F2 | Back + LB | Settings menu |
 | F3 | | Controls menu |
 | F4 | Back + RB | Photo mode |
-| | Back + Start | Menu: settings, controls, photo mode, Report Bug, controller options |
+| | Back + Start | Menu: settings, controls, photo mode, Report Bug, controller options, Close Game |
 | F8 | | Cheat menu, once unlocked (Debug menu in [debug mode](#debug-mode)) |
 | `~` | | Console ([debug mode](#debug-mode) only) |
 | F10 | Report Bug... button in the settings menu | Report a bug |
@@ -429,7 +496,6 @@ Saves, settings, photos and logs are in the `userdata` folder next to `conker.ex
 
 Ideas for future updates, in no particular order. Plans can change.
 
-- Linux / Steam Deck support
 - Frame rates above 120 fps
 - Accurate audio DSP emulation + expanded sound profiles
 - HD-friendly GUI / expanded button prompts

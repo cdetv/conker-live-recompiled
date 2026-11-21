@@ -576,6 +576,12 @@ de: Eingabeanzeige
 en: Controller 1 drawn in the bottom left corner: buttons, sticks and triggers as you press them (keys bound to it show as the buttons they press)
 de: Controller 1 unten links eingeblendet: Tasten, Sticks und Trigger beim Drücken (zugewiesene Tasten zeigen die Controller-Tasten, die sie auslösen)
 
+en: Show cursor for touch
+de: Mauszeiger bei Touch anzeigen
+
+en: The mouse pointer shows on the game's menus after a tap on a touchscreen too (off: only a mouse or a trackpad shows it; this port's own menus always show it)
+de: Der Mauszeiger erscheint in den Menüs des Spiels auch nach einem Tippen auf einen Touchscreen (aus: nur Maus oder Trackpad zeigen ihn; die eigenen Menüs dieses Ports zeigen ihn immer)
+
 ## character_foliage_detail_choice
 en: Low (faster)
 de: Niedrig (schneller)
@@ -1033,6 +1039,9 @@ de: Controller-Optionen
 
 en: Cheats
 de: Cheats
+
+en: Close Game
+de: Spiel schließen
 
 ## combo_notes
 en: %s is also %s: that happens too

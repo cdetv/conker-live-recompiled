@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Readers;
@@ -43,14 +44,41 @@ public static class ImportTools
     /// <summary>Stops with a message when the drive holding <paramref name="folder"/> lacks <paramref name="bytes"/>.</summary>
     public static void RequireSpace(string folder, long bytes)
     {
-        DriveInfo drive = new(Path.GetPathRoot(Path.GetFullPath(folder))!);
-        if (drive.AvailableFreeSpace < bytes + SpaceMargin)
+        string full = Path.GetFullPath(folder);
+        long free = FreeSpace(full);
+        if (free < bytes + SpaceMargin)
         {
             throw new ImportException(
-                $"Not enough free space on {drive.Name.TrimEnd('\\')}: this needs {ByteProgress.Gb(bytes + SpaceMargin)} GB, " +
-                $"{ByteProgress.Gb(drive.AvailableFreeSpace)} GB is free.");
+                $"Not enough free space on {Path.GetPathRoot(full)!.TrimEnd('\\')}: this needs {ByteProgress.Gb(bytes + SpaceMargin)} GB, " +
+                $"{ByteProgress.Gb(free)} GB is free.");
         }
     }
+
+    /// <summary>
+    /// Free bytes (for this user) where <paramref name="folder"/> is: asked of the folder itself, not
+    /// its drive root. Under Proton the root of Z: is Linux's "/", on a Steam Deck a 5 GB system
+    /// partition, while the folder sits on /home (71 GB free: the import said 1.52 GB, 2026-11-20).
+    /// On Windows the answer is the drive's, as before.
+    /// </summary>
+    public static long FreeSpace(string folder)
+    {
+        string path = Path.GetFullPath(folder);
+        while (!Directory.Exists(path) && Path.GetDirectoryName(path) is { } parent)
+        {
+            path = parent;
+        }
+
+        if (OperatingSystem.IsWindows() && GetDiskFreeSpaceExW(path, out ulong available, out _, out _))
+        {
+            return (long)Math.Min(available, long.MaxValue);
+        }
+
+        return new DriveInfo(Path.GetPathRoot(path)!).AvailableFreeSpace;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetDiskFreeSpaceExW(string directory, out ulong available, out ulong total, out ulong totalFree);
 
     /// <summary>
     /// Removes a folder the launcher made. A link (a development build's <c>game</c> junction) is

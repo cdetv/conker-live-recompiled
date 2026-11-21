@@ -14,7 +14,9 @@
  * hand over something that can be clicked. In full screen it is kept on the
  * game's screen (ClipCursor; a click on another monitor would send the game
  * to the back). Coming from play, where the toolkit held it, it starts in the
- * middle of the picture, not at the edge mouse look left it on.
+ * middle of the picture, not at the edge mouse look left it on. A
+ * touchscreen's taps and drags work as the mouse's but draw no pointer
+ * (to-do 270; F2's touch_cursor = 1 draws it): overlay.cpp tells them.
  *
  * Everywhere: right click = B (back), the wheel = up / down presses.
  *
@@ -127,6 +129,8 @@ static volatile LONG s_move_tick;   /* GetTickCount of the last real move */
 static volatile LONG s_moved;       /* moved since the mode began */
 static volatile LONG s_keys_used;   /* a key or controller press since the executor looked */
 static volatile LONG s_cy_keys;     /* the same, for the cylinder lists' hold */
+static volatile LONG s_touch;       /* the last move or press was a touch (to-do 270) */
+static volatile LONG s_touch_cursor; /* touch_cursor = 1: the pointer shows for touch too */
 static HWND s_hwnd;
 
 static void push(int type, float x, float y, int n)
@@ -176,6 +180,26 @@ static void clip_follow(HWND h)
     }
 }
 
+/* The pointer's look: none while hidden, nor after a touch unless
+ * touch_cursor = 1 (to-do 270: the menus still follow the finger, as they do
+ * the mouse; only the arrow is not drawn). */
+static HCURSOR pointer_cursor(void)
+{
+    if (!s_shown || (s_touch && !s_touch_cursor))
+        return NULL;
+    return LoadCursorA(NULL, s_hand ? IDC_HAND : IDC_ARROW);
+}
+
+/* A real move or press, by the mouse or a touch: the pointer is in use. */
+static void pointer_used(int touch)
+{
+    LONG was = InterlockedExchange(&s_touch, touch ? 1 : 0);
+    if (!s_shown || was != (touch ? 1 : 0)) {
+        InterlockedExchange(&s_shown, 1);
+        SetCursor(pointer_cursor());
+    }
+}
+
 /* The cursor's look now, if it is over the picture. */
 static void apply_cursor(HWND h)
 {
@@ -184,7 +208,7 @@ static void apply_cursor(HWND h)
     if (!s_on || GetForegroundWindow() != h || !GetCursorPos(&p)
         || !client_screen_rect(h, &r) || !PtInRect(&r, p))
         return;
-    SetCursor(s_shown ? LoadCursorA(NULL, s_hand ? IDC_HAND : IDC_ARROW) : NULL);
+    SetCursor(pointer_cursor());
 }
 
 /* Coming from play: the toolkit held the pointer (clipped to the picture,
@@ -212,7 +236,7 @@ static void centre_if_held(HWND h)
 }
 
 int menu_mouse_message(HWND h, UINT m, WPARAM w, LPARAM l, float x, float y,
-                       LRESULT *result)
+                       int touch, LRESULT *result)
 {
     s_hwnd = h;
     switch (m) {
@@ -279,8 +303,7 @@ int menu_mouse_message(HWND h, UINT m, WPARAM w, LPARAM l, float x, float y,
     case WM_SETCURSOR:
         if (LOWORD(l) != HTCLIENT)
             return 0;
-        SetCursor(s_shown ? LoadCursorA(NULL, s_hand ? IDC_HAND : IDC_ARROW)
-                          : NULL);
+        SetCursor(pointer_cursor());
         *result = TRUE;
         return 1;
     case WM_MOUSEMOVE: {
@@ -292,10 +315,7 @@ int menu_mouse_message(HWND h, UINT m, WPARAM w, LPARAM l, float x, float y,
             s_last_cy = cy;
             InterlockedExchange(&s_move_tick, (LONG)GetTickCount());
             InterlockedExchange(&s_moved, 1);
-            if (!s_shown) {
-                InterlockedExchange(&s_shown, 1);
-                SetCursor(LoadCursorA(NULL, s_hand ? IDC_HAND : IDC_ARROW));
-            }
+            pointer_used(touch);
             push(EV_MOVE, x, y, 0);
         }
         *result = 0;
@@ -308,10 +328,7 @@ int menu_mouse_message(HWND h, UINT m, WPARAM w, LPARAM l, float x, float y,
             s_captured = true;
         }
         InterlockedExchange(&s_move_tick, (LONG)GetTickCount());
-        if (!s_shown) {
-            InterlockedExchange(&s_shown, 1);
-            SetCursor(LoadCursorA(NULL, s_hand ? IDC_HAND : IDC_ARROW));
-        }
+        pointer_used(touch);
         push(m == WM_LBUTTONDOWN ? EV_LDOWN : EV_RDOWN, x, y, 0);
         *result = 0;
         return 1;
@@ -2261,6 +2278,12 @@ int menu_mouse_frame(unsigned w, unsigned h, int blocked)
         fprintf(stderr, "[MOUSE] menus: pointer %s\n", want ? "the menus'"
                                                             : "the game's");
         post_apply();               /* before the toolkit's own (keys only) */
+    }
+    /* To-do 270: F2's "Show cursor for touch", at once. */
+    {
+        LONG tc = strcmp(settings_get("touch_cursor"), "0") != 0;
+        if (InterlockedExchange(&s_touch_cursor, tc) != tc && s_on && s_touch)
+            post_apply();
     }
     if (s_spots_debug < 0) {
         const char *e = getenv("RECOMP_MENU_SPOTS");

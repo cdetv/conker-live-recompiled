@@ -6,12 +6,18 @@ using ConkerLauncher.Services;
 
 namespace ConkerLauncher.ViewModels;
 
-/// <summary>A row of the file browser's list: a folder or a file.</summary>
-public sealed record BrowserEntry(string Name, string FullPath, bool IsFolder, long Size, DateTime Modified, bool Matches)
+/// <summary>
+/// A row of the file browser's list: a folder or a file, or <see cref="IsUp"/>: the ".." row at
+/// the top that goes up one folder (to-do 268), <see cref="FullPath"/> = the folder above.
+/// </summary>
+public sealed record BrowserEntry(string Name, string FullPath, bool IsFolder, long Size, DateTime Modified, bool Matches,
+    bool IsUp = false)
 {
     public string SizeText => IsFolder ? "" : FileBrowserViewModel.SizeText(Size);
 
-    public string DateText => Modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    public string DateText => IsUp ? "" : Modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+
+    public string? Tip => IsUp ? "Up one folder" : null;
 
     /// <summary>A file this choice doesn't take (listed with "Show all files"): drawn dimmed.</summary>
     public bool IsOther => !IsFolder && !Matches;
@@ -89,7 +95,12 @@ public sealed partial class FileBrowserViewModel : ObservableObject
 
     /// <summary>The folder listed, or null before the first one opened.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGoUp))]
+    [NotifyCanExecuteChangedFor(nameof(GoUpCommand))]
     public partial string? CurrentFolder { get; set; }
+
+    /// <summary>A folder above the one listed (not at a drive's top): the ".." row and the up button.</summary>
+    public bool CanGoUp => ParentOf(CurrentFolder) is not null;
 
     /// <summary>The address field: the current folder, or what the player typed or pasted.</summary>
     [ObservableProperty]
@@ -185,13 +196,17 @@ public sealed partial class FileBrowserViewModel : ObservableObject
     /// <summary>Up one folder, selecting the one left. False at a drive's top (the pad goes to Places then).</summary>
     public async Task<bool> UpAsync()
     {
-        if (CurrentFolder is null || Directory.GetParent(CurrentFolder) is not { } parent)
+        if (CurrentFolder is null || ParentOf(CurrentFolder) is not { } parent)
         {
             return false;
         }
 
-        return await OpenFolderAsync(parent.FullName, Path.GetFileName(Path.TrimEndingDirectorySeparator(CurrentFolder)));
+        return await OpenFolderAsync(parent, Path.GetFileName(Path.TrimEndingDirectorySeparator(CurrentFolder)));
     }
+
+    /// <summary>The up button beside the address field (mouse and touch; to-do 268).</summary>
+    [RelayCommand(CanExecute = nameof(CanGoUp))]
+    private async Task GoUpAsync() => await UpAsync();
 
     /// <summary>The address field's Enter: a folder opens, a file opens its folder with the file selected.</summary>
     [RelayCommand]
@@ -210,10 +225,14 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         }
     }
 
-    /// <summary>A or Enter or a double-click on a row: a folder opens, a file of the types taken is chosen.</summary>
+    /// <summary>A or Enter or a double-click on a row: ".." goes up, a folder opens, a file of the types taken is chosen.</summary>
     public async Task ActivateAsync(BrowserEntry entry)
     {
-        if (entry.IsFolder)
+        if (entry.IsUp)
+        {
+            await UpAsync();
+        }
+        else if (entry.IsFolder)
         {
             await OpenFolderAsync(entry.FullPath);
         }
@@ -506,12 +525,21 @@ public sealed partial class FileBrowserViewModel : ObservableObject
 
     private void ApplyFilter(string? select)
     {
-        Entries = ShowAllFiles ? all : [.. all.Where(e => e.IsFolder || e.Matches)];
-        SelectedEntry = select is null ? null : Entries.FirstOrDefault(e => e.Name.Equals(select, StringComparison.OrdinalIgnoreCase));
-        EmptyText = Entries.Count > 0 ? null
+        List<BrowserEntry> shown = ShowAllFiles ? all : [.. all.Where(e => e.IsFolder || e.Matches)];
+        // ".." first whenever there is a folder above (to-do 268); the empty text still means the folder's own rows.
+        Entries = ParentOf(CurrentFolder) is { } parent
+            ? [new BrowserEntry("..", parent, IsFolder: true, 0, default, Matches: false, IsUp: true), .. shown]
+            : shown;
+        SelectedEntry = select is null ? null      // ".." too (no real entry has that name): X keeps it selected
+            : Entries.FirstOrDefault(e => e.Name.Equals(select, StringComparison.OrdinalIgnoreCase));
+        EmptyText = shown.Count > 0 ? null
             : all.Count > 0 ? $"No {FilterName} in this folder."
             : "This folder is empty.";
     }
+
+    /// <summary>The folder above <paramref name="folder"/>, or null at a drive's top (or before one is listed).</summary>
+    private static string? ParentOf(string? folder) =>
+        string.IsNullOrEmpty(folder) ? null : Directory.GetParent(folder)?.FullName;
 
     private void Pick(string file)
     {

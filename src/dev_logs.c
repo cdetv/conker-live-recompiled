@@ -43,6 +43,10 @@ static const struct {
       "GPU, game and graphics ms a frame, the frame's budget, the scale, what it waits for", 1 },
     { "padbinds", "RECOMP_PADBINDS_LOG", "[PADBINDS] slot 1's controller in single player: "
       "the buttons pressed and what the game gets (controller binds), per change", 1 },
+    { "menufocus", "RECOMP_MENU_FOCUS_LOG", "[MENUFOCUS] our menus (F2, the Recomp Menu, their "
+      "questions): the window with the focus and the windows' order per change, each key, "
+      "pad press and window focus change they get; [IMGUI] ImGui's own focus, pop-up and "
+      "navigation events (to-do 272)", 1 },
 };
 
 static volatile LONG s_level[DLOG_COUNT];

@@ -18,7 +18,7 @@ typedef struct BugReport {
     const char *description;   /* the player's words, UTF-8; NULL = none */
     const char *shot_png;      /* a PNG of the moment, copied in; NULL = none */
     int include_saves;         /* saves\ goes in */
-    const char *origin;        /* where it was made: "F10 in the game", ... */
+    const char *origin;        /* where it was made: "in the game, its Report Bug key", ... */
     const char *extra;         /* more report.txt lines (game state), or NULL */
 } BugReport;
 

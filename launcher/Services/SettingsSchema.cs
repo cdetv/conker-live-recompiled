@@ -108,7 +108,8 @@ public sealed class SettingsSchema
     public IReadOnlyList<QualityPreset> Presets { get; }
 
     /// <summary>
-    /// The preset a new settings.ini takes on this PC (to-do 203: Low on a weak PC); null = the
+    /// The preset a new settings.ini takes on this PC (to-do 203: Low on a weak PC, Medium on a
+    /// Steam Deck); null = the
     /// defaults. The game decides it (<c>settings_first_start_preset</c>) and says so in the dump.
     /// </summary>
     public QualityPreset? FirstStart { get; }

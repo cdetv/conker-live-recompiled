@@ -576,6 +576,12 @@ ja: 入力表示
 en: Controller 1 drawn in the bottom left corner: buttons, sticks and triggers as you press them (keys bound to it show as the buttons they press)
 ja: コントローラ1を左下に表示:押したボタン、スティック、トリガーが分かります(割り当てたキーは、押すボタンとして表示されます)
 
+en: Show cursor for touch
+ja: タッチでもカーソルを表示
+
+en: The mouse pointer shows on the game's menus after a tap on a touchscreen too (off: only a mouse or a trackpad shows it; this port's own menus always show it)
+ja: タッチスクリーンをタップしたときもゲームのメニューにマウスポインターを表示します(オフ:マウスかトラックパッドでのみ表示。このポートの独自メニューでは常に表示)
+
 ## character_foliage_detail_choice
 en: Low (faster)
 ja: 低(高速)
@@ -1033,6 +1039,9 @@ ja: コントローラ設定
 
 en: Cheats
 ja: チート
+
+en: Close Game
+ja: ゲームを閉じる
 
 ## combo_notes
 en: %s is also %s: that happens too

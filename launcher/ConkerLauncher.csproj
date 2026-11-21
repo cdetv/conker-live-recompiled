@@ -22,6 +22,9 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <PublishTrimmed>true</PublishTrimmed>
+    <!-- No ICU: every format and parse here is invariant already, and Wine
+         builds shipped stub ICU now and then (r-linux-proton.md R10). -->
+    <InvariantGlobalization>true</InvariantGlobalization>
     <DebugType>embedded</DebugType>
     <!-- The user's art, copied in by scripts/make_art.py (gitignored, never in the repo). -->
     <ArtDir>$(MSBuildThisFileDirectory)..\art\</ArtDir>

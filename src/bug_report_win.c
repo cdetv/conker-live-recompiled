@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "bug_report.h"
+#include "touch_filter.h"
 
 /* Windows' own look for the buttons and boxes (comctl32 v6), here and in the
  * game's message boxes. */
@@ -32,6 +33,11 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #define APP_TITLE L"Conker: Live & Recompiled"
 
 enum { ID_EDIT = 100, ID_SAVES, ID_B1, ID_B2, ID_B3 };
+enum { TIMER_UNSTICK = 1 };
+#define UNSTICK_MS 300
+#ifndef WM_POINTERUP
+#define WM_POINTERUP 0x0247
+#endif
 enum { STAGE_EDIT, STAGE_DONE, STAGE_FAILED };
 
 static const wchar_t NOTE_EDIT[] =
@@ -284,6 +290,17 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l)
             return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
         }
         break;
+    case WM_TIMER:
+        if (w == TIMER_UNSTICK) {
+            /* A touch ended UNSTICK_MS ago and something of ours still
+             * holds the mouse: its release was lost (unstick_press). */
+            HWND cap = GetCapture();
+            KillTimer(h, TIMER_UNSTICK);
+            if (cap && (cap == h || IsChild(h, cap)))
+                ReleaseCapture();
+            return 0;
+        }
+        break;
     case WM_CLOSE:
         DestroyWindow(h);
         return 0;
@@ -333,6 +350,37 @@ static int key_down(const MSG *msg)
         return 0;
     }
     return 0;
+}
+
+/* A press while something of ours still holds the mouse: that hold's
+ * release was lost. Under Proton a tap's release sometimes never came (Linux
+ * Findings 31, run C3) and the description box kept the mouse for good: in
+ * Wine each new press re-takes it, which cancels the box's own "let go on
+ * release", so every tap and click went to the box (an I-beam everywhere,
+ * Create Report out of reach, the Steam keyboard's taps moving the caret).
+ * Let go, then give the press to what is under it. 0 = drop the press: none
+ * of our windows is there. Never happens with a mouse on Windows: a press
+ * without the last one's release can't be made. */
+static int unstick_press(MSG *msg)
+{
+    HWND cap = GetCapture(), under;
+    POINT pt;
+
+    if (!cap)
+        return 1;
+    ReleaseCapture();
+    pt.x = (short)LOWORD(msg->lParam);
+    pt.y = (short)HIWORD(msg->lParam);
+    ClientToScreen(msg->hwnd, &pt);
+    under = WindowFromPoint(pt);
+    if (!under || (under != s_rw.win && !IsChild(s_rw.win, under)))
+        return 0;
+    if (under != msg->hwnd) {
+        ScreenToClient(under, &pt);
+        msg->hwnd = under;
+        msg->lParam = MAKELPARAM(pt.x, pt.y);
+    }
+    return 1;
 }
 
 static HWND make_child(const wchar_t *cls, const wchar_t *text, DWORD style,
@@ -425,6 +473,19 @@ int bug_report_window(const char *save_dir, int kind)
     SetFocus(s_rw.edit);
 
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
+        int touch;
+
+        /* One click a tap: Proton sends each tap twice (touch_filter.c);
+         * a button clicked twice, the box got a double-click (Linux
+         * Findings 31). */
+        if (touch_filter(msg.message, &touch))
+            continue;
+        if (msg.message == WM_POINTERUP)
+            SetTimer(s_rw.win, TIMER_UNSTICK, UNSTICK_MS, NULL);
+        if ((msg.message == WM_LBUTTONDOWN || msg.message == WM_LBUTTONDBLCLK
+             || msg.message == WM_RBUTTONDOWN || msg.message == WM_RBUTTONDBLCLK)
+            && !unstick_press(&msg))
+            continue;
         if (msg.message == WM_KEYDOWN && key_down(&msg))
             continue;
         TranslateMessage(&msg);

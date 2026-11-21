@@ -135,7 +135,8 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         }
 
         haveDecensor = decensor.IsInstalled;
-        // No settings.ini yet: what the game would write on this PC (Low on a weak one, to-do 203).
+        // No settings.ini yet: what the game would write on this PC (Low on a weak one, to-do 203;
+        // Medium on a Steam Deck).
         bool fresh = !File.Exists(SaveFolder.SettingsIni);
         values.Clear();
         foreach (SettingOption option in schema.Options)

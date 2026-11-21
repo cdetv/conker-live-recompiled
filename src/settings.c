@@ -284,6 +284,12 @@ static const Option s_options[] = {
       "Slot 1's controller drawn in the bottom left corner (buttons,\n"
       "sticks, triggers; keys bound to it show as the buttons they press):\n"
       "1 = on, 0 = off (default). Applies at once." },
+    /* To-do 270 (user 2026-11-20): touchscreens, the Steam Deck's. */
+    { "display", "touch_cursor", OPT_BOOL, "0", "0", NULL, NULL,
+      "The mouse pointer on the game's own menus (main menu, pause screen)\n"
+      "after a touchscreen tap: 0 = hidden (default; a mouse or a trackpad\n"
+      "still shows it), 1 = shown. This port's own menus always show it.\n"
+      "Applies at once." },
     /* To-do 29 (2026-11-07): the game window's own size and place, kept
      * by the overlay when it is moved or resized (not full screen's). */
     { "display", "window_rect", OPT_WIN, "", "", "RECOMP_WINDOW_RECT", NULL,
@@ -1497,8 +1503,10 @@ int settings_preset_apply(int p)
  * AmdPowerXpressRequestHighPerformance exports, to-do 205) has under 2 GB of its own
  * video memory (integrated graphics: Intel reports ~128 MB, AMD APUs their
  * shared frame buffer) or is the software renderer, gets Low. The Steam Deck
- * (AMD 1002:163F LCD, 1002:1435 OLED) gets Low too (user 2026-11-11), named in
- * the line. RECOMP_WEAK_PC=1 / 0 forces it either way (tests). */
+ * (AMD 1002:163F LCD, 1002:1435 OLED) gets Medium (60 fps; user 2026-11-18,
+ * was Low since 2026-11-11), named in the line; that rule wins over the others.
+ * Returns the preset's index (0 Low, 1 Medium). RECOMP_WEAK_PC=1 / 0 forces
+ * Low / the defaults (tests). */
 int settings_first_start_preset(char *why, size_t n)
 {
     typedef HRESULT (WINAPI *CreateFactoryFn)(REFIID, void **);
@@ -1511,7 +1519,7 @@ int settings_first_start_preset(char *why, size_t n)
     IDXGIFactory6 *fac6 = NULL;
     const char *force = getenv("RECOMP_WEAK_PC");
     DWORD_PTR mask = 0, sys = 0;
-    int threads = 0, low = 0;
+    int threads = 0, low = 0, deck = 0;
     char gpu[160] = "graphics card unknown";
     HMODULE dx;
     CreateFactoryFn create;
@@ -1546,13 +1554,13 @@ int settings_first_start_preset(char *why, size_t n)
                 char name[128];
                 double gb = (double)d.DedicatedVideoMemory
                             / (1024.0 * 1024.0 * 1024.0);
-                int deck = d.VendorId == 0x1002
-                           && (d.DeviceId == 0x163F || d.DeviceId == 0x1435);
+                deck = d.VendorId == 0x1002
+                       && (d.DeviceId == 0x163F || d.DeviceId == 0x1435);
                 WideCharToMultiByte(CP_UTF8, 0, d.Description, -1, name,
                                     sizeof name, NULL, NULL);
                 snprintf(gpu, sizeof gpu, "%s%s, %.1f GB video memory",
                          deck ? "Steam Deck: " : "", name, gb);
-                if (deck || (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+                if ((d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
                     || d.DedicatedVideoMemory < (SIZE_T)2048 << 20)
                     low = 1;
             }
@@ -1563,7 +1571,7 @@ int settings_first_start_preset(char *why, size_t n)
     if (threads <= 4)
         low = 1;
     snprintf(why, n, "%d threads, %s", threads, gpu);
-    return low ? 0 : -1;
+    return deck ? 1 : low ? 0 : -1;
 }
 
 /* The "presets" member of --dump-settings: each preset's name and the
@@ -1636,8 +1644,9 @@ void settings_load(const char *save_dir)
                 if (o >= 0)
                     strcpy_s(s_value[o], MAX_PATH, s_presets[k].v[first]);
             }
-            fprintf(stderr, "[SETTINGS] first start on a weak PC (%s): the "
-                    "%s preset\n", why, s_preset_names[first]);
+            fprintf(stderr, "[SETTINGS] first start%s (%s): the %s preset\n",
+                    first == 0 ? " on a weak PC" : "", why,
+                    s_preset_names[first]);
         } else {
             fprintf(stderr, "[SETTINGS] first start (%s): the defaults\n",
                     why);

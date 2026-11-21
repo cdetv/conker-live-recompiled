@@ -11,9 +11,10 @@
 
 /* Window thread, from the overlay's message hook: every message while the
  * hook is in charge. x, y = a mouse message's position in back-buffer
- * pixels. Nonzero = taken (*result set). */
+ * pixels; touch = a touchscreen made it (to-do 270: no pointer for it
+ * unless touch_cursor = 1). Nonzero = taken (*result set). */
 int menu_mouse_message(HWND hwnd, UINT m, WPARAM w, LPARAM l, float x, float y,
-                       LRESULT *result);
+                       int touch, LRESULT *result);
 
 /* Executor thread, once a present, before the keyboard and mouse are handed
  * out: blocked = a menu of ours, the pause key or photo mode has the input.

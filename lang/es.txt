@@ -576,6 +576,12 @@ es: Mostrar entradas
 en: Controller 1 drawn in the bottom left corner: buttons, sticks and triggers as you press them (keys bound to it show as the buttons they press)
 es: Controlador 1 dibujado abajo a la izquierda: botones, sticks y gatillos al pulsarlos (las teclas asignadas se muestran como los botones que pulsan)
 
+en: Show cursor for touch
+es: Mostrar cursor al tocar
+
+en: The mouse pointer shows on the game's menus after a tap on a touchscreen too (off: only a mouse or a trackpad shows it; this port's own menus always show it)
+es: El puntero del ratón aparece en los menús del juego también al tocar una pantalla táctil (desactivado: solo un ratón o un trackpad lo muestran; los menús propios de este port lo muestran siempre)
+
 ## character_foliage_detail_choice
 en: Low (faster)
 es: Bajo (más rápido)
@@ -1033,6 +1039,9 @@ es: Opciones del controlador
 
 en: Cheats
 es: Trampas
+
+en: Close Game
+es: Cerrar juego
 
 ## combo_notes
 en: %s is also %s: that happens too

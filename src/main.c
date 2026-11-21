@@ -101,6 +101,7 @@
  */
 
 #include <windows.h>
+#include <intrin.h>     /* __readgsqword: veh_thread_storage_ok */
 #include <dbghelp.h>
 #include <stdio.h>
 #include <locale.h>     /* setlocale: UTF-8 text conversions (to-do 262) */
@@ -160,6 +161,10 @@ extern ptrdiff_t g_xbox_mem_offset;
 
 /* The toolkit's window (fb_present.c). */
 extern void xbox_FramebufferWindowSetAppTitle(const wchar_t *title, int stats);
+
+/* The toolkit's host check (host_info.c): Wine / Proton, Steam Deck. */
+extern int xbox_HostIsWine(void);
+extern void xbox_HostLogLine(void);
 
 /* ── Game and save folders ─────────────────────────────────── */
 
@@ -227,6 +232,10 @@ static const struct { const char *name, *value; } s_defaults[] = {
     { "RECOMP_PB_EXEC",       "1" },
     { "RECOMP_VBLANK",        "1" },
     { "RECOMP_PGRAPH_SWM",    "1;5;C;D;E" },
+    /* D3D's PGRAPH acknowledge is cleared by our override of its handler
+     * (recomp_manual.c sub_005411D0), not a DR0 write breakpoint: =0 = the
+     * breakpoint again (r-linux-proton.md R2). */
+    { "RECOMP_PGRAPH_NO_DR0", "1" },
     { "RECOMP_TITLE_KEVENTS", "1" },
     { "RECOMP_USB",           "1" },
     { "RECOMP_FLIP_PACE",     "title" },
@@ -309,8 +318,13 @@ static void open_log(void)
     SYSTEMTIME t;
     FILE *f;
 
+    /* Under Wine (Proton) stdout is the Unix one (Steam's output, a pipe or
+     * a terminal), so it always looks valid: write our own log there anyway,
+     * or a Linux player has no log to send (r-linux-proton.md R9). A script
+     * that reads stdout itself sets RECOMP_LOG_STDOUT=1. */
     if (out && out != INVALID_HANDLE_VALUE
-        && GetFileType(out) != FILE_TYPE_UNKNOWN)
+        && GetFileType(out) != FILE_TYPE_UNKNOWN
+        && (!xbox_HostIsWine() || getenv("RECOMP_LOG_STDOUT")))
         return;
     s_own_log = 1;
     sprintf_s(dir, MAX_PATH, "%s\\logs", s_save_dir);
@@ -807,10 +821,29 @@ extern int  xbox_OhciHandleMmio(void *ctx, uint32_t xbox_va);
 #define APU_TRAP_BASE 0xFE800000u
 #define APU_TRAP_END  0xFE880000u
 
+/* The guest registers (g_eax ...) are thread-local. A thread that is ending
+ * has no TLS block any more: Wine frees it before the heap's thread-detach,
+ * and a fault there (Proton, the photo writer's exit) made this handler fault
+ * reading g_eax, run again for that fault, and so on (423 [CRASH] lines, then
+ * a stack overflow on a thread holding the process heap's lock: the whole game
+ * froze). So: no register dump without TLS, and a fault inside a report ends
+ * the process instead of reporting itself. */
+extern unsigned long _tls_index;            /* this module's TLS slot (CRT) */
+static volatile LONG s_veh_reporting;       /* thread id writing a report */
+
+static bool veh_thread_storage_ok(void)
+{
+    void **slots = (void **)__readgsqword(0x58);   /* TEB ThreadLocalStoragePointer */
+    return slots && slots[_tls_index];
+}
+
 static LONG CALLBACK veh_handler(PEXCEPTION_POINTERS ep)
 {
     if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
         uintptr_t fault_addr = ep->ExceptionRecord->ExceptionInformation[1];
+        /* The guest address: the base moves (another offset under Proton,
+         * RECOMP_MEM_BASE), so every range check is on this, not the host's. */
+        uint32_t fault_va = (uint32_t)(fault_addr - (uintptr_t)g_xbox_mem_offset);
 
         /*
          * GPU register probe at 0xFD000000 range.
@@ -819,7 +852,7 @@ static LONG CALLBACK veh_handler(PEXCEPTION_POINTERS ep)
          * TODO: Implement mini x86-64 decoder for instruction skipping,
          * or connect to the xbox_nv2a library for proper handling.
          */
-        if (fault_addr >= 0xFD000000 && fault_addr < 0xFE000000) {
+        if (fault_va >= 0xFD000000 && fault_va < 0xFE000000) {
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
@@ -849,10 +882,24 @@ static LONG CALLBACK veh_handler(PEXCEPTION_POINTERS ep)
             }
         }
 
+        LONG tid = (LONG)GetCurrentThreadId();
+        if (s_veh_reporting == tid) {
+            fprintf(stderr, "[CRASH] Access violation at RIP=0x%llX while reporting a "
+                    "crash: ending\n", (unsigned long long)ep->ContextRecord->Rip);
+            fflush(stderr);
+            TerminateProcess(GetCurrentProcess(), EXCEPTION_ACCESS_VIOLATION);
+        }
         fprintf(stderr, "[CRASH] Access violation at RIP=0x%llX, fault addr=0x%llX (%s)\n",
             (unsigned long long)ep->ContextRecord->Rip,
             (unsigned long long)fault_addr,
             ep->ExceptionRecord->ExceptionInformation[0] ? "write" : "read");
+        if (!veh_thread_storage_ok()) {
+            fprintf(stderr, "  thread %lu has no thread storage (ending?): no guest "
+                    "registers\n", (unsigned long)tid);
+            fflush(stderr);
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+        InterlockedExchange(&s_veh_reporting, tid);
         fprintf(stderr, "  Xbox regs: eax=0x%08X ecx=0x%08X edx=0x%08X esp=0x%08X\n",
             g_eax, g_ecx, g_edx, g_esp);
         fprintf(stderr, "  Xbox regs: ebx=0x%08X esi=0x%08X edi=0x%08X\n",
@@ -884,6 +931,8 @@ static LONG CALLBACK veh_handler(PEXCEPTION_POINTERS ep)
             }
         }
         fflush(stderr);
+        /* A __try may catch this one (lightmaps.c) and the thread go on. */
+        InterlockedCompareExchange(&s_veh_reporting, 0, tid);
     }
 
     return EXCEPTION_CONTINUE_SEARCH;
@@ -1159,6 +1208,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
      * the process came in through WinMain or main. */
     if (!parse_args(__argc, __argv))
         return 1;
+    xbox_HostLogLine();
     /* The window's title; --debug adds the toolkit's FPS and draw count. */
     xbox_FramebufferWindowSetAppTitle(precompile_on()
                                       ? APP_TITLE L" - Precompiling Shaders"

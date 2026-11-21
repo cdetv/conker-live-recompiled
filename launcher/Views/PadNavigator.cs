@@ -100,6 +100,7 @@ public sealed class PadNavigator
             // A says what it does on the focused row; X what the list will show.
             string a = Focused switch
             {
+                ListBoxItem { Content: BrowserEntry { IsUp: true } } => "Up",
                 ListBoxItem { Content: BrowserEntry { IsFolder: true } } or ListBoxItem { Content: BrowserPlace } => "Open",
                 ListBoxItem { Content: BrowserEntry } => "Choose",
                 _ => "Select",

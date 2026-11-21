@@ -117,6 +117,7 @@ set(GAME_SOURCES
     src/padfeed.c
     src/bug_report.c
     src/bug_report_win.c
+    src/touch_filter.c
     src/debug_tools.c
     src/dev_logs.c
     src/speedrun.c

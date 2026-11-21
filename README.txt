@@ -4,7 +4,8 @@ Conker: Live & Recompiled
 A native Windows PC version of the original Xbox game Conker: Live &
 Reloaded. The game's own code was translated ("recompiled") to run directly
 on Windows, with sharper pictures, up to 120 fps, keyboard and mouse,
-an unlocked camera, photo mode and more.
+an unlocked camera, photo mode and more. It also runs on Linux and the
+Steam Deck through Steam's Proton (see LINUX AND STEAM DECK below).
 
 No game files are included: you need your own copy of the game.
 
@@ -15,7 +16,8 @@ https://github.com/cdetv/conker-live-recompiled
 WHAT YOU NEED
 -------------
 
-- Windows 10 or 11, 64-bit, and a graphics card with DirectX 11.
+- Windows 10 or 11, 64-bit, and a graphics card with DirectX 11. Or
+  Linux or a Steam Deck with Steam and its Proton 11.
 - Your own copy of Conker: Live & Reloaded for the original Xbox, PAL
   (Europe) or USA, as a disc image (.iso, Redump or XISO) or as the
   disc's files. It may be packed in a .zip, .7z or .rar. Or the Xbox
@@ -53,6 +55,35 @@ Theconker64) from its GitHub page; then turn on "Uncensored" in the
 Settings tab or in the game's F2 menu.
 
 
+LINUX AND STEAM DECK
+--------------------
+
+The same files run on Linux and the Steam Deck through Steam's Proton 11
+(tested on a Steam Deck LCD; other Linux PCs with Steam should work the
+same way). On a Steam Deck, set it up in Desktop Mode:
+
+1. Unzip this folder into a folder of its own, for example ~/Games/Conker,
+   and copy your disc image onto the computer.
+
+2. In Steam: Games > Add a Non-Steam Game to My Library > Browse, set the
+   file type to All Files, pick conker-launcher.exe in that folder and
+   click Add Selected Programs.
+
+3. Right-click it in your library > Properties > Compatibility: tick
+   "Force the use of a specific Steam Play compatibility tool" and choose
+   Proton 11.0.
+
+4. Start it from Steam and import the game as above. In the file browser
+   your home folder is Z: > home > your user name (deck on a Steam Deck),
+   and a Steam Deck's microSD card is D:.
+
+5. Click Play. From then on it starts from your Steam library, in Gaming
+   Mode too. Back + Start > Close Game takes you back to Steam.
+
+The project page's README has more for the Steam Deck: battery life,
+Precompile Shaders, the controls, gyro aiming.
+
+
 IN THE GAME
 -----------
 
@@ -62,7 +93,7 @@ IN THE GAME
   F3            Controls menu (keys, mouse, controllers per player)
   F4            Photo mode (on a controller: Back + RB; Esc leaves)
   Back + Start  On a controller: a menu with settings, controls, photo
-                mode, Report Bug and controller options
+                mode, Report Bug, controller options and Close Game
   F8            The cheat menu, once you've unlocked it
   F10           Report a bug: makes a .zip to attach to a GitHub issue (on a
                 controller: the Report Bug... button in the F2 menu)

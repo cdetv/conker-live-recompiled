@@ -131,6 +131,7 @@
 #include "backends/imgui_impl_dx11.h"
 
 #include "settings.h"
+#include "touch_filter.h"
 #include "cheats.h"
 #include "debug_tools.h"
 #include "speedrun.h"
@@ -318,6 +319,10 @@ static volatile LONG s_bb_w = 640, s_bb_h = 480;   /* back buffer size */
 static volatile LONG s_report_shot_want;
 static volatile LONG s_report_by_key;
 static volatile LONG s_report_busy;
+/* Which way the window was opened, for its log line and report.txt's "Made:"
+ * (a report opened from the Recomp Menu said "F10 in the game", Deck run G7). */
+enum { REPORT_FROM_F2, REPORT_FROM_KEY, REPORT_FROM_PAD_MENU };
+static volatile LONG s_report_from;
 
 /* Input for ImGui, queued on the window thread. Mouse positions are already
  * in back-buffer pixels. A full queue drops events: nobody types 256 keys
@@ -442,6 +447,7 @@ static void report_key(void)
         return;
     }
     InterlockedExchange(&s_report_by_key, 1);
+    InterlockedExchange(&s_report_from, REPORT_FROM_KEY);
     InterlockedExchange(&s_report_shot_want, 1);
     InterlockedExchange(&s_want_open, MENU_REPORT);
     if (!InterlockedExchange(&s_report_watching, 1)) {
@@ -495,10 +501,112 @@ static void cam_zoom_input(unsigned m, uintptr_t w)
         conker_CameraZoomNotch(-n);
 }
 
+/* To-do 270: touch-made mouse messages and Proton's second copy of a tap:
+ * touch_filter.c (shared with Report Bug's small window). */
+
+/* To-do 270's check (RECOMP_TOUCH_LOG=1; log only): a [TOUCH] line per mouse
+ * message and per touch / pointer message the game window gets, with
+ * Windows' own marks of a touch-made mouse message (GetMessageExtraInfo's
+ * signature, the input source) and the time since the last one, to see
+ * whether Proton passes the marks on, and if not, what else tells a tap;
+ * then what touch_filter made of it (touch, dropped). */
+static void touch_log(unsigned m, uintptr_t w, intptr_t l, int touch, int drop)
+{
+    typedef BOOL (WINAPI *SourceFn)(int *src);  /* INPUT_MESSAGE_SOURCE */
+    static int on = -1;
+    static SourceFn source;
+    static LONG last_t;
+    static bool have_last;
+    static const char *const devs[] = { "unavailable", "keyboard", "mouse", "?",
+                                        "touch", "?", "?", "?", "pen" };
+    const char *name, *dev, *mark;
+    char buf[24];
+    int src[2] = { 0, 0 };          /* device type, origin */
+    DWORD extra;
+    LONG t;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_TOUCH_LOG");
+        on = e && *e && *e != '0';
+        if (on) {
+            source = (SourceFn)(void *)GetProcAddress(GetModuleHandleA("user32.dll"),
+                                                      "GetCurrentInputMessageSource");
+            fprintf(stderr, "[TOUCH] log on (GetCurrentInputMessageSource %s)\n",
+                    source ? "found" : "missing");
+        }
+    }
+    if (!on)
+        return;
+    switch (m) {
+    case WM_MOUSEMOVE:      name = "move"; break;
+    case WM_LBUTTONDOWN:    name = "ldown"; break;
+    case WM_LBUTTONUP:      name = "lup"; break;
+    case WM_LBUTTONDBLCLK:  name = "ldouble"; break;
+    case WM_RBUTTONDOWN:    name = "rdown"; break;
+    case WM_RBUTTONUP:      name = "rup"; break;
+    case WM_MBUTTONDOWN:    name = "mdown"; break;
+    case WM_MBUTTONUP:      name = "mup"; break;
+    case WM_MOUSEWHEEL:     name = "wheel"; break;
+    case 0x0119:            name = "WM_GESTURE"; break;
+    case 0x0240:            name = "WM_TOUCH"; break;
+    case 0x0245:            name = "WM_POINTERUPDATE"; break;
+    case 0x0246:            name = "WM_POINTERDOWN"; break;
+    case 0x0247:            name = "WM_POINTERUP"; break;
+    default:
+        if (m < 0x0240 || m > 0x024F)
+            return;
+        snprintf(buf, sizeof buf, "pointer 0x%03X", m);
+        name = buf;
+        break;
+    }
+    extra = (DWORD)GetMessageExtraInfo();
+    t = GetMessageTime();
+    if (source && !source(src))
+        src[0] = src[1] = -1;
+    if ((extra & 0xFFFFFF00u) == 0xFF515700u)
+        mark = (extra & 0x80) ? "marked touch" : "marked pen";
+    else
+        mark = "unmarked";
+    if (src[0] == -1)
+        dev = "failed";
+    else if (src[0] == 16)
+        dev = "touchpad";
+    else if (src[0] >= 0 && src[0] <= 8)
+        dev = devs[src[0]];
+    else
+        dev = "?";
+    fprintf(stderr, "[TOUCH] %s %d,%d w=0x%llX extra=0x%08lX %s source=%s%s dt=%ld ms%s\n",
+            name, (int)(short)LOWORD(l), (int)(short)HIWORD(l),
+            (unsigned long long)w, (unsigned long)extra, mark, dev,
+            src[1] == 1 ? "/hardware" : src[1] == 2 ? "/injected"
+                : src[1] == 4 ? "/system" : "",
+            have_last ? (long)(t - last_t) : -1L,
+            drop ? " -> dropped" : touch ? " -> touch" : "");
+    last_t = t;
+    have_last = true;
+}
+
 static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
                        intptr_t *result)
 {
     float x = 0, y = 0;
+    int touch, drop = touch_filter(m, &touch);
+
+    touch_log(m, w, l, touch, drop);
+    /* To-do 272's check: the window's own focus changes. */
+    if ((m == WM_ACTIVATE || m == WM_ACTIVATEAPP || m == WM_SETFOCUS
+         || m == WM_KILLFOCUS) && dev_log(DLOG_MENUFOCUS))
+        fprintf(stderr, "[MENUFOCUS] window: %s (a menu %s)\n",
+                m == WM_ACTIVATE ? (LOWORD(w) == WA_INACTIVE ? "deactivated"
+                                    : LOWORD(w) == WA_CLICKACTIVE ? "activated by a click"
+                                    : "activated")
+                : m == WM_ACTIVATEAPP ? (w ? "app activated" : "app deactivated")
+                : m == WM_SETFOCUS ? "keyboard focus in" : "keyboard focus out",
+                s_want_open ? "up" : "not up");
+    if (drop) {
+        *result = 0;
+        return 1;
+    }
 
     s_hwnd = (HWND)hwnd;   /* for Close game */
     /* --precompile-shaders (precompile.c): no menus and no keys for the
@@ -547,7 +655,7 @@ static int window_hook(void *hwnd, unsigned m, uintptr_t w, intptr_t l,
         LRESULT r = 0;
         if (m >= WM_MOUSEFIRST && m <= WM_MOUSELAST && m != WM_MOUSEWHEEL)
             to_back_buffer(l, &x, &y);
-        if (menu_mouse_message((HWND)hwnd, m, w, l, x, y, &r)) {
+        if (menu_mouse_message((HWND)hwnd, m, w, l, x, y, touch, &r)) {
             *result = r;
             return 1;
         }
@@ -871,6 +979,13 @@ static bool s_popup_open;     /* a list or question was open last frame */
 static bool s_item_active;    /* a slider was held or typed in last frame:
                                * B and Esc are its, not the menu's */
 static bool s_ask_quit;       /* "Do you want to close the game?" is up */
+/* To-do 272: the question takes no answer in its first QUIT_ARM_SEC, and the
+ * menu under it no press in the QUIT_ARM_SEC after its No (ask_quit). On the
+ * Steam Deck, with Steam's on-screen keyboard up behind the game, each A also
+ * types a Space a frame later: it answered No at once, and after an A on No
+ * it pressed Close Game under the question again. */
+#define QUIT_ARM_SEC 0.25
+static double s_quit_closed_at = -1.0e9;    /* ImGui's time of the last No */
 static bool s_report_unfocus; /* Report Bug: Esc / B in the description: the
                                * box lets go of the keys, its text kept */
 static bool s_focus;          /* give the menu the focus next frame */
@@ -1172,6 +1287,9 @@ static void open_menu(void)
     s_focus = true;
     s_open = true;
     s_ask_quit = s_menu == MENU_QUIT;
+    /* ImGui's clock stands while no menu is up: an earlier No's wait
+     * (to-do 272) is not this menu's. */
+    s_quit_closed_at = -1.0e9;
     s_capture_idx = -1;
     s_ask_reset = -1;
     s_slot_opts = -1;
@@ -1869,6 +1987,144 @@ static void mem_tick(ID3D11Device *dev)
 }
 
 /* Queued keyboard and mouse into ImGui. Escape with no list open closes. */
+/* ---- to-do 272's check (RECOMP_MENU_FOCUS_LOG=1, console log menufocus) ------
+ *
+ * Log only: on the Steam Deck the Close Game question once opened behind the
+ * Recomp Menu and A pressed Close Game under it, while Steam's on-screen
+ * keyboard was up. [MENUFOCUS] lines: what our menus get (keys, pad presses,
+ * the window's focus) and, per change, which ImGui window has the focus and
+ * the windows' order; [IMGUI] lines: ImGui's own focus, pop-up and
+ * navigation events (its debug log, copied after each frame). */
+static bool focus_log(void)
+{
+    return dev_log(DLOG_MENUFOCUS) != 0;
+}
+
+static const char *menu_label(int menu)
+{
+    return menu == MENU_CONTROLS ? "controls" : menu == MENU_PHOTO ? "photo panel"
+         : menu == MENU_QUIT ? "quit question" : menu == MENU_DEBUG ? "Debug"
+         : menu == MENU_CHEATS ? "cheats" : menu == MENU_CONSOLE ? "console"
+         : menu == MENU_PAD ? "Recomp Menu" : menu == MENU_REPORT ? "Report Bug"
+         : menu == MENU_SETTINGS ? "settings" : "none";
+}
+
+/* One of drain_events' events, as the menu gets it (mouse moves left out). */
+static void focus_log_event(const Event &e)
+{
+    switch (e.msg) {
+    case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        fprintf(stderr, "[MENUFOCUS] key down 0x%02X%s%s\n", (unsigned)e.w,
+                e.msg == WM_SYSKEYDOWN ? " (sys)" : "",
+                (e.l & (1L << 30)) ? " (repeat)" : "");
+        break;
+    case WM_KEYUP: case WM_SYSKEYUP:
+        fprintf(stderr, "[MENUFOCUS] key up 0x%02X%s\n", (unsigned)e.w,
+                e.msg == WM_SYSKEYUP ? " (sys)" : "");
+        break;
+    case WM_CHAR:
+        fprintf(stderr, "[MENUFOCUS] char 0x%X\n", (unsigned)e.w);
+        break;
+    case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP: case WM_MBUTTONDOWN: case WM_MBUTTONUP:
+        fprintf(stderr, "[MENUFOCUS] mouse %s %s at %.0f,%.0f\n",
+                e.msg == WM_LBUTTONDOWN || e.msg == WM_LBUTTONUP ? "left"
+                : e.msg == WM_RBUTTONDOWN || e.msg == WM_RBUTTONUP ? "right" : "middle",
+                e.msg == WM_LBUTTONDOWN || e.msg == WM_RBUTTONDOWN
+                || e.msg == WM_MBUTTONDOWN ? "down" : "up", e.x, e.y);
+        break;
+    case WM_MOUSEWHEEL:
+        fprintf(stderr, "[MENUFOCUS] wheel %d\n", (int)GET_WHEEL_DELTA_WPARAM(e.w));
+        break;
+    case WM_KILLFOCUS:
+        fprintf(stderr, "[MENUFOCUS] focus lost (ImGui told)\n");
+        break;
+    }
+}
+
+/* Before NewFrame: ImGui's debug log on with the switch (its focus, pop-up
+ * and navigation events, not to stdout), back to its defaults without. */
+static void focus_log_begin(void)
+{
+    static bool was;
+    bool on = focus_log();
+    if (on == was)
+        return;
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    g.DebugLogFlags = on ? ImGuiDebugLogFlags_EventError | ImGuiDebugLogFlags_EventFocus
+                           | ImGuiDebugLogFlags_EventPopup | ImGuiDebugLogFlags_EventNav
+                         : ImGuiDebugLogFlags_EventError | ImGuiDebugLogFlags_OutputToTTY;
+    g.DebugLogBuf.clear();
+    g.DebugLogIndex.clear();
+    was = on;
+}
+
+/* After Render: ImGui's events of this frame, then a line when the focus,
+ * the windows' order (back to front, active root windows), the pop-ups or
+ * the question changed. */
+static void focus_log_end(void)
+{
+    static char last[768];
+    char now[768], order[384] = "", pops[192] = "";
+    size_t n = 0;
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+
+    if (!focus_log())
+        return;
+    if (g.DebugLogBuf.size() > 0) {
+        const char *p = g.DebugLogBuf.begin(), *end = g.DebugLogBuf.end();
+        while (p < end) {
+            const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
+            int len = (int)((nl ? nl : end) - p);
+            if (len > 0)
+                fprintf(stderr, "[IMGUI] %.*s\n", len, p);
+            p += len + 1;
+        }
+        g.DebugLogBuf.clear();
+        g.DebugLogIndex.clear();
+    }
+    for (ImGuiWindow *w : g.Windows) {
+        if (!w->Active || (w->Flags & ImGuiWindowFlags_ChildWindow))
+            continue;
+        n += (size_t)snprintf(order + n, n < sizeof(order) ? sizeof(order) - n : 0,
+                              "%s\"%s\"%s", n ? " < " : "", w->Name,
+                              w->Hidden ? " (hidden)" : "");
+        if (n >= sizeof(order))
+            break;
+    }
+    n = 0;
+    for (ImGuiPopupData &pd : g.OpenPopupStack) {
+        n += (size_t)snprintf(pops + n, n < sizeof(pops) ? sizeof(pops) - n : 0,
+                              "%s\"%s\"%s", n ? ", " : "",
+                              pd.Window ? pd.Window->Name : "(not drawn yet)",
+                              pd.Window && (pd.Window->Flags & ImGuiWindowFlags_Modal)
+                              ? " modal" : "");
+        if (n >= sizeof(pops))
+            break;
+    }
+    snprintf(now, sizeof(now), "menu %s, focus \"%s\" item 0x%08X%s, order %s, "
+             "pop-ups [%s], question %s%s%s%s",
+             s_open ? menu_label(s_menu) : "none",
+             g.NavWindow ? g.NavWindow->Name : "-", (unsigned)g.NavId,
+             g.NavCursorVisible ? "" : " (cursor hidden)", order[0] ? order : "-",
+             pops, s_ask_quit ? "up" : "no",
+             g.NavWindowingTarget ? ", window switching to \"" : "",
+             g.NavWindowingTarget ? g.NavWindowingTarget->Name : "",
+             g.NavWindowingTarget ? "\"" : "");
+    if (strcmp(now, last)) {
+        fprintf(stderr, "[MENUFOCUS] frame %d: %s\n", g.FrameCount, now);
+        memcpy(last, now, sizeof(last));
+    }
+}
+
+/* To-do 272: the Close game question's No was QUIT_ARM_SEC ago or less: a
+ * new press (A, Space, Enter, a click) is not yet the menu's under it. Only
+ * presses: a release always goes through, so nothing stays held. */
+static bool quit_just_closed(void)
+{
+    return ImGui::GetTime() - s_quit_closed_at < QUIT_ARM_SEC;
+}
+
 static void drain_events(bool *close)
 {
     Event ev[256];
@@ -1884,6 +2140,18 @@ static void drain_events(bool *close)
     for (unsigned i = 0; i < n; i++) {
         const Event &e = ev[i];
         bool down = true;
+        if (e.msg != WM_MOUSEMOVE && focus_log())
+            focus_log_event(e);
+        if ((((e.msg == WM_KEYDOWN || e.msg == WM_SYSKEYDOWN)
+              && (e.w == VK_SPACE || e.w == VK_RETURN))
+             || e.msg == WM_LBUTTONDOWN || e.msg == WM_RBUTTONDOWN
+             || e.msg == WM_MBUTTONDOWN) && quit_just_closed()) {
+            fprintf(stderr, "[OVERLAY] Close game question closed %.0f ms ago: "
+                    "%s ignored\n", (ImGui::GetTime() - s_quit_closed_at) * 1000.0,
+                    e.msg == WM_KEYDOWN || e.msg == WM_SYSKEYDOWN
+                    ? (e.w == VK_SPACE ? "Space" : "Enter") : "a click");
+            continue;
+        }
         /* Setting a key (to-do 38): a key, mouse button or wheel notch, or a
          * combo: hold one, press another. The first one is taken when it is
          * let go with nothing pressed meanwhile; another pressed while it is
@@ -2251,6 +2519,14 @@ static void feed_pad(bool *close)
      * and pressed again: ImGui took the held B that opened the quit
      * question as a press of its No, and the question closed at once
      * (user's DualShock 4, 2026-11-07). */
+    /* To-do 272: an A held in the moment after the Close game question's No
+     * (the one that answered it, or a new press) waits likewise. */
+    if ((st.Gamepad.wButtons & XINPUT_GAMEPAD_A) && quit_just_closed()) {
+        if (pressed & XINPUT_GAMEPAD_A)
+            fprintf(stderr, "[OVERLAY] Close game question closed %.0f ms ago: "
+                    "A ignored\n", (ImGui::GetTime() - s_quit_closed_at) * 1000.0);
+        s_pad_latch |= XINPUT_GAMEPAD_A;
+    }
     s_pad_latch &= st.Gamepad.wButtons;
     st.Gamepad.wButtons &= (WORD)~s_pad_latch;
     if (!s_pad_menu) {
@@ -2258,6 +2534,10 @@ static void feed_pad(bool *close)
         pressed = 0;
     }
     const XINPUT_GAMEPAD &g = st.Gamepad;
+    if (pressed && focus_log())
+        fprintf(stderr, "[MENUFOCUS] pad: pressed 0x%04X on host pad %d; ImGui gets "
+                "0x%04X%s\n", (unsigned)pressed, controls_pad_of_port(0),
+                (unsigned)g.wButtons, s_pad_menu ? "" : " (the pad is the game's)");
     /* Not with the Close game question up: it wants an answer. */
     if ((pressed & (XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK)) && !s_ask_quit)
         *close = true;
@@ -3122,31 +3402,48 @@ static void remember_window(const char *key, unsigned w, unsigned h)
  * then ends the process; files are already written). No, Esc or B go back
  * to the menu, which never closes under it (s_popup_open). s_ask_quit is
  * the state, not ImGui's popup stack: a question left open by F2 is gone
- * when the menu opens again. */
+ * when the menu opens again.
+ * To-do 272: no answer counts in its first QUIT_ARM_SEC. On the Steam Deck,
+ * with Steam's on-screen keyboard up behind the game, each A press also
+ * types a Space a frame later: the A opened the question and the Space
+ * pressed its No at once (the question seen only under the menu). After
+ * No, the menu under it waits as long (quit_just_closed). */
 static void ask_quit(void)
 {
+    static double opened_at;
     const char *id = TL("Close game");
 
-    if (s_ask_quit && !ImGui::IsPopupOpen(id))
+    if (s_ask_quit && !ImGui::IsPopupOpen(id)) {
         ImGui::OpenPopup(id);
+        opened_at = ImGui::GetTime();
+    }
     if (!ImGui::BeginPopupModal(id, NULL, ImGuiWindowFlags_AlwaysAutoResize
                                 | ImGuiWindowFlags_NoSavedSettings))
         return;
     s_popup_open = true;
     if (s_ask_quit) {
+        const double age = ImGui::GetTime() - opened_at;
+        const bool armed = age >= QUIT_ARM_SEC;
         ImGui::TextUnformatted(T("Do you want to close the game?"));
-        if (ImGui::Button(TL("Yes"))) {
+        const bool yes = ImGui::Button(TL("Yes"));
+        ImGui::SameLine();
+        const bool no = ImGui::Button(TL("No"));
+        /* No has the pad/keyboard cursor first: a stray A does not quit. */
+        ImGui::SetItemDefaultFocus();
+        const bool back = ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+                          || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
+        if ((yes || no || back) && !armed) {
+            fprintf(stderr, "[OVERLAY] Close game question: %s %.0f ms after it "
+                    "opened, ignored\n", yes ? "Yes" : no ? "No" : "Esc / B",
+                    age * 1000.0);
+        } else if (yes) {
             fprintf(stderr, "[OVERLAY] Close game\n");
             fflush(stderr);
             PostMessageA(s_hwnd, WM_CLOSE, 0, 0);
-        }
-        ImGui::SameLine();
-        bool no = ImGui::Button(TL("No"));
-        /* No has the pad/keyboard cursor first: a stray A does not quit. */
-        ImGui::SetItemDefaultFocus();
-        if (no || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
-                || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))
+        } else if (no || back) {
             s_ask_quit = false;
+            s_quit_closed_at = ImGui::GetTime();
+        }
     }
     if (!s_ask_quit)
         ImGui::CloseCurrentPopup();
@@ -3296,6 +3593,11 @@ static void display_tab(unsigned w, unsigned h, bool *close)
              N_("Controller 1 drawn in the bottom left corner: buttons, sticks "
                 "and triggers as you press them (keys bound to it show as the "
                 "buttons they press)"));
+    /* To-do 270 (user 2026-11-20). */
+    checkbox(N_("Show cursor for touch"), "touch_cursor", true,
+             N_("The mouse pointer shows on the game's menus after a tap on a "
+                "touchscreen too (off: only a mouse or a trackpad shows it; "
+                "this port's own menus always show it)"));
 }
 
 static void presets_choice(void);
@@ -3714,10 +4016,11 @@ static int wrapped_tabs(const char *id, const Tab *tabs, int n, int cur,
 
 /* Report Bug (to-do 12) from a menu: its window in place of the menu, with the
  * picture of the next frame (the game runs under the menu, so that is the game
- * without menus). */
-static void ask_report(void)
+ * without menus). from: REPORT_FROM_F2 or REPORT_FROM_PAD_MENU. */
+static void ask_report(LONG from)
 {
     InterlockedExchange(&s_report_by_key, 0);
+    InterlockedExchange(&s_report_from, from);
     InterlockedExchange(&s_report_shot_want, 1);
     InterlockedExchange(&s_want_open, MENU_REPORT);
 }
@@ -3910,7 +4213,7 @@ static void build_menu(unsigned w, unsigned h, bool *close)
     ImGui::SameLine();
     note(N_("(F2, Esc, B or Start)"));
     if (ImGui::Button(TL("Report Bug...")))
-        ask_report();
+        ask_report(REPORT_FROM_F2);
     {
         ControlKeys rk = controls_hotkeys(PHOTO_REPORT);
         if (rk) {
@@ -3933,8 +4236,8 @@ static void build_menu(unsigned w, unsigned h, bool *close)
 
 /* The way to every menu with a controller alone: F2's and F3's, photo mode on
  * or off, the Debug menu with --debug (the cheat menu in a normal game, once
- * unlocked), Report Bug. The game keeps running under it, as under F2.
- * Start, Back or B close it (feed_pad). */
+ * unlocked), Report Bug, and Close Game (to-do 269). The game keeps running
+ * under it, as under F2. Start, Back or B close it (feed_pad). */
 static void build_pad_menu(unsigned w, unsigned h, bool *close)
 {
     const ImVec2 size(ImGui::GetFontSize() * 13.0f, 0.0f);
@@ -3982,7 +4285,16 @@ static void build_pad_menu(unsigned w, unsigned h, bool *close)
         InterlockedExchange(&s_want_open, MENU_CHEATS);
     }
     if (ImGui::Button(TL("Report Bug"), size))
-        ask_report();
+        ask_report(REPORT_FROM_PAD_MENU);
+    /* To-do 269 (user 2026-11-20, for the pad-only Steam Deck): F2's Close game
+     * at the bottom, its question over the list; No, B or Esc go back to the
+     * list (feed_pad leaves B to the question while it is up). */
+    ImGui::Separator();
+    if (ImGui::Button(TL("Close Game"), size)) {
+        s_ask_quit = true;
+        fprintf(stderr, "[OVERLAY] Recomp Menu: close game question\n");
+    }
+    ask_quit();
     s_item_active = false;              /* buttons only: B and Esc close */
     ImGui::End();
 }
@@ -7488,7 +7800,9 @@ static void report_begin(void)
         s_report_paused = true;
     }
     fprintf(stderr, "[REPORT] window open (%s; picture %ux%u%s)\n",
-            s_report_by_key ? "its key" : "F2's button",
+            s_report_from == REPORT_FROM_KEY ? "its key"
+            : s_report_from == REPORT_FROM_PAD_MENU ? "the Recomp Menu"
+            : "F2's button",
             s_report_px ? s_report_w : 0, s_report_px ? s_report_h : 0,
             s_report_px ? "" : ", none");
 }
@@ -7529,6 +7843,7 @@ struct ReportJob {
     char *desc;
     int saves;
     char extra[256];
+    const char *origin;           /* report.txt's "Made: ..., <origin>" */
 };
 
 static DWORD WINAPI report_job(void *arg)
@@ -7563,7 +7878,7 @@ static DWORD WINAPI report_job(void *arg)
     r.description = j->desc;
     r.shot_png = shot[0] ? shot : NULL;
     r.include_saves = j->saves;
-    r.origin = "F10 in the game";
+    r.origin = j->origin;
     r.extra = j->extra;
     rc = bug_report_write(&r, zip, sizeof(zip));
     if (shot[0])
@@ -7604,6 +7919,9 @@ static void report_create(void)
     j->desc = _strdup(s_report_desc);
     j->saves = s_report_saves ? 1 : 0;
     report_extra(j->extra, sizeof(j->extra));
+    j->origin = s_report_from == REPORT_FROM_KEY ? "in the game, its Report Bug key"
+                : s_report_from == REPORT_FROM_PAD_MENU ? "in the game, the Recomp Menu"
+                : "in the game, F2's Report Bug button";
     fprintf(stderr, "[REPORT] creating (description %u bytes, saves %s, "
             "picture %s)\n", (unsigned)strlen(s_report_desc),
             s_report_saves ? "in" : "out", s_report_px ? "in" : "none");
@@ -8367,6 +8685,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     }
 
     ui_text_frame();
+    focus_log_begin();
     ImGui_ImplDX11_NewFrame();
     ImGui::NewFrame();
     s_popup_open = false;
@@ -8427,6 +8746,7 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
                         || s_menu == MENU_PAD
                         || ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow)));
     ImGui::Render();
+    focus_log_end();
 
     /* The back end does not touch the render targets; we put back ours. */
     ctx->OMGetRenderTargets(1, &old_rtv, &old_dsv);

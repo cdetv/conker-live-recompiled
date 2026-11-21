@@ -4,7 +4,7 @@
  *
  *   report.txt         where it was made, the player's description, game
  *                      version and release, PC info, the files in the zip
- *   screenshot.png     the moment (F10 in the game only)
+ *   screenshot.png     the moment (made in the game only)
  *   logs\              the last LOG_RUNS runs' conker_*.log + _kernel.log
  *   settings.ini, launcher.ini, shader_cache\precompiled.ini (when there)
  *   saves\             when ticked (a few KB a slot)

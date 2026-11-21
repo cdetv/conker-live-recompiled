@@ -576,6 +576,12 @@ fr: Affichage des touches
 en: Controller 1 drawn in the bottom left corner: buttons, sticks and triggers as you press them (keys bound to it show as the buttons they press)
 fr: Manette 1 dessinée en bas à gauche : boutons, sticks et gâchettes quand vous appuyez (les touches liées s'affichent comme les boutons qu'elles pressent)
 
+en: Show cursor for touch
+fr: Afficher le curseur au toucher
+
+en: The mouse pointer shows on the game's menus after a tap on a touchscreen too (off: only a mouse or a trackpad shows it; this port's own menus always show it)
+fr: Le pointeur de la souris apparaît aussi dans les menus du jeu après un appui sur un écran tactile (désactivé : seuls une souris ou un pavé tactile l'affichent ; les menus propres à ce portage l'affichent toujours)
+
 ## character_foliage_detail_choice
 en: Low (faster)
 fr: Bas (plus rapide)
@@ -1033,6 +1039,9 @@ fr: Options de la manette
 
 en: Cheats
 fr: Triches
+
+en: Close Game
+fr: Fermer le jeu
 
 ## combo_notes
 en: %s is also %s: that happens too

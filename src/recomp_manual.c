@@ -2463,6 +2463,58 @@ static void fl_tune_report(uint32_t mgr)
     }
 }
 
+/* The sound manager's count of wave banks waiting to register (to-do 267).
+ * [mgr+0xC] goes up by one when a level's music block (0x00017A40) or our
+ * bank_add (debug_tools.c: the cheat sounds, the jukebox) marks a bank
+ * wanted (+0x20) that isn't primed (+0x15) and may prime (+0x22 clear), and
+ * down by one when audio_update's register step (0x00017C30 -> 0x00035760)
+ * registers it, which also clears "wanted". So it always equals the banks
+ * that are wanted, not primed and may prime. But 0x00017A40 doesn't look at
+ * "wanted": a bank already waiting is counted again and registered once, and
+ * the count stays 1 too high for good. From the second level load on, loader
+ * state 3 (0x002AB870, once [0x00847040] = 5) waits for that count to reach
+ * 0, so every later load waited forever. How it happened: on a fresh main menu
+ * the cheat sounds load sfx_X (conker_CheatScreen is true there a moment)
+ * while the game is still copying it to the hard disk cache (0x00035760
+ * refuses until the copy is done); Precompile Shaders, the soak test and the
+ * cutscene viewer sweep start a level load within seconds, which counted it
+ * again.
+ * Each audio update the count is set to the banks really waiting when it
+ * is above (or below 0). RECOMP_BANK_COUNT_FIX=0 = original. */
+static uint32_t banks_waiting_to_register(uint32_t mgr)
+{
+    uint32_t banks = xact_va_ok(mgr) ? MEM32(mgr + 4) : 0, b, i, n = 0;
+
+    for (i = 0; xact_va_ok(banks) && i < 76; i++) {
+        b = MEM32(banks + 4 * i);
+        if (xact_va_ok(b) && MEM8(b + 0x20) && !MEM8(b + 0x15) && !MEM8(b + 0x22))
+            n++;
+    }
+    return n;
+}
+
+static void bank_count_fix(void)
+{
+    static int on = -1;
+    uint32_t mgr = MEM32(0x00847024u), real;
+    int32_t have;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_BANK_COUNT_FIX");
+        on = !(e && *e == '0');
+    }
+    if (!on || !xact_va_ok(mgr) || !xact_va_ok(MEM32(mgr + 4)))
+        return;
+    have = (int32_t)MEM32(mgr + 0xC);
+    real = banks_waiting_to_register(mgr);
+    if (have >= 0 && (uint32_t)have <= real)
+        return;
+    fprintf(stderr, "[LOAD] sound banks waiting to register: the game's count said %d, %u"
+            " really wait; set to %u (to-do 267)\n", have, real, real);
+    fflush(stderr);
+    MEM32(mgr + 0xC) = real;
+}
+
 /* Past 5 s in a load: the sound banks still registered (what the waits
  * wait for), every 10 s. From the loading steps and audio_update. */
 static void fl_wait_report(void)
@@ -2488,6 +2540,9 @@ static void fl_wait_report(void)
         n++;
     }
     fprintf(stderr, "%s\n", n ? "" : " none");
+    if (xact_va_ok(mgr))
+        fprintf(stderr, "[LOAD]   banks waiting to register: %u (the game's count: %d)\n",
+                banks_waiting_to_register(mgr), (int32_t)MEM32(mgr + 0xC));
     fl_tune_report(mgr);
     fflush(stderr);
 }
@@ -3078,6 +3133,7 @@ void sub_00017CF0(void)
     snd_update();
     level_music_wait_for_banks();
     audio_update_logs();
+    bank_count_fix();           /* to-do 267 */
     fl_wait_report();
     fl_restop();
     if (on < 0) {
@@ -14704,6 +14760,55 @@ void sub_00538690_enter(void)
 {
     if (s_dome_tint && MEM32(g_esp) == 0x00156063u)
         dome_patch_band(pb_put() - 8u);
+}
+
+/* ── PGRAPH interrupt acknowledge (Linux track P4; r-linux-proton.md R2) ──
+ *
+ * d3d_pgraph_intr_handler (0x005411D0; ecx = D3D's GPU record, [ecx] = the
+ * register base) acknowledges PGRAPH_INTR (0x400100) by writing back what it
+ * read (0x5411D0 + 0x5F; and 0x1000 alone first on its context-switch path,
+ * which our kernel never raises), and returns PGRAPH_INTR as it is at the
+ * end. On the hardware the register is write-1-to-clear: the bits go, the
+ * handler returns 0 and d3d_gpu_dpc stops calling it. Against plain memory
+ * they stay, the handler is called again and the software method runs
+ * twice. The toolkit emulated the clear with a DR0 write breakpoint on its
+ * timer thread (kernel_bridge.c pgraph_w1c_*): a debug exception per trap,
+ * ~1,000 a second at 60 fps, and two wineserver / ptrace round trips each
+ * under Proton. Here the bits it read are cleared after it, and the return
+ * value is the register then: what the hardware ends with, on every thread
+ * that calls it (also D3D's polling callers 0x00540729 / 0x00540B47, which
+ * the breakpoint never saw), with no debug registers. Only while the
+ * breakpoint is off (built-in RECOMP_PGRAPH_NO_DR0=1; =0 = the breakpoint
+ * and this passes through, for A/B). */
+extern void sub_005411D0_gen(void);
+void sub_005411D0(void)
+{
+    static int on = -1;
+    static volatile LONG lines;
+    uint32_t base, before;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_PGRAPH_NO_DR0");
+        on = e && *e;
+        fprintf(stderr, "[PGRAPH] interrupt acknowledge: %s\n",
+                on ? "cleared after D3D's handler (no debug registers)"
+                   : "DR0 write breakpoint (RECOMP_PGRAPH_NO_DR0=0)");
+    }
+    if (!on) {
+        sub_005411D0_gen();
+        return;
+    }
+    base = MEM32(g_ecx);
+    before = MEM32(base + 0x400100u);
+    sub_005411D0_gen();
+    if (before) {
+        if ((before & 0x1000u) && InterlockedIncrement(&lines) <= 4)
+            fprintf(stderr, "[PGRAPH] context-switch interrupt %08X seen"
+                    " (not expected from our kernel)\n", before);
+        _InterlockedAnd((volatile long *)XBOX_PTR(base + 0x400100u),
+                        (long)~before);
+        g_eax = MEM32(base + 0x400100u);
+    }
 }
 
 extern void sub_001557D0_gen(void);
