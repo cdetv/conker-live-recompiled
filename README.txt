@@ -183,9 +183,10 @@ LICENCE AND CREDITS
 
 The project's own code is MIT licensed (LICENSE.txt). It is built with the
 xboxrecomp toolkit by Ned Heller (sp00nznet) and contributors, the xemu
-sound emulation (LGPL, in xemu_apu.dll), Dear ImGui, SDL3, AMD FidelityFX
-CAS and FSR 1, NVIDIA FXAA, SMAA, .NET and Avalonia; the full list, with
-every licence, is THIRD_PARTY_NOTICES.txt.
+sound emulation (LGPL, in xemu_apu.dll), the Full DSP sound effects after
+yacineolivier-maker's ConkerLR-Recomp (MIT), Dear ImGui, SDL3, AMD
+FidelityFX CAS and FSR 1, NVIDIA FXAA, SMAA, .NET and Avalonia; the full
+list, with every licence, is THIRD_PARTY_NOTICES.txt.
 
 Conker: Live & Reloaded, Conker and Xbox are trademarks of Microsoft
 Corporation / Rare Ltd. This project is not affiliated with or endorsed by

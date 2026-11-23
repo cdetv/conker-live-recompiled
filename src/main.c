@@ -185,6 +185,9 @@ static int s_own_log;
 #include "edit_save.h"
 #include "legacy_cp.h"      /* [CODEPAGE]: the PC's own code page (to-do 262) */
 #include "cheats.h"
+#include "audio_fx.h"
+#include "speaker_test.h"
+#include "room_reverb.h"
 
 /* The asset cache's features at start (caff_cache_start): "voice" = the lip
  * timelines for the Mouse / Bear voice in conversations (to-do 216), wanted
@@ -605,6 +608,8 @@ static BOOL parse_args(int argc, char **argv)
     /* Sets the runtime switches it holds, so before anything reads one. */
     settings_load(s_save_dir);
     apply_builtin_defaults();
+    audio_fx_init();   /* to-do 50: Processing for the APU's first frame */
+    room_reverb_init();   /* to-do 232 */
     {
         /* Compiled vertex-program shaders kept between runs (the toolkit's
          * nv2a_vsh_gpu.c), in the save folder: a program then compiles once
@@ -1365,6 +1370,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     /* The decensor patch's redirect (src/decensor.c), before any open. */
     decensor_init(s_save_dir);
     voice_pitch_init(s_save_dir);   /* to-dos 212, 216: Conker the Mouse / Bear */
+    speaker_test_init(s_game_dir);  /* to-do 231: the cash register's wave bank */
     /* Save folders named after their saves (src/save_names.c); after the
      * decensor redirect, which it passes other paths on to. */
     save_names_init(s_save_dir);

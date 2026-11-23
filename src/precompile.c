@@ -36,10 +36,13 @@
  *
  * Finished (user 2026-11-07): .vso / .cso files older than the run's start
  * that nothing used are deleted. "Used" = a scan found it, a draw loaded it
- * or drew it from the startup load (the toolkit sets its write time:
- * RECOMP_SHADER_CACHE_TOUCH); the startup load of every .vso is not a use.
- * A resumed run counts from the first run's start, so what the earlier,
- * stopped runs used stays. A stopped run deletes nothing.
+ * or drew it from the startup load, or it is a combiner setup's shader that
+ * ps_setups.bin lists (drawn in real play before: the menu walk-in's, which
+ * the pass never draws, were deleted and made again mid-game; to-do 278).
+ * The toolkit sets its write time (RECOMP_SHADER_CACHE_TOUCH); the startup
+ * load of every .vso is not a use. A resumed run counts from the first
+ * run's start, so what the earlier, stopped runs used stays. A stopped run
+ * deletes nothing.
  */
 #include <windows.h>
 #include <stdint.h>

@@ -852,6 +852,96 @@ ja: その他(環境音、メニュー音)
 en: Cutscene volume
 ja: カットシーンのボリューム
 
+en: Full DSP (the console's own effects)
+ja: Full DSP（本体のエフェクト）
+
+en: Standard (as before 0.5.0)
+ja: スタンダード（0.5.0 以前と同じ）
+
+en: Stereo (speakers)
+ja: ステレオ（スピーカー）
+
+en: Headphones (no speaker crosstalk)
+ja: ヘッドホン（スピーカーのクロストークなし）
+
+en: 5.1 surround
+ja: 5.1 サラウンド
+
+en: Mono (both sides the same)
+ja: モノラル（左右同じ）
+
+en: Processing
+ja: 処理
+
+en: Full DSP: the Xbox's own sound effects (speaker crosstalk, filters, the reverb when the game asks for it), made the way the console makes them. Standard: the sound of the versions before 0.5.0
+ja: Full DSP：Xbox 本体のサウンドエフェクト（スピーカーのクロストーク、フィルター、ゲームが求めるときのリバーブ）を、本体と同じ方法で作ります。スタンダード：0.5.0 より前のバージョンの音
+
+en: 5.1 surround always uses Full DSP
+ja: 5.1 サラウンドは常に Full DSP を使います
+
+en: Output
+ja: 出力
+
+en: Stereo: speakers. Headphones: 3D sounds straight to each ear (Full DSP without its speaker crosstalk). 5.1 surround: six speakers, or Windows Sonic / Dolby Atmos for Headphones; from the next start. Mono: both sides the same, for hearing on one side or one speaker
+ja: ステレオ：スピーカー。ヘッドホン：3D サウンドをそれぞれの耳へ直接（スピーカーのクロストークなしの Full DSP）。5.1 サラウンド：6 つのスピーカー、または Windows Sonic / Dolby Atmos for Headphones。次の起動から。モノラル：左右同じ音。片耳で聞く場合やスピーカーが 1 つの場合に
+
+en: To or from 5.1 surround: from the next start
+ja: 5.1 サラウンドへの切り替え・解除：次の起動から
+
+en: Standard has no speaker crosstalk, so this sounds as Stereo
+ja: スタンダードにはスピーカーのクロストークがないため、ステレオと同じ音になります
+
+en: Front left
+ja: 左前
+
+en: Centre
+ja: センター
+
+en: Front right
+ja: 右前
+
+en: Back right
+ja: 右後ろ
+
+en: Back left
+ja: 左後ろ
+
+en: Subwoofer
+ja: サブウーファー
+
+en: All in turn
+ja: すべて順番に
+
+en: Left
+ja: 左
+
+en: Right
+ja: 右
+
+en: Both in turn
+ja: 両方を順番に
+
+en: Both
+ja: 両方
+
+en: Speaker test
+ja: スピーカーテスト
+
+en: The sound is paused (P or photo mode): unpause to test
+ja: サウンドが一時停止中です（P またはフォトモード）：再開してからテストしてください
+
+en: 5.1 is folded to stereo: this sound device has two speakers
+ja: 5.1 はステレオにまとめられます：このサウンドデバイスはスピーカーが 2 つです
+
+en: Enhanced room reverb
+ja: 強化ルームリバーブ
+
+en: Caves, halls, the sewer and other rooms get room sound with the game's own reverb presets, picked per level, and under water whenever Conker is. The original never turns its reverb on in story mode
+ja: 洞窟、ホール、下水道などの部屋に、ゲーム自身のリバーブプリセットで部屋の響きを付けます（レベルごとに選択）。コンカーが水中にいるときは常に水中の響きになります。オリジナルはストーリーモードでリバーブを一度も使いません
+
+en: Room reverb strength
+ja: ルームリバーブの強さ
+
 en: Mix
 ja: ミックス
 

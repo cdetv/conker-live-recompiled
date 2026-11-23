@@ -148,6 +148,9 @@
 #include "menu_mouse.h"
 #include "dev_logs.h"
 #include "gpu_busy.h"
+#include "audio_fx.h"               /* Processing (to-do 50, --debug) */
+#include "speaker_test.h"           /* to-do 231 (--debug) */
+#include "room_reverb.h"            /* to-do 232 (--debug) */
 #include "legacy_cp.h"              /* WM_CHAR's code page (to-do 262) */
 #include "ui_text.h"                /* T(), TL(), N_(): the menu language (to-do 229) */
 
@@ -2781,6 +2784,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
         /* Its key switches it whatever the environment said. */
         if (!strcmp(key, "hide_hud"))
             conker_SetHideHud(on);
+        if (!strcmp(key, "room_reverb"))
+            room_reverb_apply_settings();
         if (!strcmp(key, "hide_bubbles"))
             conker_SetHideBubbles(on);
         if (!strncmp(key, "rumble", 6))
@@ -3014,6 +3019,8 @@ static void choice(const char *label, const char *key,
                     apply_aa();
                 if (!s_error[0] && !strcmp(key, "crt"))
                     apply_crt();
+                if (!s_error[0] && (!strcmp(key, "processing") || !strcmp(key, "output")))
+                    audio_fx_apply_settings();
                 if (!s_error[0] && !strcmp(key, "frame_rate")
                     && !settings_env_override(key))
                     conker_SetFrameRate(atoi(values[i]));
@@ -3098,6 +3105,7 @@ static Slide s_slides[] = {
     { "dialogue_volume", 100.0f, false },
     { "other_volume", 100.0f, false },
     { "cutscene_volume", 100.0f, false },
+    { "room_reverb_strength", 100.0f, false },   /* to-do 232 (--debug) */
 };
 
 /* The sound channels' settings keys, in conker_SetSoundChannel's order. */
@@ -3203,6 +3211,14 @@ static void apply_slider(const char *key, bool saved)
     if (!strcmp(key, "cutscene_volume")) {
         if (!settings_env_override(key))
             conker_SetCutsceneVolume(slide_value(slide_for(key)));
+        return;
+    }
+    /* To-do 232: live while it moves, the saved value once let go. */
+    if (!strcmp(key, "room_reverb_strength")) {
+        if (saved)
+            room_reverb_apply_settings();
+        else
+            room_reverb_set_strength(slide_value(slide_for(key)));
         return;
     }
     if (sound_channel_of(key) >= 0) {
@@ -3834,10 +3850,116 @@ static void sound_tab(unsigned w, unsigned h, bool *close)
         slider(N_("Cutscene volume"), "cutscene_volume", 0.0f, 200.0f, "100",
                "%.0f %%", N_("Back to the original (100 %)"));
     }
-    /* evenodd and front are for testing: listed only with --debug. */
-    choice(N_("Mix"), "mix", mix_values, mix_names, settings_debug() ? 4 : 2,
-           false);
-    checkbox(N_("3D sound (HRTF)"), "hrtf", false);
+    /* To-do 50 (0.5.0; user 2026-11-22: Full DSP the default): Processing
+     * and Output switch at once (the toolkit crossfades); 5.1 from the next
+     * start. */
+    static const char *const proc_values[] = { "full_dsp", "standard" };
+    static const char *const proc_names[] = {
+        N_("Full DSP (the console's own effects)"), N_("Standard (as before 0.5.0)"),
+    };
+    static const char *const out_values[] = { "stereo", "headphones", "surround", "mono" };
+    static const char *const out_names[] = {
+        N_("Stereo (speakers)"), N_("Headphones (no speaker crosstalk)"), N_("5.1 surround"),
+        N_("Mono (both sides the same)"),
+    };
+    const bool surround = audio_fx_output_started() == AUDIO_OUT_SURROUND;
+    /* Notes for a developer's environment variable: not translated. */
+    auto dnote = [](const char *text) {
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped("%s", text);
+        ImGui::PopStyleColor();
+    };
+    /* 5.1 can't be made by Standard (its mix is stereo per voice). */
+    ImGui::BeginDisabled(surround);
+    choice(N_("Processing"), "processing", proc_values, proc_names, 2, true,
+           N_("Full DSP: the Xbox's own sound effects (speaker crosstalk, filters, "
+              "the reverb when the game asks for it), made the way the console makes "
+              "them. Standard: the sound of the versions before 0.5.0"));
+    ImGui::EndDisabled();
+    if (audio_fx_env_decides())
+        dnote("    RECOMP_APU_PROCESSING is set, so this is not used");
+    else if (surround)
+        note(N_("    5.1 surround always uses Full DSP"));
+    choice(N_("Output"), "output", out_values, out_names, 4, true,
+           N_("Stereo: speakers. Headphones: 3D sounds straight to each ear (Full DSP "
+              "without its speaker crosstalk). 5.1 surround: six speakers, or Windows "
+              "Sonic / Dolby Atmos for Headphones; from the next start. Mono: both "
+              "sides the same, for hearing on one side or one speaker"));
+    if (audio_fx_output_env_decides())
+        dnote("    RECOMP_APU_OUTPUT is set, so this is not used");
+    else if (audio_fx_output_waits())
+        note(N_("    To or from 5.1 surround: from the next start"));
+    else if (audio_fx_output() == AUDIO_OUT_HEADPHONES && !audio_fx_processing())
+        note(N_("    Standard has no speaker crosstalk, so this sounds as Stereo"));
+
+    /* To-do 231: the game's cash register on each speaker the output has
+     * now (six for 5.1 on a six-speaker device, else left / right; Mono:
+     * both at once). A lit button plays; pressed again, it stops. Nothing
+     * plays while the sound is paused (P / photo mode). */
+    struct Spk { const char *label; int spk; };
+    static const Spk six[] = {
+        { N_("Front left"), SPK_FRONT_LEFT }, { N_("Centre"), SPK_CENTRE },
+        { N_("Front right"), SPK_FRONT_RIGHT }, { N_("Back right"), SPK_BACK_RIGHT },
+        { N_("Back left"), SPK_BACK_LEFT }, { N_("Subwoofer"), SPK_SUBWOOFER },
+        { N_("All in turn"), SPK_ALL },
+    };
+    static const Spk two[] = {
+        { N_("Left"), SPK_FRONT_LEFT }, { N_("Right"), SPK_FRONT_RIGHT },
+        { N_("Both in turn"), SPK_ALL },
+    };
+    static const Spk mono[] = { { N_("Both"), SPK_BOTH } };
+    const bool is_mono = audio_fx_output() == AUDIO_OUT_MONO
+                         && audio_fx_output_started() != AUDIO_OUT_SURROUND;
+    const Spk *b = speaker_test_channels() == 6 ? six : is_mono ? mono : two;
+    const int nb = b == six ? 7 : b == mono ? 1 : 3;
+    const int now = speaker_test_playing();
+    ImGui::TextUnformatted(T("Speaker test"));
+    ImGui::BeginDisabled(s_apu_held);
+    for (int i = 0; i < nb; i++) {
+        const bool lit = now == b[i].spk;
+        if (i && i != 3 && i != 6)      /* three a row (the panel is narrow) */
+            ImGui::SameLine();
+        if (lit)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+        ImGui::PushID(b[i].spk);
+        if (ImGui::Button(T(b[i].label)))
+            speaker_test_start(lit ? -1 : b[i].spk);
+        ImGui::PopID();
+        if (lit)
+            ImGui::PopStyleColor();
+    }
+    ImGui::EndDisabled();
+    if (s_apu_held)
+        note(N_("    The sound is paused (P or photo mode): unpause to test"));
+    else if (b == two && audio_fx_output_started() == AUDIO_OUT_SURROUND)
+        note(N_("    5.1 is folded to stereo: this sound device has two speakers"));
+
+    /* To-do 232: Enhanced room reverb (off by default), its strength under
+     * it while on (the dump lists it under its parent). Switches at once. */
+    checkbox(N_("Enhanced room reverb"), "room_reverb", true,
+             N_("Caves, halls, the sewer and other rooms get room sound with the "
+                "game's own reverb presets, picked per level, and under water "
+                "whenever Conker is. The original never turns its reverb on in "
+                "story mode"));
+    if (room_reverb_env_decides())
+        dnote("    RECOMP_ROOM_REVERB is set, so this is not used");
+    if (s_dump || strcmp(settings_get("room_reverb"), "0")) {
+        ImGui::Indent();
+        s_dump_parent = "room_reverb";
+        slider(N_("Room reverb strength"), "room_reverb_strength", 0.0f, 100.0f,
+               "100", "%.0f %%", N_("Back to full (100 %)"));
+        s_dump_parent = NULL;
+        ImGui::Unindent();
+    }
+
+    /* Standard's own options: --debug only since 0.5.0 (Full DSP is the
+     * default; evenodd and front are for testing). */
+    if (settings_debug()) {
+        choice(N_("Mix"), "mix", mix_values, mix_names, 4, false);
+        checkbox(N_("3D sound (HRTF)"), "hrtf", false);
+    }
     checkbox(N_("Silence sound while paused"), "pause_silence", true);
 }
 

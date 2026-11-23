@@ -36,6 +36,9 @@
 #include "debug_tools.h"
 #include "cmd_pipe.h"
 #include "dev_logs.h"
+#include "audio_fx.h"
+#include "speaker_test.h"
+#include "room_reverb.h"
 
 int xbox_PadLiveLine(const char *line);
 long overlay_dev_shot(const char *path, char *why, size_t why_size);
@@ -226,6 +229,25 @@ static void reply(const char *fmt, ...)
 }
 
 static void complain(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    say(CONSOLE_ERROR, fmt, ap);
+    va_end(ap);
+}
+
+static void watch_load_guard(const char *why);  /* with cmd_watch */
+
+/* The same for commands in files of their own (console_task.c). */
+void console_reply(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    say(CONSOLE_REPLY, fmt, ap);
+    va_end(ap);
+}
+
+void console_complain(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -507,6 +529,146 @@ static void cmd_cheat(int argc, char **argv)
           cheat_is_set(id) ? "on" : "off");
 }
 
+/* processing [standard|full|swap] (to-do 50): Standard or Full DSP at once
+ * (the toolkit crossfades), kept in settings.ini like F2's Processing row;
+ * switches even when RECOMP_APU_PROCESSING was set at start. */
+static void cmd_processing(int argc, char **argv)
+{
+    int full;
+    if (argc < 2) {
+        reply("Processing: %s%s%s", audio_fx_processing() ? "full (Full DSP)" : "standard",
+              audio_fx_env_decides() ? " (RECOMP_APU_PROCESSING was set at start)" : "",
+              audio_fx_output_started() == AUDIO_OUT_SURROUND
+                  ? "; 5.1 surround plays Full DSP anyway" : "");
+        return;
+    }
+    if (!_stricmp(argv[1], "full") || !_stricmp(argv[1], "full_dsp"))
+        full = 1;
+    else if (!_stricmp(argv[1], "standard"))
+        full = 0;
+    else if (!_stricmp(argv[1], "swap"))
+        full = !audio_fx_processing();
+    else {
+        complain("processing wants standard, full or swap");
+        return;
+    }
+    audio_fx_set_processing(full);
+    settings_set("processing", full ? "full_dsp" : "standard");
+    reply("Processing: %s%s", full ? "full (Full DSP)" : "standard",
+          audio_fx_output_started() == AUDIO_OUT_SURROUND
+              ? " (5.1 surround plays Full DSP anyway)" : "");
+}
+
+/* output [stereo|headphones|surround|mono] (to-do 50 step 4, 230): where the
+ * sound goes, kept in settings.ini like F2's Output row. Stereo, Headphones
+ * and Mono at once (crossfaded); to or from 5.1 surround from the next start. */
+static void cmd_output(int argc, char **argv)
+{
+    static const char *const names[] = {
+        "stereo", "headphones (Full DSP without the speaker crosstalk)",
+        "5.1 surround (Full DSP)", "mono (both sides the same)",
+    };
+    int out;
+    if (argc < 2) {
+        reply("Output: %s%s%s", names[audio_fx_output()],
+              audio_fx_output_waits() ? "; this run plays " : "",
+              audio_fx_output_waits() ? names[audio_fx_output_started()] : "");
+        return;
+    }
+    if (!_stricmp(argv[1], "stereo"))
+        out = AUDIO_OUT_STEREO;
+    else if (!_stricmp(argv[1], "headphones"))
+        out = AUDIO_OUT_HEADPHONES;
+    else if (!_stricmp(argv[1], "surround") || !_stricmp(argv[1], "5.1"))
+        out = AUDIO_OUT_SURROUND;
+    else if (!_stricmp(argv[1], "mono"))
+        out = AUDIO_OUT_MONO;
+    else {
+        complain("output wants stereo, headphones, surround or mono");
+        return;
+    }
+    audio_fx_set_output(out);
+    settings_set("output", audio_fx_output_key(out));
+    reply("Output: %s%s", names[out],
+          audio_fx_output_waits() ? " from the next start (5.1 is set when the game starts)" : "");
+}
+
+/* speakertest [left|right|both|fl|c|fr|bl|br|sub|all|off] (to-do 231): the
+ * game's cash register on that speaker (F2 Sound's "Speaker test" row). */
+static void cmd_speakertest(int argc, char **argv)
+{
+    int s;
+    if (argc < 2) {
+        reply("Speaker test: %s playing; the output makes %d channels "
+              "(speakers: %s)", speaker_test_name(speaker_test_playing()),
+              speaker_test_channels(), speaker_test_channels() == 6
+              ? "fl c fr br bl sub, all" : "left right both, all");
+        return;
+    }
+    if (!_stricmp(argv[1], "off") || !_stricmp(argv[1], "stop")) {
+        speaker_test_stop();
+        reply("Speaker test stopped");
+        return;
+    }
+    s = speaker_test_parse(argv[1]);
+    if (s < 0) {
+        complain("speakertest wants left, right, both, fl, c, fr, bl, br, sub, all or off");
+        return;
+    }
+    if (!speaker_test_start(s)) {
+        complain("no speaker test: the game's cash register wasn't found (see the log)");
+        return;
+    }
+    reply("Speaker test: %s", speaker_test_name(s));
+}
+
+/* reverb [off|auto|<0-25>|<name>] (to-do 232): Enhanced room reverb. off /
+ * auto turn it off / on (kept in settings.ini like F2's row; switches even
+ * when RECOMP_ROOM_REVERB was set at start; both end a forced preset); a
+ * preset's number or name plays it everywhere until auto or off (not
+ * saved). No value: what plays and why. */
+static const char *line_rest(void);
+
+static void cmd_reverb(int argc, char **argv)
+{
+    const char *arg = line_rest(), *why;
+    int p;
+
+    if (argc < 2) {
+        int now = room_reverb_now(&why);
+        if (now >= 0)
+            reply("Room reverb %s%s: preset %d %s (%s), strength %.0f %%",
+                  room_reverb_on() ? "on" : "off",
+                  room_reverb_forced() >= 0 ? ", forced" : "", now,
+                  room_reverb_preset_name(now), why, room_reverb_strength());
+        else
+            reply("Room reverb %s: the game's own reverb plays (%s)",
+                  room_reverb_on() ? "on" : "off", why);
+        return;
+    }
+    if (!_stricmp(argv[1], "off") && argc == 2) {
+        settings_set("room_reverb", "0");
+        room_reverb_switch(0);
+        reply("Room reverb off");
+        return;
+    }
+    if (!_stricmp(argv[1], "auto") || !_stricmp(argv[1], "on")) {
+        settings_set("room_reverb", "1");
+        room_reverb_switch(1);
+        reply("Room reverb on: the level's room, under water when Conker is");
+        return;
+    }
+    p = room_reverb_preset_of(arg);
+    if (p < 0) {
+        complain("reverb wants off, auto, a preset 0-25 or its name (cave, stone room, "
+                 "sewer pipe, underwater, none ...)");
+        return;
+    }
+    room_reverb_force(p);
+    reply("Room reverb: preset %d %s everywhere until reverb auto or off", p,
+          room_reverb_preset_name(p));
+}
+
 static void cmd_cue(int argc, char **argv)
 {
     char *end;
@@ -646,6 +808,7 @@ static void warp_go(int cp, int level)
         complain("%s", no);
         return;
     }
+    watch_load_guard("the warp loads a level");
     /* A level by itself: its first checkpoint, or as the soak test loads it if none. */
     if (cp < 0)
         cp = conker_WarpFirstCheckpoint(level);
@@ -699,6 +862,10 @@ static void cmd_cutscene(int argc, char **argv)
     int level, scene;
     const char *no;
 
+    if (argc >= 2 && !strcmp(argv[1], "seek")) {   /* to-do 245, console_task.c */
+        console_cutscene_seek(argc, argv);
+        return;
+    }
     if (argc >= 2 && !strcmp(argv[1], "list")) {
         char line[200];
         int only = argc >= 3 ? cutscene_level_arg(argv[2]) : -1;
@@ -737,10 +904,11 @@ static void cmd_cutscene(int argc, char **argv)
             complain("%s", no);
             return;
         }
+        watch_load_guard("the cutscene viewer loads its level");
         conker_CutsceneWatch(level, scene);
         reply("Playing it, then back here. Hold to skip");
     } else {
-        complain("cutscene list [level], cutscene <level> <scene>");
+        complain("cutscene list [level], cutscene <level> <scene>, cutscene seek <seconds>");
     }
 }
 
@@ -873,6 +1041,7 @@ static void cmd_warp(int argc, char **argv)
             complain("%s", no);
             return;
         }
+        watch_load_guard("the warp loads a level");
         conker_WarpSoak(level);
         reply("Warping, as the soak test loads it. Nothing is saved until the main menu");
     } else if (!strcmp(argv[1], "scene") && argc >= 4) {
@@ -886,6 +1055,7 @@ static void cmd_warp(int argc, char **argv)
             complain("%s", no);
             return;
         }
+        watch_load_guard("the warp loads a level");
         conker_WarpToCutscene(level, scene);
         reply("Warping. Nothing is saved until the main menu");
     } else if (!strcmp(argv[1], "list")) {
@@ -1148,6 +1318,7 @@ static void cmd_kill(int argc, char **argv)
         return;
     }
     reply("Conker dies (a life lost)");
+    watch_load_guard("the death reloads the level");
 }
 
 static void cmd_chars(int argc, char **argv)
@@ -1851,6 +2022,8 @@ void console_frame(void)
     shots_frame();
     script_frame();
     pipe_frame();
+    if (conker_LevelLoading())      /* a load the console didn't start (a door, a death) */
+        watch_load_guard("a level is loading");
 }
 
 /* ---- logs switched live (to-do 171) ---------------------------------------- */
@@ -2200,6 +2373,24 @@ static void cmd_poke(int argc, char **argv)
     reply("0x%08X %s: %s -> %s", a, t, before, after);
 }
 
+/* A watch write-protects the dword's 4 KB page. A level load that reads a
+ * package into that page then fails (st 0xC0000001) and the game halts
+ * (r5-big-cheats-checks.md "Gotcha"). Packages are read into the heap, never
+ * into the XBE's own image, so a watch past the image's end is stopped before
+ * any load: by warp / cutscene / kill as they ask for one, and once a frame
+ * for any other (console_frame). A watch on the image's globals stays on. */
+#define WATCH_IMAGE_END 0x00891D10u
+
+static void watch_load_guard(const char *why)
+{
+    uint32_t a = xbox_WatchAddress();
+
+    if (!a || a < WATCH_IMAGE_END)
+        return;
+    xbox_WatchStop();
+    reply("Watch on 0x%08X off: %s (a watched heap page breaks the level's file reads)", a, why);
+}
+
 static void cmd_watch(int argc, char **argv)
 {
     uint32_t a;
@@ -2239,8 +2430,9 @@ static const Command s_commands[] = {
     { "help", "[command]", "what the commands do", cmd_help },
     { "warp", "list | <level> | soak <level> | cp list [level] | cp <number> | scene <level> <scene>",
       "goes to a level, checkpoint or cutscene; nothing is saved until the main menu", cmd_warp },
-    { "cutscene", "list [level] | <level> <scene>",
-      "plays a cutscene, then back to where you were", cmd_cutscene },
+    { "cutscene", "list [level] | <level> <scene> | seek <seconds>|+<s>|-<s>",
+      "plays a cutscene, then back to where you were; seek jumps the one playing to a time "
+      "(events between are skipped or played again; the voice plays on)", cmd_cutscene },
     { "noclip", "[on|off]", "Conker flies through everything", cmd_noclip },
     { "pos", "", "where Conker is", cmd_pos },
     { "tp", "<x> <y> <z> | <number> | cam",
@@ -2283,6 +2475,22 @@ static const Command s_commands[] = {
     { "tune", "list [name] | <number|name> | stop", "plays one of the game's music tunes",
       cmd_tune },
     { "imp", "<number>", "the fire imp's animation, on the main menu", cmd_imp },
+    { "processing", "[standard|full|swap]",
+      "how the sound is made: Standard (as before) or Full DSP (the console's own "
+      "effects); switches at once, kept in settings.ini (no value: which plays)",
+      cmd_processing },
+    { "output", "[stereo|headphones|surround|mono]",
+      "where the sound goes: stereo, headphones (Full DSP without the speaker crosstalk), "
+      "5.1 surround (Full DSP; from the next start) or mono (both sides the same); kept in "
+      "settings.ini (no value: which plays)", cmd_output },
+    { "speakertest", "[left|right|both|fl|c|fr|bl|br|sub|all|off]",
+      "the game's cash register on one speaker (as F2 Sound's speaker test; all = each speaker of "
+      "the output in turn, the game's sound faded out meanwhile; no value: what plays)",
+      cmd_speakertest },
+    { "reverb", "[off|auto|<0-25>|<name>]",
+      "Enhanced room reverb: off / auto (the level's room, under water when Conker is; kept in "
+      "settings.ini), a preset's number or name everywhere (cave, stone room, sewer pipe ...; "
+      "not saved; no value: what plays and why)", cmd_reverb },
     { "bind", "<key> <command> | list | reset",
       "a key runs a console command (kept in settings.ini; reset = none); autoexec.txt in the "
       "save folder runs at the main menu", cmd_bind },
@@ -2321,6 +2529,9 @@ static const Command s_commands[] = {
     { "flag", "list [text|on|off] | <name|number> [on|off]",
       "the story's flags (the game's 238 tasks, as Edit Save names them): which are done, "
       "and setting one; the level sees a change from its next load", cmd_flag },
+    { "task", "[list | <id|name> [code [0-6|+offset] [lines]]]",
+      "the level scripts loaded (the game's tasks): state, flags; one's variables (BSS) and "
+      "its bytecode from an event or offset", console_cmd_task },
     { "peek", "<address> [bytes | u8|u16|u32|s8|s16|s32|f32 [count]]",
       "reads the game's memory (hex address; [0x008470DC]+0x3E0 reads the pointer there)",
       cmd_peek },

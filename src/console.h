@@ -50,6 +50,15 @@ const char *console_history(int step);
 const char *console_page_name(int page);
 int console_page_step(int page, int dir);
 
+/* For commands kept in a file of their own: an answer and an error line, as
+ * console.c's own commands give them (shown, logged, sent down the pipe). */
+void console_reply(const char *fmt, ...);
+void console_complain(const char *fmt, ...);
+
+/* console_task.c (to-do 245): task, and cutscene seek (argv from "cutscene"). */
+void console_cmd_task(int argc, char **argv);
+void console_cutscene_seek(int argc, char **argv);
+
 #ifdef __cplusplus
 }
 #endif

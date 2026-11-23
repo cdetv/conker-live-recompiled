@@ -101,6 +101,7 @@ these.
 | `warp scene <level> <scene>` | Starts at the level's first checkpoint and plays that cutscene; the story carries on from there. |
 | `cutscene list [level]` | Lists the levels with cutscenes and their scene numbers. |
 | `cutscene <level> <scene>` | Plays that scene, then brings you back where you were. Nothing is saved. |
+| `cutscene seek <seconds>` | Jumps the cutscene playing to that time (`+5` / `-3`: from now). Sounds and subtitles in between are skipped (or played again going back), and the voice plays on from where it was. |
 | `noclip [on\|off]` | Fly through walls and floors (left stick, A up, B or RT down; keyboard W, Space, Ctrl). Nothing can kill Conker; turning it off in the air lands him safely. Stays on across warps. |
 | `freecam [on\|off]` | Photo mode's fly camera while the world keeps running. G (Back + X) swaps between the camera and Conker; Back + X also turns it on from gameplay. |
 | `pos` | Says where Conker is (x y z) and in which level. |
@@ -172,6 +173,10 @@ only, except Multiplayer unlocks.
 | `tune list [part of a name]` | Lists the game's music tunes with their numbers. |
 | `tune <number\|name>` | Plays a tune in place of the music playing (a tune from another level loads its music first). One that can't play where you are says where it plays. |
 | `tune stop` | Brings the replaced music back. |
+| `processing [standard\|full\|swap]` | How the sound is made: Standard (as before) or Full DSP (the console's own sound effects); swap = the other one. Switches at once and is remembered. No value: which one plays. |
+| `output [stereo\|headphones\|surround\|mono]` | Where the sound goes: stereo, headphones (Full DSP without the speaker crosstalk), 5.1 surround (Full DSP; from the next start) or mono (both sides the same). Remembered. No value: which one is set. |
+| `speakertest [left\|right\|both\|fl\|c\|fr\|bl\|br\|sub\|all\|off]` | The game's cash register on one speaker, or `all` of them in turn, the game's sound faded out meanwhile (as F2 Sound's speaker test). No value: what plays. |
+| `reverb [off\|auto\|<0-25>\|<name>]` | Enhanced room reverb: `auto` turns it on (each level's room sound, and under water whenever Conker is), `off` turns it off; both are remembered. A preset's number or name (`cave`, `stone room`, `sewer pipe`, `underwater`, `none` ...) plays everywhere until `auto` or `off`. No value: what plays and why. |
 
 ### Scripts, screenshots and marks
 
@@ -194,10 +199,12 @@ only, except Multiplayer unlocks.
 |---|---|
 | `flag list [text\|on\|off]` | The story's flags (the game's 238 tasks, as a save names them), each on or off; `text` keeps the names holding it. |
 | `flag <name> on\|off` | Marks one done or not. The level sees it from its next load (a warp, or a death's reload). Try a story state without a save made for it; back up your saves first. |
+| `task` | The level scripts loaded now (the game's tasks): id, name, running / waiting / done. |
+| `task <id\|name> [code [0-6\|+offset] [lines]]` | One script: its variables, and its bytecode from an event or offset. Reads only. |
 | `log list` / `log <name> on\|off` | Switches a log on or off while the game runs (`audio`, `char`, `skip`, `volume`, `dof` ...; the list says what each prints). The lines go to the game's log. |
 | `peek <address> [bytes \| type [count]]` | Reads the game's memory (hex address; types u8 u16 u32 s8 s16 s32 f32; `[0x008470DC]+0x3E0` reads the pointer there first). |
 | `poke <address> <value> [type]` | Writes it. Easy to crash the game with: for people who know what the address is. |
-| `watch <address>` / `watch off` | Logs which game code changes a value (`[WATCH]` lines). One at a time; slows the game while on. |
+| `watch <address>` / `watch off` | Logs which game code changes a value (`[WATCH]` lines). One at a time; slows the game while on. A watch on the heap is switched off when a level loads (it would break the load). |
 
 ```
 # warp to the windmill, skip its scene, walk, take a picture
@@ -264,5 +271,7 @@ In debug mode the settings menu (F2) also offers:
   at the original 30 Hz.
 - **Tail-shaped ring** (Fixes, under Cutscenes): the hold-to-skip ring drawn as Conker's
   curled-up tail.
-- **Sound**: a **Solo** box per sound channel, and two more speaker mixes for testing.
+- **Sound**: a **Solo** box per sound channel; **Mix** (how Standard processing mixes to
+  stereo, with two more speaker mixes for testing) and **3D sound (HRTF)**, which only matter
+  with Processing set to Standard.
 - **F1** at level 2 also shows memory and video card use.

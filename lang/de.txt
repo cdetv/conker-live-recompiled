@@ -852,6 +852,96 @@ de: Sonstiges (Umgebung, Menütöne)
 en: Cutscene volume
 de: Lautstärke Zwischensequenzen
 
+en: Full DSP (the console's own effects)
+de: Full DSP (die Effekte der Konsole)
+
+en: Standard (as before 0.5.0)
+de: Standard (wie vor 0.5.0)
+
+en: Stereo (speakers)
+de: Stereo (Lautsprecher)
+
+en: Headphones (no speaker crosstalk)
+de: Kopfhörer (ohne Lautsprecher-Übersprechen)
+
+en: 5.1 surround
+de: 5.1-Surround
+
+en: Mono (both sides the same)
+de: Mono (beide Seiten gleich)
+
+en: Processing
+de: Verarbeitung
+
+en: Full DSP: the Xbox's own sound effects (speaker crosstalk, filters, the reverb when the game asks for it), made the way the console makes them. Standard: the sound of the versions before 0.5.0
+de: Full DSP: die eigenen Soundeffekte der Xbox (Lautsprecher-Übersprechen, Filter, der Hall, wenn das Spiel ihn verlangt), so erzeugt, wie die Konsole sie erzeugt. Standard: der Sound der Versionen vor 0.5.0
+
+en: 5.1 surround always uses Full DSP
+de: 5.1-Surround nutzt immer Full DSP
+
+en: Output
+de: Ausgabe
+
+en: Stereo: speakers. Headphones: 3D sounds straight to each ear (Full DSP without its speaker crosstalk). 5.1 surround: six speakers, or Windows Sonic / Dolby Atmos for Headphones; from the next start. Mono: both sides the same, for hearing on one side or one speaker
+de: Stereo: Lautsprecher. Kopfhörer: 3D-Klänge direkt an jedes Ohr (Full DSP ohne sein Lautsprecher-Übersprechen). 5.1-Surround: sechs Lautsprecher oder Windows Sonic / Dolby Atmos for Headphones; ab dem nächsten Start. Mono: beide Seiten gleich, für Hören auf einer Seite oder einen Lautsprecher
+
+en: To or from 5.1 surround: from the next start
+de: Zu oder von 5.1-Surround: ab dem nächsten Start
+
+en: Standard has no speaker crosstalk, so this sounds as Stereo
+de: Standard hat kein Lautsprecher-Übersprechen, daher klingt dies wie Stereo
+
+en: Front left
+de: Vorne links
+
+en: Centre
+de: Mitte
+
+en: Front right
+de: Vorne rechts
+
+en: Back right
+de: Hinten rechts
+
+en: Back left
+de: Hinten links
+
+en: Subwoofer
+de: Subwoofer
+
+en: All in turn
+de: Alle nacheinander
+
+en: Left
+de: Links
+
+en: Right
+de: Rechts
+
+en: Both in turn
+de: Beide nacheinander
+
+en: Both
+de: Beide
+
+en: Speaker test
+de: Lautsprechertest
+
+en: The sound is paused (P or photo mode): unpause to test
+de: Der Sound ist angehalten (P oder Fotomodus): zum Testen fortsetzen
+
+en: 5.1 is folded to stereo: this sound device has two speakers
+de: 5.1 wird auf Stereo heruntergemischt: dieses Audiogerät hat zwei Lautsprecher
+
+en: Enhanced room reverb
+de: Erweiterter Raumhall
+
+en: Caves, halls, the sewer and other rooms get room sound with the game's own reverb presets, picked per level, and under water whenever Conker is. The original never turns its reverb on in story mode
+de: Höhlen, Hallen, die Kanalisation und andere Räume bekommen Raumklang mit den eigenen Hall-Voreinstellungen des Spiels, pro Level gewählt, und unter Wasser, wann immer Conker es ist. Das Original schaltet seinen Hall im Story-Modus nie ein
+
+en: Room reverb strength
+de: Stärke des Raumhalls
+
 en: Mix
 de: Mix
 

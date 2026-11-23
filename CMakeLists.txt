@@ -101,6 +101,7 @@ set(GAME_SOURCES
     src/sample_profiler.c
     src/settings.c
     src/console.c
+    src/console_task.c
     src/cmd_pipe.c
     src/cheats.c
     src/chords.c
@@ -121,6 +122,9 @@ set(GAME_SOURCES
     src/debug_tools.c
     src/dev_logs.c
     src/speedrun.c
+    src/audio_fx.c
+    src/speaker_test.c
+    src/room_reverb.c
     src/gpu_busy.c
     src/caff.c
     src/caff_guest.c

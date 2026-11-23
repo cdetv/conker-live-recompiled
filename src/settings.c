@@ -449,14 +449,49 @@ static const Option s_options[] = {
       "quieter (0 = silent), above louder (200 = four times, +12 dB; very\n"
       "loud moments are turned down briefly instead of distorting).",
       0.0f, 200.0f },
+    /* To-do 50 (0.5.0; user 2026-11-22: Full DSP the default); read by
+     * audio_fx.c (RECOMP_APU_PROCESSING set before the game wins). */
+    { "audio", "processing", OPT_CHOICE, "full_dsp", "full_dsp", NULL,
+      "full_dsp standard",
+      "How the sound is made: full_dsp = the console's own sound effects\n"
+      "(speaker crosstalk, filters, the reverb when the game asks for it),\n"
+      "made the way the Xbox makes them (default); standard = as before\n"
+      "0.5.0 (sounds like the xemu emulator). Switches at once." },
+    /* To-do 50 step 4, 230; read by audio_fx.c (RECOMP_APU_OUTPUT set before
+     * the game wins). */
+    { "audio", "output", OPT_CHOICE, "stereo", "stereo", NULL,
+      "stereo headphones surround mono",
+      "Where the sound goes. stereo = speakers (default), headphones =\n"
+      "full_dsp without the speaker crosstalk (3D sounds straight to each\n"
+      "ear; with standard processing it sounds the same as stereo),\n"
+      "surround = 5.1: six channels when the sound device has them (5.1 or\n"
+      "7.1 speakers, or Windows Sonic / Dolby Atmos for Headphones), else\n"
+      "folded to stereo; always full_dsp. mono = both sides play the same\n"
+      "sound (hearing on one side, or one speaker). stereo, headphones and\n"
+      "mono switch at once; to or from surround from the next start." },
+    /* To-do 232 (user 2026-11-22); read by room_reverb.c (RECOMP_ROOM_REVERB
+     * / _STRENGTH set before the game win). */
+    { "audio", "room_reverb", OPT_BOOL, "0", "0", NULL, NULL,
+      "Enhanced room reverb: caves, halls, the sewer and other rooms get\n"
+      "room sound with the game's own reverb presets, picked per level, and\n"
+      "under water whenever Conker is; the original never turns its reverb\n"
+      "on in story mode. Works with full_dsp and standard. 1 = on, 0 = off\n"
+      "(default). Switches at once." },
+    { "audio", "room_reverb_strength", OPT_NUM, "100", "100", NULL, NULL,
+      "How strong the room reverb is, 0 to 100 percent (100 = the presets\n"
+      "as the game has them, default).",
+      0.0f, 100.0f },
+    /* Standard's own options: the F2 menu shows them with --debug since
+     * 0.5.0 (Full DSP is the default). */
     { "audio", "mix", OPT_CHOICE, "xemu", "xemu", "RECOMP_APU_MIXDOWN",
       "xemu speakers evenodd front",
-      "How sound is mixed to stereo: xemu (default; sounds like the xemu\n"
-      "emulator) or speakers (wider stereo placement). evenodd and front\n"
-      "are for testing (the F2 menu shows them with --debug)." },
+      "With standard processing only: how sound is mixed to stereo: xemu\n"
+      "(default; sounds like the xemu emulator) or speakers (wider stereo\n"
+      "placement). evenodd and front are for testing. The F2 menu shows\n"
+      "it with --debug." },
     { "audio", "hrtf", OPT_BOOL, "1", "1", "RECOMP_APU_HRTF", NULL,
       "3D sound filtering (HRTF) for sounds placed around Conker:\n"
-      "1 = on (default), 0 = off." },
+      "1 = on (default), 0 = off. The F2 menu shows it with --debug." },
     { "audio", "pause_silence", OPT_BOOL, "1", "1", NULL, NULL,
       "While the game is paused with P or in photo mode, the sound stops\n"
       "too and carries on where it stopped: 1 = on (default), 0 = the sound\n"

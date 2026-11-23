@@ -9,7 +9,8 @@ their .nuspec.
 
 Covers what the zip ships: conker.exe and xemu_apu.dll (toolkit, xemu APU,
 Dear ImGui, SDL3 + HIDAPI, the picture filters, GamepadMotionHelpers, the
-package reader's extraction after Txukie's MIT code) and conker-launcher.exe (the
+package reader's extraction after Txukie's MIT code, the Full DSP sound effects
+after yacineolivier-maker's MIT code) and conker-launcher.exe (the
 .NET runtime, Avalonia and what it pulls in, CommunityToolkit.Mvvm,
 SharpCompress). Build-only packages (ILLink, Avalonia.BuildServices) and tools
 that never ship (capstone, Ghidra, xemu itself) are credits, not notices.
@@ -222,42 +223,51 @@ def main():
         'in this project. They worked out how a single model can be written as a\n'
         'loose file; thank you.\n'
         'MIT licence:\n\nCopyright (c) 2026 sp00nz\n\n' + MIT))
+    parts.append(section(
+        "11. yacineolivier-maker's ConkerLR-Recomp (the Full DSP sound effects)",
+        'https://github.com/yacineolivier-maker/ConkerLR-Recomp (commit 2013160,\n'
+        'sdk/runtime/xdk/dsp_image.cpp).\n'
+        'Processing "Full DSP" runs the console\'s own sound effects (gain, mixer,\n'
+        'filter, speaker crosstalk, the I3DL2 reverb) natively: the toolkit\'s\n'
+        'src/apu/apu_fx.c is a C port of their dsp_image.cpp. Thank you.\n'
+        'MIT licence:\n\nCopyright (c) 2026 yacineolivier-maker and the ConkerLR-Recomp '
+        'contributors\n\n' + MIT))
 
     # ── conker-launcher.exe ──
     parts.append('\nPART 2: conker-launcher.exe (the launcher)\n'
                  '==========================================\n')
     parts.append(section(
-        '10. .NET runtime',
+        '12. .NET runtime',
         f'https://github.com/dotnet/runtime ({runtime[1]}), built into the launcher so\n'
         'no .NET install is needed. Its own third-party notices are Appendix B.\n\n'
         + nuget_file(runtime, 'LICENSE.TXT', 'LICENSE.txt')))
     parts.append(section(
-        '11. Avalonia (the launcher\'s window and controls)',
+        '13. Avalonia (the launcher\'s window and controls)',
         f'https://github.com/AvaloniaUI/Avalonia ({avalonia[1]}): Avalonia, Avalonia.Desktop,\n'
         'Avalonia.Win32, Avalonia.Skia, Avalonia.HarfBuzz, Avalonia.Themes.Fluent\n'
         'and the packages they bring along.\n\n' + mit_from_nuspec(avalonia)))
     parts.append(section(
-        '12. ANGLE (graphics for Avalonia, via Avalonia.Angle.Windows.Natives)',
+        '14. ANGLE (graphics for Avalonia, via Avalonia.Angle.Windows.Natives)',
         f'https://chromium.googlesource.com/angle/angle ({angle[1]})\n\n'
         + nuget_file(angle, 'LICENSE')))
     parts.append(section(
-        '13. SkiaSharp and HarfBuzzSharp (drawing and text for Avalonia)',
+        '15. SkiaSharp and HarfBuzzSharp (drawing and text for Avalonia)',
         f'https://github.com/mono/SkiaSharp (SkiaSharp {skia[1]}, HarfBuzzSharp {harfbuzz[1]}).\n'
         'Their native libraries contain Skia, HarfBuzz and the libraries those use;\n'
         'those notices are Appendix C.\n\n' + nuget_file(skia, 'LICENSE.txt')))
     parts.append(section(
-        '14. CommunityToolkit.Mvvm',
+        '16. CommunityToolkit.Mvvm',
         f'https://github.com/CommunityToolkit/dotnet ({mvvm[1]}). Its own third-party\n'
         'notices are Appendix D.\n\n' + nuget_file(mvvm, 'License.md', 'LICENSE.md')))
     parts.append(section(
-        '15. SharpCompress (opening .zip, .7z and .rar files when importing)',
+        '17. SharpCompress (opening .zip, .7z and .rar files when importing)',
         f'https://github.com/adamhathcock/sharpcompress ({sharpcompress[1]})\n\n'
         + mit_from_nuspec(sharpcompress)))
     parts.append(section(
-        '16. MicroCom.Runtime (used by Avalonia)',
+        '18. MicroCom.Runtime (used by Avalonia)',
         f'https://github.com/kekekeks/MicroCom ({microcom[1]})\n\n' + mit_from_nuspec(microcom)))
     parts.append(section(
-        '17. Tmds.DBus.Protocol (used by Avalonia)',
+        '19. Tmds.DBus.Protocol (used by Avalonia)',
         f'https://github.com/tmds/Tmds.DBus ({dbus[1]})\n\n' + mit_from_nuspec(dbus)))
 
     parts.append('\n' + CREDITS)

@@ -46,6 +46,9 @@
 #include "edit_save.h"
 #include "debug_tools.h"
 #include "speedrun.h"
+#include "audio_fx.h"
+#include "speaker_test.h"
+#include "room_reverb.h"
 #include "dev_logs.h"
 
 int overlay_cheat_keys_free(void);
@@ -17774,6 +17777,9 @@ static void cheats_frame(void)
     speech_wait_frame();
     debug_tools_frame();       /* tp, set, kill, the jukebox (--debug) */
     speedrun_frame();          /* to-do 154 */
+    audio_fx_frame();          /* to-do 50: the I3DL2 listener to the APU */
+    speaker_test_frame();      /* to-do 231: RECOMP_SPEAKER_TEST at start */
+    room_reverb_frame();       /* to-do 232: the room's reverb preset to the APU */
     if (cue) {
         g_play_cue = 0;
         cheat_cue((uint32_t)cue);

@@ -373,10 +373,21 @@ first.
 - Volume and mute for **Music**, **Effects**, **Dialogue** and **Other**
   (ambience and menus) besides the master volume, and a **Cutscene volume**
   (0–200 %) for everything heard in cutscenes.
-- The Xbox's sound chip emulated as in xemu, for the original mix, with sound
-  effects no longer louder than the music (xemu's mix plays 3D sounds too loud).
-- Speaker mix and 3D sound (HRTF) options.
-- Sound can be silenced while paused.
+- **Full DSP** (the default): the effects the Xbox's sound chip adds (speaker
+  crosstalk, filters, and the reverb when the game asks for it) made the way
+  the console makes them. **Standard** is the sound of earlier versions (the
+  sound chip as in xemu); the two switch at once.
+- **Output**: **Stereo**, **Headphones** (3D sounds straight into each ear),
+  **5.1 surround** (six speakers, or headphones through Windows Sonic or Dolby
+  Atmos for Headphones) or **Mono** (both sides the same, for one ear or one
+  speaker).
+- A **speaker test** that plays a sound on each speaker in turn.
+- **Enhanced room reverb** (off by default): room sound in caves, halls, the
+  sewer and other rooms from the game's own reverb presets, and under-water
+  sound while Conker is under water, with a strength slider. The original never
+  turns its reverb on in story mode.
+- Sound effects no longer louder than the music (xemu's mix plays 3D sounds too
+  loud), and sound can be silenced while paused.
 
 ### Language
 
@@ -497,7 +508,6 @@ Saves, settings, photos and logs are in the `userdata` folder next to `conker.ex
 Ideas for future updates, in no particular order. Plans can change.
 
 - Frame rates above 120 fps
-- Accurate audio DSP emulation + expanded sound profiles
 - HD-friendly GUI / expanded button prompts
 - Improved water and fluids
 - Achievements
@@ -573,6 +583,9 @@ minutes.
   censor box, Creaky Crate and Heist dive at high frame rates, the squirrel
   soldiers' tails, fur, the English throne-room bubbles and BrontoThroat's
   music).
+- **[yacineolivier-maker/ConkerLR-Recomp](https://github.com/yacineolivier-maker/ConkerLR-Recomp)**:
+  the Full DSP sound effects (speaker crosstalk, filters, reverb) follow their
+  effect code (MIT); thank you.
 - **[Txukie/xboxrecomp-conker](https://github.com/Txukie/xboxrecomp-conker)**:
   the package reader's resource extraction follows their `conker_caff.c`
   (MIT). They worked out how a single model can be written as a loose file;
