@@ -1057,6 +1057,97 @@ ja: Bull戦のあと、ウンチの中では青い帯ではなく、茶色のも
 en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
 ja: 30 fps超でも、しっぽ、ラグドール、布がオリジナルの速度で動きます(切:速くなり、120では4倍)
 
+## addons_tab
+en: Bat
+ja: バット
+
+en: Frying Pan
+ja: フライパン
+
+en: Off
+ja: 切
+
+en: Normal
+ja: ノーマル
+
+en: Easy
+ja: イージー
+
+en: Options that change the game itself. All off by default, as the original; nothing here is kept in your saves
+ja: ゲームそのものを変えるオプションです。すべて初期設定は切(オリジナルどおり)で、ここの設定はセーブデータに保存されません
+
+en: Melee
+ja: 近接攻撃
+
+en: Quick Swing
+ja: クイックスイング
+
+en: Hold attack to keep swinging the bat or frying pan. Normal: the first two hits again and again (a press in time still does the uppercut). Easy: all three hits. In the Vault suit two punches, or up to four when they land
+ja: 攻撃を押し続けると、バットかフライパンを振り続けます。ノーマル:最初の2発をくり返します(タイミングよく押せばアッパーカットも出ます)。イージー:3発すべて。最終戦のスーツではパンチ2発、当たれば最大4発
+
+en: Forgiving Combo
+ja: 猶予つきコンボ
+
+en: A bat or frying-pan press made a little too early waits for its moment instead of breaking the combo
+ja: バットやフライパンを少し早く押しても、コンボが途切れずにちょうどよいタイミングまで待ちます
+
+en: Fast Weapon Draw
+ja: 武器の高速出し入れ
+
+en: Every weapon comes out and goes away 2.5 times as fast (the bat is in hand in about half a second instead of over a second)
+ja: すべての武器を2.5倍の速さで出し入れします(バットは1秒以上かかるところ、約0.5秒で手に持ちます)
+
+en: Camera Switch
+ja: カメラ切り替え
+
+en: The camera zoom button (right stick click, V) switches between the normal camera and over the shoulder, with nothing out or the bat / frying pan out; drawing them never changes the view. Over the shoulder with nothing out the camera stays behind Conker and the right stick or mouse turn him. The Unlocked Camera's reset on that button is off
+ja: カメラのズームボタン(右スティック押し込み、V)で、通常のカメラと肩越し視点を切り替えます。何も持っていないときも、バット / フライパンを出しているときも使えます。武器を出しても視点は変わりません。何も持たずに肩越し視点のときは、カメラがConkerの後ろに留まり、右スティックかマウスでConkerの向きを変えます。このボタンでのアンロックカメラのリセットは切になります
+
+en: Swing While Jumping
+ja: ジャンプ中スイング
+
+en: The bat or frying pan swings during a jump too (attack with it out; with Free Swing on, its button takes it out, swings and puts it away in the air). The jump keeps its arc
+ja: ジャンプ中もバットかフライパンを振れます(武器を出して攻撃。フリースイングが入なら、そのボタンで空中で武器を出し、振って、しまいます)。ジャンプの軌道は変わりません
+
+en: Unload Reloaded
+ja: Unload Reloaded
+
+en: All of it at once: Weapon Frying Pan with Update Cutscene, and Milk Fix, No Key Goblings and Free Swing on. Untick to put them back to the original
+ja: まとめて設定:武器をフライパンにして「カットシーンを合わせる」も入にし、ミルク修正、鍵ゴブリングなし、フリースイングを入にします。チェックを外すとオリジナルに戻ります
+
+en: Weapon
+ja: 武器
+
+en: Both: as the game (the frying pan in the training, then the bat). Bat: the bat from the start. Frying Pan: the frying pan all game long. Changes at the next draw
+ja: 両方:ゲームどおり(トレーニングではフライパン、その後はバット)。バット:最初からバット。フライパン:ゲーム中ずっとフライパン。次に武器を出したときから反映されます
+
+en: The frying pan is made from your game files at the start; it was not found. Start the game again, or re-import the game files in the launcher
+ja: フライパンは起動時にゲームファイルから作られますが、見つかりませんでした。ゲームを再起動するか、ランチャーでゲームファイルを再インポートしてください
+
+en: Update Cutscene
+ja: カットシーンを合わせる
+
+en: The training's weapon scenes match the weapon. Bat: no frying-pan line in the weapon rack scene, and the gargoyle scene starts at the uppercut. Frying Pan: the gargoyle scene goes from his first line straight to the uppercut. From the next cutscene
+ja: トレーニングの武器のシーンが武器に合わせて変わります。バット:武器ラックのシーンでフライパンのセリフがなく、ガーゴイルのシーンはアッパーカットから始まります。フライパン:ガーゴイルのシーンは最初のセリフからアッパーカットへ直接つながります。次のカットシーンから
+
+en: Milk Fix
+ja: ミルク修正
+
+en: In the opening scene Conker holds a glass of milk instead of the goblet, as on the N64 (made from your game files at the start). From the next level load
+ja: オープニングシーンで、Conkerがゴブレットの代わりにミルクのグラスを持ちます。N64版と同じです(起動時にゲームファイルから作られます)。次のレベルのロードから
+
+en: No Key Goblings
+ja: 鍵ゴブリングなし
+
+en: In the training cave the key hops out after the frying-pan tutorial: no goblins (as the original N64 game). Changes at once until the goblins have come out
+ja: トレーニングの洞窟で、フライパンのチュートリアルのあとに鍵が跳び出します。ゴブリンは出ません(オリジナルのN64版と同じ)。ゴブリンが出てくるまではすぐに反映されます
+
+en: Free Swing
+ja: フリースイング
+
+en: The controller's Reload button (X) or the keyboard's Attack key (Mouse 1) takes the bat or frying pan out and swings at once; it goes away as soon as the swinging is over. The camera stays free
+ja: コントローラのリロードボタン(X)またはキーボードの攻撃キー(Mouse 1)で、バットかフライパンを出してすぐに振ります。振り終わるとすぐにしまいます。カメラは自由なままです
+
 en: Display
 ja: ディスプレイ
 
@@ -1068,6 +1159,9 @@ ja: サウンド
 
 en: Fixes
 ja: 修正
+
+en: Extras
+ja: エクストラ
 
 ## preset_tip
 en: Upscaler
@@ -1638,9 +1732,6 @@ en: The photo could not be taken (%s)
 ja: 写真を撮れませんでした(%s)
 
 ## build_photo_picture
-en: Off
-ja: 切
-
 en: CRT
 ja: CRT
 

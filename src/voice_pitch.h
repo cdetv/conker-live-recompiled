@@ -16,4 +16,18 @@ int  voice_mixed_wanted(void);
 void voice_mixed_start(unsigned sound, int sdbk, int cue, const char *cue_name,
                        const char *lip_name, const char *talker);
 
+/* To-do 47 ("Update Cutscene", cutscene_edits.c): one speech wave served cut.
+ * The cue's wave (found by the cue's name in the sound banks) reads as its
+ * kept byte ranges joined end to end, then silence, at the same file size;
+ * the wave must be len bytes (a different game copy is refused). Its bytes
+ * are read once here, at the scene start, before the speech start reads the
+ * stream. With a Mouse / Bear cheat on, the pitched wave is the one cut. A
+ * bank copy the game writes to its cache keeps the wave as recorded.
+ * 1 = set; 0 = refused, why says why. One edit at a time (a new one replaces
+ * it); _clear ends it. */
+typedef struct { unsigned from, to; } VoiceKeep;
+int  voice_wave_edit(const char *cue, unsigned len, const VoiceKeep *keep, int n,
+                     char *why, int why_size);
+void voice_wave_edit_clear(void);
+
 #endif

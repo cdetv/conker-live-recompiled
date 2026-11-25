@@ -1057,6 +1057,97 @@ es: Bajo el cieno tras el combate del Toro, la neblina es marrón a juego en vez
 en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
 es: A más de 30 fps las colas, ragdolls y telas se mueven a la velocidad original (desactivado: más rápido, 4 veces más a 120)
 
+## addons_tab
+en: Bat
+es: Bate
+
+en: Frying Pan
+es: Sartén
+
+en: Off
+es: Desactivado
+
+en: Normal
+es: Normal
+
+en: Easy
+es: Fácil
+
+en: Options that change the game itself. All off by default, as the original; nothing here is kept in your saves
+es: Opciones que cambian el juego en sí. Todas desactivadas por defecto, como el original; nada de esto se guarda en las partidas guardadas
+
+en: Melee
+es: Cuerpo a cuerpo
+
+en: Quick Swing
+es: Golpe rápido
+
+en: Hold attack to keep swinging the bat or frying pan. Normal: the first two hits again and again (a press in time still does the uppercut). Easy: all three hits. In the Vault suit two punches, or up to four when they land
+es: Mantén el ataque para seguir golpeando con el bate o la sartén. Normal: los dos primeros golpes una y otra vez (una pulsación a tiempo sigue dando el gancho). Fácil: los tres golpes. Con el traje del combate final, dos puñetazos, o hasta cuatro cuando aciertan
+
+en: Forgiving Combo
+es: Combo tolerante
+
+en: A bat or frying-pan press made a little too early waits for its moment instead of breaking the combo
+es: Una pulsación con el bate o la sartén un poco temprana espera su momento en vez de romper el combo
+
+en: Fast Weapon Draw
+es: Desenfundado rápido
+
+en: Every weapon comes out and goes away 2.5 times as fast (the bat is in hand in about half a second instead of over a second)
+es: Todas las armas salen y se guardan 2,5 veces más rápido (el bate está en la mano en medio segundo aprox. en vez de más de un segundo)
+
+en: Camera Switch
+es: Cambio de cámara
+
+en: The camera zoom button (right stick click, V) switches between the normal camera and over the shoulder, with nothing out or the bat / frying pan out; drawing them never changes the view. Over the shoulder with nothing out the camera stays behind Conker and the right stick or mouse turn him. The Unlocked Camera's reset on that button is off
+es: El botón de zoom de la cámara (pulsar stick derecho, V) cambia entre la cámara normal y la vista sobre el hombro, sin nada en la mano o con el bate / la sartén fuera; sacarlos nunca cambia la vista. Sobre el hombro sin nada en la mano, la cámara se queda detrás de Conker y el stick derecho o el ratón lo giran. El restablecimiento de la Cámara desbloqueada en ese botón queda desactivado
+
+en: Swing While Jumping
+es: Golpe en el salto
+
+en: The bat or frying pan swings during a jump too (attack with it out; with Free Swing on, its button takes it out, swings and puts it away in the air). The jump keeps its arc
+es: El bate o la sartén golpean también durante un salto (ataca con el arma fuera; con Golpe libre activado, su botón la saca, golpea y la guarda en el aire). El salto mantiene su arco
+
+en: Unload Reloaded
+es: Unload Reloaded
+
+en: All of it at once: Weapon Frying Pan with Update Cutscene, and Milk Fix, No Key Goblings and Free Swing on. Untick to put them back to the original
+es: Todo a la vez: Arma Sartén con Adaptar escena, y Arreglo de la leche, Sin Goblings de la llave y Golpe libre activados. Desmárcalo para volver al original
+
+en: Weapon
+es: Arma
+
+en: Both: as the game (the frying pan in the training, then the bat). Bat: the bat from the start. Frying Pan: the frying pan all game long. Changes at the next draw
+es: Los dos: como el juego (la sartén en el entrenamiento, luego el bate). Bate: el bate desde el principio. Sartén: la sartén durante todo el juego. Cambia la próxima vez que se saca el arma
+
+en: The frying pan is made from your game files at the start; it was not found. Start the game again, or re-import the game files in the launcher
+es: La sartén se crea a partir de los archivos del juego al iniciar; no se encontró. Inicia el juego de nuevo o vuelve a importar los archivos del juego en el lanzador
+
+en: Update Cutscene
+es: Adaptar escena
+
+en: The training's weapon scenes match the weapon. Bat: no frying-pan line in the weapon rack scene, and the gargoyle scene starts at the uppercut. Frying Pan: the gargoyle scene goes from his first line straight to the uppercut. From the next cutscene
+es: Las escenas de armas del entrenamiento coinciden con el arma. Bate: sin la frase de la sartén en la escena del armero, y la escena de la gárgola empieza en el gancho. Sartén: la escena de la gárgola pasa de su primera frase directamente al gancho. Desde la próxima escena
+
+en: Milk Fix
+es: Arreglo de la leche
+
+en: In the opening scene Conker holds a glass of milk instead of the goblet, as on the N64 (made from your game files at the start). From the next level load
+es: En la escena inicial Conker sostiene un vaso de leche en vez de la copa, como en N64 (creado a partir de los archivos del juego al iniciar). Desde la próxima carga de nivel
+
+en: No Key Goblings
+es: Sin Goblings de la llave
+
+en: In the training cave the key hops out after the frying-pan tutorial: no goblins (as the original N64 game). Changes at once until the goblins have come out
+es: En la cueva del entrenamiento la llave sale saltando tras el tutorial de la sartén: sin goblins (como el juego original de N64). Cambia al momento mientras los goblins no hayan salido
+
+en: Free Swing
+es: Golpe libre
+
+en: The controller's Reload button (X) or the keyboard's Attack key (Mouse 1) takes the bat or frying pan out and swings at once; it goes away as soon as the swinging is over. The camera stays free
+es: El botón Recargar del controlador (X) o la tecla Atacar del teclado (Mouse 1) saca el bate o la sartén y golpea al instante; el arma se guarda en cuanto terminan los golpes. La cámara sigue libre
+
 en: Display
 es: Pantalla
 
@@ -1068,6 +1159,9 @@ es: Sonido
 
 en: Fixes
 es: Arreglos
+
+en: Extras
+es: Extras
 
 ## preset_tip
 en: Upscaler
@@ -1638,9 +1732,6 @@ en: The photo could not be taken (%s)
 es: No se pudo hacer la foto (%s)
 
 ## build_photo_picture
-en: Off
-es: Desactivado
-
 en: CRT
 es: CRT
 

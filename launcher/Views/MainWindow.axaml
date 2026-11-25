@@ -33,6 +33,15 @@
     <DataTemplate DataType="vm:SectionItem">
       <TextBlock Classes="section" Text="{Binding Label}" Margin="0,14,0,4" />
     </DataTemplate>
+    <!-- A heading with a checkbox that sets a group of options (Extras' Unload Reloaded, user 2026-11-25). -->
+    <DataTemplate DataType="vm:GroupItem">
+      <Border Classes="row" Margin="0,10,0,0">
+        <CheckBox IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}" ToolTip.Tip="{Binding Tip}"
+                  AutomationProperties.Name="{Binding Label}">
+          <TextBlock Classes="section" Text="{Binding Label}" />
+        </CheckBox>
+      </Border>
+    </DataTemplate>
     <DataTemplate DataType="vm:LineItem">
       <Border Height="1" Background="{StaticResource DimTextBrush}" Opacity="0.5" Margin="0,12,0,6" />
     </DataTemplate>
@@ -359,6 +368,27 @@
                   <Button Content="Photos" Command="{Binding OpenPhotosCommand}" />
                   <Button Content="Report Bug" Command="{Binding Report.OpenCommand}"
                           ToolTip.Tip="Makes a .zip to attach to a GitHub issue, for a crash noticed later" />
+                </StackPanel>
+
+                <!-- Steam (to-do 285): Add to Steam on real Windows; under Wine the release's add-to-steam.sh does it. -->
+                <StackPanel Spacing="10" DataContext="{Binding Steam}" x:DataType="vm:SteamViewModel" IsVisible="{Binding Available}">
+                  <TextBlock Classes="section" Text="Steam" Margin="0,8,0,0" />
+                  <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsAsking}">
+                    <Button Content="Add to Steam" Command="{Binding AskAddCommand}"
+                            ToolTip.Tip="Adds the launcher to your Steam library with its artwork; Steam closes for a moment and starts again" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsAsking}">
+                    <TextBlock Text="Steam is open: it closes while the game is added, then starts again. Go ahead?"
+                               TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="480" />
+                    <Button Content="Yes" Command="{Binding AddCommand}" />
+                    <Button Classes="safe" Content="No" Command="{Binding CancelAddCommand}" />
+                  </StackPanel>
+                  <TextBlock Text="{Binding Status}" TextWrapping="Wrap"
+                             Classes.error="{Binding StatusIsError}" Classes.ok="{Binding !StatusIsError}"
+                             IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                  <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
+                             Text="The artwork is made by PopASquatt, Jiquita and EVE Online and is downloaded from SteamGridDB when you click. It is not part of this launcher." />
                 </StackPanel>
               </StackPanel>
             </ScrollViewer>

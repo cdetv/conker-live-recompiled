@@ -20,7 +20,7 @@ PART 1: conker.exe and xemu_apu.dll (the game)
 
 https://github.com/sp00nznet/xboxrecomp by Ned Heller (sp00nznet) and
 contributors, used through the fork https://github.com/cdetv/xboxrecomp
-(version v0.13.1-529-g886dbcb). It translated the game's code and provides
+(version v0.13.1-537-g3c58eda). It translated the game's code and provides
 the runtime around it: the Xbox kernel, graphics, sound and controllers.
 MIT licence:
 
@@ -286,15 +286,27 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-10. Txukie's xboxrecomp-conker (the package reader's resource extraction)
--------------------------------------------------------------------------
+10. Txukie's xboxrecomp-conker (extraction, Frying Pan, Milk Fix, Free Swing)
+-----------------------------------------------------------------------------
 
 https://github.com/Txukie/xboxrecomp-conker (commit d0edebc,
-work/conker/project/src/conker_caff.c).
+work/conker/project/src/conker_caff.c, conker_weapon.c, conker_intro.c,
+conker_swing.c, recomp_manual.c).
 The package reader's resource extraction (src/caff.c: one model and all it
 needs written as a loose package) follows their conker_caff.c, written anew
 in this project. They worked out how a single model can be written as a
 loose file; thank you.
+Extras' Frying Pan (src/addons.c) follows their conker_weapon.c: the
+held-object name and sound-table swap. The Milk Fix's glass of milk
+(src/milk_glass.c) is their make_milk() from conker_intro.c, changed only to
+work on the carved bytes in memory, and their idea of the goblet's name
+letter.
+Extras' Free Swing (src/swing.c) follows their Swing Button (conker_swing.c):
+its press logic and timings (presses kept until the weapon can take them,
+the retry, the chain gap, the press life, the idle put-away) and running
+the way the stick points with the weapon out (the stick straight ahead and
+their facing hook on 0x002DEF80, recomp_manual.c), written anew in this
+project.
 MIT licence:
 
 Copyright (c) 2026 sp00nz

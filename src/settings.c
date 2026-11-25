@@ -526,6 +526,81 @@ static const Option s_options[] = {
       "RECOMP_UNCENSORED_TEXT", NULL,
       "The same for the subtitles and other text (English, French,\n"
       "Italian and Spanish): 1 = on (default), 0 = the original text." },
+    /* Extras (the Recomp Addons of 0.6.0; the tab's name, user 2026-11-23;
+     * SPEC 10.4, addons.c): options that change the game itself, all off by
+     * default (user 2026-11-16; docs/research/r4-0.6.0-addons-plan.md). */
+    { "extras", "weapon", OPT_CHOICE, "both", "both", "RECOMP_WEAPON",
+      "both bat pan",
+      "Extras, the weapon Conker uses: both (default; as the game: the\n"
+      "frying pan in the training, then the bat), bat (the bat from the\n"
+      "start) or pan (the frying pan all game long, made from your game\n"
+      "files). Both apply at once: the next draw (after a cutscene, and with\n"
+      "the weapon out once it is put away). Nothing is saved in the game's saves." },
+    /* "Update Cutscene" (to-do 47; off by default, user 2026-11-16;
+     * cutscene_edits.c): only with a weapon other than both. */
+    { "extras", "update_cutscenes", OPT_BOOL, "0", "0",
+      "RECOMP_UPDATE_CUTSCENES", NULL,
+      "Extras, Update Cutscene: 1 = the training's weapon scenes match the\n"
+      "weapon (with bat: the weapon rack scene without the frying-pan line,\n"
+      "the gargoyle scene from the uppercut; with pan: the gargoyle scene\n"
+      "from his first line straight to the uppercut); 0 = off (default; as\n"
+      "the game). Only with weapon = bat or pan. Applies from the next cutscene." },
+    /* "Milk Fix" (to-do 45, "Intro Fix" in the plans; the name: user
+     * 2026-11-23; off by default, user 2026-11-16; addons.c, milk_glass.c). */
+    { "extras", "milk_fix", OPT_BOOL, "0", "0",
+      "RECOMP_MILK_FIX", NULL,
+      "Extras, Milk Fix: 1 = in the opening scene (and any throne room scene\n"
+      "with the goblet) Conker holds a glass of milk, as on the N64, made from\n"
+      "your game files; 0 = off (default; the goblet). From the next level load." },
+    /* "No Key Goblings" (user 2026-11-23: the name, "Goblings" on purpose). */
+    { "extras", "no_key_goblings", OPT_BOOL, "0", "0",
+      "RECOMP_NO_KEY_GOBLINGS", NULL,
+      "Extras, No Key Goblings: 1 = in the training cave the key hops out\n"
+      "after the frying-pan tutorial, without the goblins (as the original\n"
+      "N64 game); 0 = off (default; as the game). Applies at once, until the\n"
+      "goblins have come out." },
+    /* Free Swing (to-do 42, under "Unload Reloaded"; user 2026-11-23:
+     * Reload's controller button and Attack's key; swing.c). */
+    { "extras", "free_swing", OPT_BOOL, "0", "0", "RECOMP_FREE_SWING", NULL,
+      "Extras, Free Swing: 1 = the controller's Reload button (X) and the\n"
+      "keyboard's Attack key (Mouse 1) take the bat or frying pan out and\n"
+      "swing at once; it goes away as soon as the swinging is over. The camera\n"
+      "stays free meanwhile.\n"
+      "Elsewhere they do what they did. 0 = as the game (default). Applies at once." },
+    /* The swing piece (to-dos 42, 233, 234; folded into 0.6.0, user
+     * 2026-11-23; all off by default, user 2026-11-16; swing.c). */
+    { "extras", "quick_swing", OPT_CHOICE, "off", "off", "RECOMP_QUICK_SWING",
+      "off normal easy",
+      "Extras, Quick Swing: hold attack (the right trigger, the Attack key)\n"
+      "to keep swinging the bat or frying pan: normal = the first two hits\n"
+      "of the combo again and again (a press in time still does the\n"
+      "uppercut), easy = all three; in the Vault suit two punches, or up to\n"
+      "four when they land. off = as the game (default). Applies at once." },
+    { "extras", "forgiving_combo", OPT_BOOL, "0", "0",
+      "RECOMP_FORGIVING_COMBO", NULL,
+      "Extras, Forgiving Combo: 1 = a bat or frying-pan press made a little\n"
+      "too early waits for its moment instead of breaking the combo; 0 = as\n"
+      "the game (default). Applies at once." },
+    { "extras", "fast_draw", OPT_BOOL, "0", "0", "RECOMP_FAST_DRAW", NULL,
+      "Extras, Fast Weapon Draw: 1 = every weapon comes out and goes away\n"
+      "2.5 times as fast (the bat is in hand in about half a second instead\n"
+      "of 1.15 s); 0 = as the game (default). Single player. Applies at once." },
+    /* The camera switch (to-do 42; off by default = the original, user
+     * 2026-11-23; swing.c). */
+    { "extras", "camera_switch", OPT_BOOL, "0", "0", "RECOMP_CAMERA_SWITCH", NULL,
+      "Extras, Camera Switch: 1 = the camera zoom button (right stick click, V)\n"
+      "switches between the normal camera and over the shoulder, with nothing\n"
+      "out or the bat / frying pan out; drawing them never changes the view.\n"
+      "Over the shoulder with nothing out the camera stays behind Conker and\n"
+      "the right stick / mouse turn him. The Unlocked Camera's reset on that\n"
+      "button is off then. 0 = as the game (default). Applies at once." },
+    /* Swing While Jumping (to-do 48; off by default as the other Extras;
+     * swing.c). */
+    { "extras", "air_swing", OPT_BOOL, "0", "0", "RECOMP_AIR_SWING", NULL,
+      "Extras, Swing While Jumping: 1 = the bat or frying pan swings during a\n"
+      "jump too (attack with it out; with Free Swing on, its button takes it\n"
+      "out, swings and puts it away in the air); the jump keeps its arc.\n"
+      "0 = as the game (default). Applies at once." },
     { "menu", "menu_window", OPT_RECT, "", "", NULL, NULL,
       "Where the F2 menu sits and its size, as parts of the picture:\n"
       "left, top, width, height (0.02,0.02,0.3,0.5 = near the top left\n"

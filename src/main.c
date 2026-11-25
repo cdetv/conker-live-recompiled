@@ -195,9 +195,14 @@ static int s_own_log;
  * unlocked (to-do 216 (a): the table is read only at start, and that player
  * can turn either on mid-session; a run that began without it kept every
  * conversation as recorded until a restart). --debug's blanket unlock alone
- * doesn't count: test runs on save copies would carve every start. */
+ * doesn't count: test runs on save copies would carve every start.
+ * "pan" (Extras' Frying Pan, to-do 44) and "milk" (the Milk Fix, to-do 45):
+ * always, so the options work without a restart (user 2026-11-16: made at the
+ * first start whatever the options). */
 static int cache_feature_on(const char *feature)
 {
+    if (!strcmp(feature, "pan") || !strcmp(feature, "milk"))
+        return 1;
     if (!strcmp(feature, "voice"))
         return cheat_unlocked_saved(CHEAT_MOUSE) || cheat_unlocked_saved(CHEAT_BEAR)
             || (cheats_active() & (CHEAT_BIT(CHEAT_MOUSE) | CHEAT_BIT(CHEAT_BEAR))) != 0

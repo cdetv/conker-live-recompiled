@@ -31,7 +31,8 @@ public sealed record MenuEntry(
     bool ClashesAll = false, string? Question = null, IReadOnlyList<string>? Keys = null,
     string? FixedKeys = null, int Count = 0, string? KeyboardKey = null, string? KeyboardOnKey = null,
     string? Parent = null, string? Mute = null, int Slot = 0, ChordsInfo? Chords = null,
-    string? Pad = null, PadBindsInfo? PadBinds = null, string? ParentValue = null);
+    string? Pad = null, PadBindsInfo? PadBinds = null, string? ParentValue = null,
+    IReadOnlyList<string>? GroupKeys = null, IReadOnlyList<string>? GroupOn = null, IReadOnlyList<string>? GroupOff = null);
 
 /// <summary>A controller button an action can have (to-do 39): its settings.ini name ("rt") and label ("Right trigger").</summary>
 public sealed record PadChoice(string Name, string Label);
@@ -252,7 +253,8 @@ public sealed class SettingsSchema
         Mute: Str(m, "mute"), Slot: (int)Num(m, "slot"),
         Chords: Str(m, "type") == "chords" ? ParseChords(m) : null,
         Pad: Str(m, "pad"), PadBinds: Str(m, "type") == "pad_binds" ? ParsePadBinds(m) : null,
-        ParentValue: Str(m, "parent_value"));
+        ParentValue: Str(m, "parent_value"),
+        GroupKeys: List(m, "group_keys"), GroupOn: List(m, "group_on"), GroupOff: List(m, "group_off"));
 
     private static PadBindsInfo ParsePadBinds(JsonElement m)
     {

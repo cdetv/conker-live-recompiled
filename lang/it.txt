@@ -1057,6 +1057,97 @@ it: Sotto la cacca dopo lo scontro col Toro, la foschia è marrone invece di una
 en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
 it: Sopra 30 fps code, ragdoll e stoffe si muovono alla velocità originale (disattivato: più veloci, 4 volte a 120)
 
+## addons_tab
+en: Bat
+it: Mazza
+
+en: Frying Pan
+it: Padella
+
+en: Off
+it: Disattivato
+
+en: Normal
+it: Normale
+
+en: Easy
+it: Facile
+
+en: Options that change the game itself. All off by default, as the original; nothing here is kept in your saves
+it: Opzioni che cambiano il gioco stesso. Tutte disattivate di base, come l'originale; niente di tutto ciò viene tenuto nei salvataggi
+
+en: Melee
+it: Corpo a corpo
+
+en: Quick Swing
+it: Colpo rapido
+
+en: Hold attack to keep swinging the bat or frying pan. Normal: the first two hits again and again (a press in time still does the uppercut). Easy: all three hits. In the Vault suit two punches, or up to four when they land
+it: Tieni premuto l'attacco per continuare a colpire con la mazza o la padella. Normale: i primi due colpi ancora e ancora (una pressione al momento giusto dà comunque il montante). Facile: tutti e tre i colpi. Con la tuta dello scontro finale due pugni, o fino a quattro se vanno a segno
+
+en: Forgiving Combo
+it: Combo tollerante
+
+en: A bat or frying-pan press made a little too early waits for its moment instead of breaking the combo
+it: Una pressione con la mazza o la padella un po' troppo presto aspetta il suo momento invece di spezzare la combo
+
+en: Fast Weapon Draw
+it: Estrazione rapida
+
+en: Every weapon comes out and goes away 2.5 times as fast (the bat is in hand in about half a second instead of over a second)
+it: Ogni arma si estrae e si ripone 2,5 volte più in fretta (la mazza è in mano in circa mezzo secondo invece di oltre un secondo)
+
+en: Camera Switch
+it: Cambio camera
+
+en: The camera zoom button (right stick click, V) switches between the normal camera and over the shoulder, with nothing out or the bat / frying pan out; drawing them never changes the view. Over the shoulder with nothing out the camera stays behind Conker and the right stick or mouse turn him. The Unlocked Camera's reset on that button is off
+it: Il tasto zoom della camera (pressione stick destro, V) passa tra la camera normale e la visuale da sopra la spalla, a mani vuote o con la mazza / padella fuori; estrarle non cambia mai la visuale. Da sopra la spalla a mani vuote la camera resta dietro Conker e lo stick destro o il mouse lo girano. Il reset della Camera sbloccata su quel tasto è disattivato
+
+en: Swing While Jumping
+it: Colpo in salto
+
+en: The bat or frying pan swings during a jump too (attack with it out; with Free Swing on, its button takes it out, swings and puts it away in the air). The jump keeps its arc
+it: La mazza o la padella colpisce anche durante un salto (attacca con l'arma fuori; con Colpo libero attivo, il suo tasto la estrae, colpisce e la ripone in aria). Il salto mantiene il suo arco
+
+en: Unload Reloaded
+it: Unload Reloaded
+
+en: All of it at once: Weapon Frying Pan with Update Cutscene, and Milk Fix, No Key Goblings and Free Swing on. Untick to put them back to the original
+it: Tutto insieme: Arma Padella con Adatta scena, e Correzione latte, Niente Goblings della chiave e Colpo libero attivi. Togli la spunta per tornare all'originale
+
+en: Weapon
+it: Arma
+
+en: Both: as the game (the frying pan in the training, then the bat). Bat: the bat from the start. Frying Pan: the frying pan all game long. Changes at the next draw
+it: Entrambi: come il gioco (la padella nell'addestramento, poi la mazza). Mazza: la mazza dall'inizio. Padella: la padella per tutto il gioco. Cambia alla prossima estrazione
+
+en: The frying pan is made from your game files at the start; it was not found. Start the game again, or re-import the game files in the launcher
+it: La padella viene creata dai file di gioco all'avvio; non è stata trovata. Riavvia il gioco o reimporta i file di gioco nel launcher
+
+en: Update Cutscene
+it: Adatta scena
+
+en: The training's weapon scenes match the weapon. Bat: no frying-pan line in the weapon rack scene, and the gargoyle scene starts at the uppercut. Frying Pan: the gargoyle scene goes from his first line straight to the uppercut. From the next cutscene
+it: Le scene delle armi dell'addestramento seguono l'arma. Mazza: niente battuta sulla padella nella scena della rastrelliera, e la scena del gargoyle inizia dal montante. Padella: la scena del gargoyle passa dalla sua prima battuta direttamente al montante. Dalla prossima scena
+
+en: Milk Fix
+it: Correzione latte
+
+en: In the opening scene Conker holds a glass of milk instead of the goblet, as on the N64 (made from your game files at the start). From the next level load
+it: Nella scena iniziale Conker tiene un bicchiere di latte invece del calice, come su N64 (creato dai file di gioco all'avvio). Dal prossimo caricamento di livello
+
+en: No Key Goblings
+it: Niente Goblings della chiave
+
+en: In the training cave the key hops out after the frying-pan tutorial: no goblins (as the original N64 game). Changes at once until the goblins have come out
+it: Nella grotta dell'addestramento la chiave salta fuori dopo il tutorial della padella: niente goblin (come il gioco originale per N64). Cambia subito finché i goblin non sono usciti
+
+en: Free Swing
+it: Colpo libero
+
+en: The controller's Reload button (X) or the keyboard's Attack key (Mouse 1) takes the bat or frying pan out and swings at once; it goes away as soon as the swinging is over. The camera stays free
+it: Il tasto Ricarica del controller (X) o il tasto Attacca della tastiera (Mouse 1) estrae la mazza o la padella e colpisce subito; l'arma viene riposta appena i colpi finiscono. La camera resta libera
+
 en: Display
 it: Schermo
 
@@ -1068,6 +1159,9 @@ it: Audio
 
 en: Fixes
 it: Correzioni
+
+en: Extras
+it: Extra
 
 ## preset_tip
 en: Upscaler
@@ -1638,9 +1732,6 @@ en: The photo could not be taken (%s)
 it: Impossibile scattare la foto (%s)
 
 ## build_photo_picture
-en: Off
-it: Disattivato
-
 en: CRT
 it: CRT
 

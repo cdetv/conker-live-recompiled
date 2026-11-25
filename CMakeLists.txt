@@ -120,6 +120,10 @@ set(GAME_SOURCES
     src/bug_report_win.c
     src/touch_filter.c
     src/debug_tools.c
+    src/addons.c
+    src/swing.c
+    src/cutscene_edits.c
+    src/milk_glass.c
     src/dev_logs.c
     src/speedrun.c
     src/audio_fx.c

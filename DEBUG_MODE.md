@@ -104,6 +104,7 @@ these.
 | `cutscene seek <seconds>` | Jumps the cutscene playing to that time (`+5` / `-3`: from now). Sounds and subtitles in between are skipped (or played again going back), and the voice plays on from where it was. |
 | `noclip [on\|off]` | Fly through walls and floors (left stick, A up, B or RT down; keyboard W, Space, Ctrl). Nothing can kill Conker; turning it off in the air lands him safely. Stays on across warps. |
 | `freecam [on\|off]` | Photo mode's fly camera while the world keeps running. G (Back + X) swaps between the camera and Conker; Back + X also turns it on from gameplay. |
+| `freecam at <x> <y> <z> <yaw> <pitch>` | Puts the freecam there, looking that way (degrees; yaw 0 = along +z, 90 = along +x). `freecam at` alone says where it is. |
 | `pos` | Says where Conker is (x y z) and in which level. |
 | `tp <x> <y> <z>` | Puts Conker at those coordinates. A drop from there does no damage. |
 | `tp <number>` | Puts Conker beside a character (numbers from `chars`). |

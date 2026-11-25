@@ -50,6 +50,9 @@
 #include "speaker_test.h"
 #include "room_reverb.h"
 #include "dev_logs.h"
+#include "addons.h"            /* Recomp Addons (0.6.0) */
+#include "cutscene_edits.h"    /* Extras: Update Cutscene (to-do 47) */
+#include "swing.h"             /* Extras: the swing piece (to-dos 42, 233, 234) */
 
 int overlay_cheat_keys_free(void);
 int conker_CheatScreen(void);
@@ -3829,6 +3832,9 @@ void sub_000808F0_enter(void)
      * scale (sub_000532D0), after the draw-top and frame-end size_frame. */
     if (idx == 0)
         size_frame();
+    /* The weaponless strafe (swing.c): his body drawn facing the view. */
+    if (xact_va_ok(base) && idx <= 0x80)
+        swing_strafe_draw(base + idx * 0x6D0);
     if (!berri_fix_on() || !xact_va_ok(base) || idx > 0x80)
         return;
     c = base + idx * 0x6D0;
@@ -3851,9 +3857,59 @@ void sub_000808F0_enter(void)
 void sub_002F1790_enter(void)
 {
     char name[96];
-    uint32_t c = g_eax;
-    if (!xact_va_ok(c) || MEM32(c + 0xA4) == MEM32(g_esp + 8))
+    uint32_t c = g_eax, xn;
+    float k;
+    int xf;
+    if (!xact_va_ok(c))
+        return;
+    /* Swing While Jumping (swing.c): a swing ending in the air asks the
+     * bat's fall (JumpPt2), not FireHold standing; its name from his
+     * animation table ([[c+0x74]+0x50], 12 bytes an entry, name first). */
+    {
+        uint32_t i2, tbl;
+        float blend = MEMF(g_esp + 0x18);    /* the 6th word ([ANIMREQ] a6) */
+        if (swing_air_anim(c, MEM32(g_esp + 8),
+                           MEM32(g_esp) == 0x002F16F7u ? MEM32(g_esp + 0x30) : 0, &i2, &blend)
+            && xact_va_ok(MEM32(c + 0x74))
+            && xact_va_ok(tbl = MEM32(MEM32(c + 0x74) + 0x50))
+            && xact_va_ok(MEM32(tbl + i2 * 12u))) {
+            MEM32(g_esp + 8) = i2;
+            MEM32(g_esp + 4) = MEM32(tbl + i2 * 12u);
+            MEMF(g_esp + 0x18) = blend;
+        }
+    }
+    /* The weaponless strafe (swing.c): the plain sneak / walk / run shown as
+     * the bat's side / back clip, the plain index kept. A changed clip under
+     * the same index is made a new request: his animation word set to
+     * another plain one first (walk <-> run, valid entries both). */
+    if (swing_strafe_anim(c, MEM32(g_esp + 8), MEMF(g_esp + 0x14), &xn, &xf)) {
+        if (xn)
+            MEM32(g_esp + 4) = xn;
+        if (xf && MEM32(c + 0xA4) == MEM32(g_esp + 8))
+            MEM32(c + 0xA4) = MEM32(g_esp + 8) == 1u ? 2u : 1u;
+    }
+    /* Fast Weapon Draw (to-do 234, swing.c): the take-out / put-away's
+     * speed, the 5th word, on every ask of it (the game re-sends the speed
+     * with each re-ask and sets the clip's rate from it). */
+    k = swing_draw_factor(c, MEM32(g_esp + 8), 0);
+    if (k != 1.0f)
+        MEMF(g_esp + 0x14) *= k;
+    if (MEM32(c + 0xA4) == MEM32(g_esp + 8))
         return;                         /* most calls re-ask every frame */
+    /* log swing 2: who asked the player's standing animation (stance, 15)
+     * from a weapon state (round 3: a stop after the bat's put-away): the
+     * code addresses on the guest stack above the request. */
+    if (dev_log(DLOG_SWING) >= 2 && MEM32(g_esp + 8) == 15u
+        && c == MEM32(MEM32(0x008470DCu) + 0x3E0u)) {
+        uint32_t i;
+        fprintf(stderr, "[SWING] stance from state 0x%X, stack:", MEM32(c + 0xA4));
+        for (i = 0; i < 0x100u; i += 4) {
+            uint32_t v = MEM32(g_esp + i);
+            if (v >= 0x00011000u && v < 0x00500000u)
+                fprintf(stderr, " +%X=%08X", i, v);
+        }
+        fprintf(stderr, "\n");
+    }
     if (cutscene_flash_on())
         cutscene_flash_anim(c, MEM32(g_esp + 8), MEM32(g_esp + 4),
                             MEM32(g_esp) == 0x002F16F7u ? MEM32(g_esp + 0x30) : 0);
@@ -3866,6 +3922,196 @@ void sub_002F1790_enter(void)
             MEM32(g_esp + 8), MEM32(g_esp + 0xC), MEM32(g_esp + 0x14), char_f(g_esp + 0x18),
             MEM32(g_esp + 0x20), char_f(c + 0x78), char_f(c + 0x7C), char_f(c + 0x80),
             MEM32(g_esp), MEM32(g_esp) == 0x002F16F7u ? MEM32(g_esp + 0x30) : 0);
+}
+
+/* Fast Weapon Draw (to-do 234, swing.c) for a weapon drawn while moving:
+ * 0x00319BC0 then asks a layered take-out (0x002F1BD0 at 0x00319C99, cdecl:
+ * [esp+4] character, [esp+8] speed, [esp+0x14] slot 3, the right arm's bone
+ * list; ebx = the animation). Asked once; its speed scaled like the
+ * full-body request's. */
+void sub_002F1BD0_enter(void)
+{
+    uint32_t c = MEM32(g_esp + 4u);
+    float k;
+    if (MEM32(g_esp + 0x14u) != 3u || !xact_va_ok(c))
+        return;
+    k = swing_draw_factor(c, g_ebx, 1);
+    if (k != 1.0f) {
+        if (dev_log(DLOG_SWING))
+            fprintf(stderr, "[SWING] t=%ld fast draw (layered): index 0x%X speed %.2f -> %.2f, "
+                    "blend %.3f -> %.3f s\n", attach_ms(), g_ebx, MEMF(g_esp + 8u),
+                    MEMF(g_esp + 8u) * k, MEMF(g_esp + 0x18u), MEMF(g_esp + 0x18u) / k);
+        MEMF(g_esp + 8u) *= k;
+        /* The layer's blend time ([esp+0x18], 0.25 s) shrinks with it: the
+         * bat update refuses a swing while the draw's layer still plays
+         * (0x0031A010), and a 38 ms clip held the first swing ~0.25 s. */
+        MEMF(g_esp + 0x18u) /= k;
+    }
+    swing_layer_started(c, g_ebx, MEMF(g_esp + 8u));
+}
+
+/* The animation mixer (0x00036230, cdecl: the animation list [chr+0x3C4]+4,
+ * &the mixed pose (out), ...; from 0x00036C00, which builds the bone
+ * matrices from that pose right after): the weaponless strafe's right arm
+ * (swing.c, round 7) is written into the player's mixed pose here. */
+extern void sub_00036230_gen(void);
+void sub_00036230(void)
+{
+    uint32_t list = MEM32(g_esp + 4u), outp = MEM32(g_esp + 8u);
+    sub_00036230_gen();
+    if (g_eax && xact_va_ok(outp)) {
+        swing_arm_pose(list, MEM32(outp));
+        swing_air_pose(list, MEM32(outp));  /* Swing While Jumping's legs */
+    }
+}
+
+/* The bat / frying pan update's take-out (0x00319BC0 from 0x0032A374; eax =
+ * character, cdecl [esp+0xC] = "layered", pushed 0 by every weapon update)
+ * and put-away (0x0031A210 from 0x0032A539; thiscall, [esp+8] = "layered"):
+ * with layered set the game asks the draw on the right arm only (slot 3,
+ * bone list 0x0074A0A0, 0x002F1BD0) and the body goes on with what it does
+ * (no full-body TakeOut / PutBack: no stop). The swing piece asks it while
+ * Conker moves (swing.c, swing_layered; round 3, user 2026-11-24). */
+void sub_00319BC0_enter(void)
+{
+    if (MEM32(g_esp) == 0x0032A379u && swing_layered(g_eax, 1))
+        MEM32(g_esp + 0xCu) = 1u;
+}
+
+static void air_unhide(void);
+
+void sub_0031A210_enter(void)
+{
+    air_unhide();                       /* the put-away step sees the real height */
+    if (MEM32(g_esp) == 0x0032A53Eu && swing_layered(g_eax, 0))
+        MEM32(g_esp + 8u) = 1u;
+}
+
+/* Swing While Jumping (to-do 48, swing.c). The bat / frying pan update
+ * (0x0032A300, cdecl: [esp+4] = character, ebx = the weapon) starts a swing
+ * only with [chr+0xDC] (the height above the floor) == 0 (0x0032A502, right
+ * before the combo 0x00329E80). When swing_air_gate says so, the height
+ * reads 0 from 0x0031A520's return (the last call before that test; single
+ * player: it returns 0 at once) until the combo returns, or until the
+ * put-away step 0x0031A210 starts when the combo isn't asked; the real
+ * height is back for everything else (the draw's own test, 0x003197F0). */
+static uint32_t s_air_chr;              /* armed for this character (the update running) */
+static float s_air_h;                   /* its real height while hidden */
+static int s_air_hidden;
+
+static void air_unhide(void)
+{
+    if (!s_air_hidden)
+        return;
+    s_air_hidden = 0;
+    if (MEMF(s_air_chr + 0xDCu) == 0.0f)
+        MEMF(s_air_chr + 0xDCu) = s_air_h;
+}
+
+extern void sub_0032A300_gen(void);
+void sub_0032A300(void)
+{
+    uint32_t c = MEM32(g_esp + 4u), was = s_air_chr;
+    int arm = xact_va_ok(c) && swing_air_gate(c);
+    if (arm) {
+        s_air_chr = c;
+        s_air_hidden = 0;
+    }
+    sub_0032A300_gen();
+    if (arm) {
+        air_unhide();
+        s_air_chr = was;
+    }
+}
+
+extern void sub_0031A520_gen(void);
+void sub_0031A520(void)
+{
+    uint32_t c = g_esi;                 /* the character (mov esi, ebp at 0x0032A4DE) */
+    uint32_t ret = MEM32(g_esp);
+    sub_0031A520_gen();
+    if (s_air_chr && c == s_air_chr && ret == 0x0032A4E5u && (g_eax & 0xFFu) != 1u
+        && !s_air_hidden && MEMF(c + 0xDCu) != 0.0f) {
+        s_air_h = MEMF(c + 0xDCu);
+        MEMF(c + 0xDCu) = 0.0f;
+        s_air_hidden = 1;
+    }
+}
+
+/* The combo (0x00329E80; the bat update's swing step): the real height back
+ * once it returns. log swing: a swing it started in the air. */
+extern void sub_00329E80_gen(void);
+void sub_00329E80(void)
+{
+    int hid = s_air_hidden;
+    uint32_t c = s_air_chr, st = hid ? MEM32(c + 0xA4u) : 0;
+    sub_00329E80_gen();
+    if (hid) {
+        air_unhide();
+        if (dev_log(DLOG_SWING) && MEM32(c + 0xA4u) != st)
+            fprintf(stderr, "[SWING] t=%ld air: swing 0x%X from 0x%X at height %.1f (returned %u)\n",
+                    attach_ms(), MEM32(c + 0xA4u), st, MEMF(c + 0xDCu), g_eax & 0xFFu);
+    }
+}
+
+/* The draw / put-away start (0x003197F0; edi = character): it refuses off
+ * the floor (+0xDC != 0) or rising (+0xD0 > 0). Free Swing's own draw and
+ * put-away in the air (swing_air_draw) see both as 0 for the call. */
+extern void sub_003197F0_gen(void);
+void sub_003197F0(void)
+{
+    uint32_t c = g_edi, idx = MEM32(g_esp + 4u), ret = MEM32(g_esp);
+    float h, v;
+    if (!xact_va_ok(c) || !swing_air_draw(c)) {
+        sub_003197F0_gen();
+        return;
+    }
+    h = MEMF(c + 0xDCu);
+    v = MEMF(c + 0xD0u);
+    MEMF(c + 0xDCu) = 0.0f;
+    MEMF(c + 0xD0u) = 0.0f;
+    sub_003197F0_gen();
+    if (dev_log(DLOG_SWING) && g_eax != 0xFFFFFFFFu)
+        fprintf(stderr, "[SWING] t=%ld air: draw step 0x%X in the air (height %.1f, rising %.1f, "
+                "from %08X) -> %d, +1F8 %u\n", attach_ms(), idx, h, v, ret, (int)g_eax,
+                MEM32(MEM32(c + 0x568u) + 0x1F8u));
+    if (MEMF(c + 0xDCu) == 0.0f)
+        MEMF(c + 0xDCu) = h;
+    if (MEMF(c + 0xD0u) == 0.0f)
+        MEMF(c + 0xD0u) = v;
+}
+
+/* The plain movement's pick (0x002D5B30; cdecl, eax = character, [esp+8] =
+ * the wanted speed) from a draw clip's end event (0x0030AA60, which pushes
+ * 0, 0): after the swing piece's layered put-away while running it gets
+ * the run's speed, so it picks the run, not "stance" (swing.c). */
+void sub_002D5B30_enter(void)
+{
+    float want = MEMF(g_esp + 8u);
+    /* From the clip's end event (0x0030AA60) or the character update's own
+     * per-frame pick (0x002D6570, whose wanted speed is 0 the frame the
+     * weapon goes away). */
+    if ((MEM32(g_esp) == 0x0030AB4Bu || MEM32(g_esp) == 0x002D8C42u)
+        && swing_pick_speed(g_eax, &want))
+        MEMF(g_esp + 8u) = want;
+}
+
+/* The draw clip's end event itself (0x0030AA60, cdecl: character) asked by
+ * the swing piece (game thread, controls_poll): a layered put-away at the
+ * game's speed is marked done at once and that event never comes, so the
+ * body kept the bat's run. It clears the draw's request fields (+0x474,
+ * +0x478, +0x3DC, +0x47C..+0x484; the re-pick refuses while they name the
+ * put-away) and re-picks the movement, which gets the run's speed from
+ * sub_002D5B30_enter above. */
+extern void sub_0030AA60(void);
+void swing_move_pick(uint32_t chr, float want)
+{
+    uint32_t eax = g_eax, ecx = g_ecx, edx = g_edx, esp = g_esp;
+    (void)want;
+    g_esp -= 4; MEM32(g_esp) = chr;
+    g_esp -= 4; MEM32(g_esp) = 0u;              /* return address, popped by the callee */
+    sub_0030AA60();
+    g_eax = eax; g_ecx = ecx; g_edx = edx; g_esp = esp;
 }
 
 /* Gait above 30 fps (to-do 75). 0x00312F80 (from the character update
@@ -8868,11 +9114,12 @@ void sub_00537360_enter(void)
  *   past 2500 ([0x00649234])  not drawn.
  * Both limits are float constants shared with many other functions, so they
  * stay; instead, with character_foliage_detail extended, the patch's
- * centre is put on the camera for the distance test (entry hook below) and back before anything
+ * centre is put on the camera for the distance test (wrapper below) and back before anything
  * else reads it: the function's next read of it is the position pushed for
  * the patch matrix, 0x004288F5 (D3DX translation, returns to 0x001A96A4),
  * whose entry hook writes the real centre back to the patch and to the
- * pushed arguments. Every patch in range of the level's own culling is then
+ * pushed arguments; a patch the function leaves early (past 2500) gets it
+ * back when the wrapper returns. Every patch in range of the level's own culling is then
  * drawn as if near. Character & foliage detail original = the original
  * (the Pop-in Fix was grass_full_detail, its own switch in F2 Fixes until 0.3.4; Low
  * moves the centre the other way, see detail_level above).
@@ -8889,7 +9136,7 @@ static const char *const k_popin_env[POPIN_PARTS] = {
     "RECOMP_POPIN_GRASS", "RECOMP_POPIN_CHARACTERS", "RECOMP_POPIN_FUR",
     "RECOMP_POPIN_PARTICLES"
 };
-static uint32_t s_grass_patch, s_grass_pos[3];
+static uint32_t s_grass_patch, s_grass_pos[3], s_grass_moved[3];
 static uint32_t s_grass_fog;            /* TFACTOR for this patch, 0 = none */
 static int s_grass_fog_draw;            /* its TFACTOR went in: blend at the draw */
 static void grass_fog_measure(uint32_t patch, int player);
@@ -8926,11 +9173,33 @@ static void grass_put_back(void)
     }
 }
 
-void sub_001A9540_enter(void)
+/* A patch left moved by the last call (only with RECOMP_GRASS_EXIT_FIX=0,
+ * the old way): say so when its memory no longer holds the centre we wrote,
+ * i.e. it was freed and reused and the put-back below writes into something
+ * else (to-do 286). */
+static void grass_stale_check(void)
+{
+    static unsigned stale, changed;
+    uint32_t p = s_grass_patch;
+    if (!p)
+        return;
+    stale++;
+    if (MEM32(p + 0x2C) != s_grass_moved[0] || MEM32(p + 0x30) != s_grass_moved[1]
+        || MEM32(p + 0x34) != s_grass_moved[2]) {
+        if (++changed <= 20)
+            fprintf(stderr, "[GRASS] a patch left moved (%u so far) no longer holds the moved "
+                    "centre: %08X +0x2C now %08X %08X %08X, the put-back writes %08X %08X %08X "
+                    "there (%u such)\n", stale, p, MEM32(p + 0x2C), MEM32(p + 0x30),
+                    MEM32(p + 0x34), s_grass_pos[0], s_grass_pos[1], s_grass_pos[2], changed);
+    }
+}
+
+static void grass_enter(void)
 {
     uint32_t patch = MEM32(g_esp + 4), players = MEM32(0x008470DCu), cam;
     int16_t player = (int16_t)MEM16(g_esp + 8);
     int low;
+    grass_stale_check();
     grass_put_back();                   /* never left moved by a missed call */
     s_grass_fog = 0;
     s_grass_fog_draw = 0;
@@ -8957,11 +9226,36 @@ void sub_001A9540_enter(void)
             float c = MEMF(patch + 0x2Cu + 4u * (uint32_t)i);
             MEMF(patch + 0x2Cu + 4u * (uint32_t)i) = p + (c - p) / DETAIL_LOW_NEAR;
         }
-        return;
+    } else {
+        MEM32(patch + 0x2C) = MEM32(cam + 0x78);
+        MEM32(patch + 0x30) = MEM32(cam + 0x7C);
+        MEM32(patch + 0x34) = MEM32(cam + 0x80);
     }
-    MEM32(patch + 0x2C) = MEM32(cam + 0x78);
-    MEM32(patch + 0x30) = MEM32(cam + 0x7C);
-    MEM32(patch + 0x34) = MEM32(cam + 0x80);
+    s_grass_moved[0] = MEM32(patch + 0x2C);
+    s_grass_moved[1] = MEM32(patch + 0x30);
+    s_grass_moved[2] = MEM32(patch + 0x34);
+}
+
+/* 0x001A9540 returns early for a patch past 2500 ([0x00649234], the jump at
+ * 0x001A95EA), before the D3DX call that puts the centre back. With Low's
+ * centre pushed outward that is most far patches (Extended's centre on the
+ * camera never is). The patch then stayed moved until the next grass draw,
+ * and a level unloaded in between had freed it: that draw's put-back wrote
+ * the old centre (three whole-number floats) into reused heap memory, over
+ * the heap's own links (to-do 286: Precompile Shaders on Low crashed in the
+ * heap free 0x003E95B0 or on other wild pointers, or hung in a level load;
+ * normal play on Low at a level change too). So the centre now goes back on
+ * every way out. RECOMP_GRASS_EXIT_FIX=0 = the old way (debug only). */
+extern void sub_001A9540_gen(void);
+void sub_001A9540(void)
+{
+    static int fix = -1;
+    if (fix < 0)
+        fix = env_on("RECOMP_GRASS_EXIT_FIX", 1);
+    grass_enter();
+    sub_001A9540_gen();
+    if (fix)
+        grass_put_back();
 }
 
 /* Characters too, under the same switch: 0x00080DA0 (cdecl: character,
@@ -9884,7 +10178,7 @@ static int cutevent_log_on(void)
     return dev_log(DLOG_CUTEVENT);
 }
 
-void sub_0005E240_enter(void)
+static void cutevent_try_log(void)
 {
     uint32_t slot = g_esi, rec = MEM32(g_esp + 4), track = MEM32(g_esp + 8) & 0xFFu;
     uint32_t tracks, tt = 0xFFFF, tid = 0xFF;
@@ -9905,6 +10199,26 @@ void sub_0005E240_enter(void)
             xact_va_ok(rec) ? MEM16(rec + 2) : 0, xact_va_ok(rec) ? MEM8(rec + 4) : 0,
             xact_va_ok(rec) ? MEM8(rec + 5) : 0, xact_va_ok(rec) ? MEM16(rec + 6) : 0,
             track, tt, tid);
+}
+
+/* cutscene_event_run 0x0005E240 (cdecl, the caller pops 16 bytes; esi =
+ * slot, [esp+4] the event record, [esp+8] its track, [esp+0x10] its time),
+ * called per batched event by cutscene_batch_run 0x00055F20. A full wrapper
+ * since 0.6.0 (was an entry hook): the "Update Cutscene" edits (to-do 47,
+ * cutscene_edits.c) drop events here (the return address popped, nothing
+ * run; the caller pops its arguments) and write the seek after a speech
+ * start ran. */
+extern void sub_0005E240_gen(void);
+void sub_0005E240(void)
+{
+    uint32_t slot = g_esi, rec = MEM32(g_esp + 4), t = MEM32(g_esp + 0x10);
+    cutevent_try_log();
+    if (cutedits_drop(slot, rec, (int)t)) {
+        g_esp += 4;
+        return;
+    }
+    sub_0005E240_gen();
+    cutedits_ran(slot, rec, (int)t);
 }
 
 void sub_000569A0_enter(void)
@@ -9957,6 +10271,7 @@ void sub_002AA0C0_enter(void)
         cutevent_where("level change");
     cutview_level_load();
     noclip_level_load();
+    addons_level_load();       /* Extras: the Frying Pan's swaps (to-do 44) */
 }
 
 /* level_unload: the wrapper sub_002AA140 (fast loads, above). */
@@ -10053,12 +10368,14 @@ void sub_0001F6D0(void)
 
 void sub_0004EC10_enter(void)
 {
-    if (MEM32(g_esp) != 0x00050A39u)
+    const int next_part = MEM32(g_esp) == 0x00050A39u;
+    if (!next_part)
         skip_keep_note();
     if (cutevent_log_on())
         fprintf(stderr, "[CUTEVT] t=%ld ms scene start: level %02X scene %u slot %u "
                 "(current level %02X, ret %08X)\n", attach_ms(), MEM32(g_esp + 4),
                 MEM32(g_esp + 8), MEM32(g_esp + 12), MEM32(0x007FA1F8u), MEM32(g_esp));
+    cutedits_scene_start(MEM32(g_esp + 4), MEM32(g_esp + 8), MEM32(g_esp + 12), next_part);
 }
 
 void sub_000507A0_enter(void)
@@ -10070,6 +10387,7 @@ void sub_000507A0_enter(void)
                 MEM32(0x007FA1F8u), s < 4 ? MEM8(0x0076F0DCu + s) : 0,
                 s < 2 ? (int)MEM32(0x0076F0F8u + s * 4) : -1, MEM8(0x0076F0B7u),
                 (int)MEM8(0x0076F0B8u) - 1, MEM8(0x00765601u), MEM32(g_esp));
+    cutedits_scene_end(s, MEM8(0x0076F0B7u), (int)MEM8(0x0076F0B8u) - 1);
     cutview_scene_end();
 }
 
@@ -10077,6 +10395,7 @@ void sub_0004FDC0_enter(void)
 {
     if (cutevent_log_on())
         fprintf(stderr, "[CUTEVT] t=%ld ms skip_now (ret %08X)\n", attach_ms(), MEM32(g_esp));
+    cutedits_skip();
     /* "Skip on through the next parts": skip_now loops until the next part has
      * cleared it, and the viewer's scene has no next part. */
     if (cutview_active())
@@ -10141,6 +10460,7 @@ static int cutscene_start_fix_on(void)
 void sub_00056050_enter(void)
 {
     uint32_t mode = MEM32(g_esp + 4), s = MEM32(g_esp + 8);
+    cutedits_dispatch(mode, s);        /* Update Cutscene's timed steps (to-do 47) */
     if (mode != 0 || s > 1 || !cutscene_start_fix_on() || MEM8(0x0076F0D8u + s))
         return;
     s_cut_owed[s] = MEM32(0x0076F0F0u + s * 4) == MEM32(0x0076F0F8u + s * 4);
@@ -10149,6 +10469,7 @@ void sub_00056050_enter(void)
 void sub_000501F0_enter(void)
 {
     uint32_t s = g_esi, start, now;
+    cutedits_clock(s);                 /* Update Cutscene: a moved start (to-do 47) */
     if (s > 1 || !s_cut_owed[s] || !cutscene_start_fix_on())
         return;
     start = MEM16(0x007655F4u);
@@ -11553,7 +11874,10 @@ static void look_turn(const Look *L, float yaw, float up, int spread)
             MEMF(ctl + 0x34u) += up;
             return;
         }
-        MEMF(ctl + 0x60u) -= yaw;
+        /* The Camera Switch's weaponless shoulder view: the mouse turns
+         * Conker, the camera follows (swing.c). */
+        if (!swing_shoulder_mouse(cam, -yaw))
+            MEMF(ctl + 0x60u) -= yaw;
         /* The wanted pitch +0x8EC, limited as 0x00047DC0 does; the
          * camera eases +0x34 (and +0x38) towards it, so they move by
          * the same amount or the camera eases back. */
@@ -12255,7 +12579,36 @@ static void ucam_log_line(uint32_t cam, int in_charge, float u, float c,
 /* cam_stick_look (cdecl: camera, flag): pitch and yaw from the right stick,
  * the far camera's distance and view width, every frame of free camera. */
 extern void sub_00047730_gen(void);
+static int s_sh_now;                        /* stick_look_body: the shoulder view now */
+static void stick_look_body(void);
+
+/* cam_stick_look: the body below; in the Camera Switch's shoulder view
+ * (swing.c) its yaw turn becomes the view's held heading and Conker's, the
+ * camera eases to that heading, and the zoom is the weapon zoom (as the
+ * aiming view's). */
 void sub_00047730(void)
+{
+    static long last;
+    uint32_t cam = MEM32(g_esp + 4u);
+    uint32_t ctl = cam ? MEM32(cam + 4u) : 0;
+    long now = attach_ms();
+    float dt = last && now > last ? (float)(now - last) / 1000.0f : 0.0f, y0 = 0.0f;
+    int moved = 0;
+
+    last = now;
+    s_sh_now = ctl && swing_shoulder(cam);
+    if (s_sh_now) {
+        uint32_t st = MEM32(ctl + 0x8B4u);
+        y0 = MEMF(ctl + 0x60u);
+        moved = st && MEMF(st + 8u) != 0.0f;     /* the right stick's turn this call */
+    }
+    stick_look_body();
+    if (s_sh_now)
+        swing_shoulder_follow(cam, y0, dt > 0.25f ? 0.25f : dt, moved);
+    s_sh_now = 0;
+}
+
+static void stick_look_body(void)
 {
     uint32_t cam = MEM32(g_esp + 4u), ctl, stick;
     float lo, hi, w, u, c, sy, sy_game, sx_game, e, spd;
@@ -12306,8 +12659,12 @@ void sub_00047730(void)
     sx_game = stick ? MEMF(stick + 8u) : 0.0f;
     dpad_up = (s_input_seen.wButtons & XBOX_GAMEPAD_DPAD_UP) != 0;
     sy = s_input_seen.sThumbRY / 32767.0f;
-    ucam_zoom_step(&s_ucam_zoom, &s_ucam_zoom_tgt, UCAM_ZOOM_MIN, UCAM_ZOOM_MAX,
-                   dt, dpad_up, sy);
+    if (s_sh_now)                       /* the shoulder view: the weapon zoom */
+        ucam_zoom_step(&s_ucam_wzoom, &s_ucam_wzoom_tgt, UCAM_WZOOM_MIN, UCAM_WZOOM_MAX,
+                       dt, dpad_up, sy);
+    else
+        ucam_zoom_step(&s_ucam_zoom, &s_ucam_zoom_tgt, UCAM_ZOOM_MIN, UCAM_ZOOM_MAX,
+                       dt, dpad_up, sy);
     if (ucam_log() >= 2)
         fprintf(stderr, "[UCAMF] t=%ld frame %u look: dt %.4f dpad %d ry %.2f zoom %.3f -> "
                 "%.3f mode %08X\n", now, s_ctl_frame, dt, dpad_up, sy, s_ucam_zoom,
@@ -12396,6 +12753,23 @@ void sub_002F99A0(void)
     }
     if (player >= 0)
         s = controls_camera_speed(player, mp);
+    /* The swing piece's normal view with the bat or frying pan out (swing.c,
+     * the camera switch): Conker's aim doesn't get the right stick (it
+     * turned him; the camera turns with it instead). The stick's two pairs
+     * in the pad record (eax: +0x14 / +0x18, or +0x1C / +0x20 by the aim
+     * record's +0x20) read as zero for the call. */
+    if (player == 0 && swing_aim_still(aimd) && xact_va_ok(g_eax)) {
+        uint32_t pad = g_eax, sv[4];
+        int i;
+        for (i = 0; i < 4; i++) {
+            sv[i] = MEM32(pad + 0x14u + 4u * (uint32_t)i);
+            MEM32(pad + 0x14u + 4u * (uint32_t)i) = 0;
+        }
+        sub_002F99A0_gen();
+        for (i = 0; i < 4; i++)
+            MEM32(pad + 0x14u + 4u * (uint32_t)i) = sv[i];
+        return;
+    }
     if (!rec || (s > 0.999f && s < 1.001f)) {
         sub_002F99A0_gen();
         return;
@@ -12479,6 +12853,23 @@ void sub_000386C0(void)
         else if (ucam_water(cam))
             ucam_water_input(cam);      /* z stays 1: cam_rig_set takes the zoom */
     }
+    /* The Camera Switch's weaponless shoulder view (swing.c): its distance
+     * and height, eased in / out from the normal view's. */
+    if (cam && cam == MEM32(0x008470DCu) && MEM32(cam + 4u) == ctl
+        && swing_shoulder_amount() > 0.0f) {
+        float d1, h1;
+        d0 = MEMF(ctl + 0x26Cu);
+        h0 = MEMF(ctl + 0x270u);
+        d1 = d0 * z;
+        h1 = h0 * z;
+        swing_shoulder_ease(&d1, &h1, ucam_on() ? s_ucam_wzoom : 1.0f);
+        MEMF(ctl + 0x26Cu) = d1;
+        MEMF(ctl + 0x270u) = h1;
+        sub_000386C0_gen();
+        MEMF(ctl + 0x26Cu) = d0;
+        MEMF(ctl + 0x270u) = h0;
+        return;
+    }
     if (ucam_log() >= 2 && cam && cam == MEM32(0x008470DCu))
         fprintf(stderr, "[UCAMF] t=%ld frame %u ease: look frame %u z %.3f mode %08X byte0 %u "
                 "dist %.0f target %.0f\n", attach_ms(), s_ctl_frame, s_ucam_frame, z,
@@ -12558,6 +12949,10 @@ void sub_0004A7D0(void)
     MEM32(pad + 0x10Cu) = 0;
     sub_0004A7D0_gen();
     MEM32(pad + 0x10Cu) = press;
+    /* The swing piece's camera switch on (swing.c; user 2026-11-23): the
+     * button is the switch's, no reset (and no preset step either). */
+    if (swing_zoom_reset_off())
+        return;
 
     ucam_game_limits(cam, &lo, &hi);
     MEMF(ctl + 0x8ECu) = lo;
@@ -12566,6 +12961,94 @@ void sub_0004A7D0(void)
     MEMF(g_edi + 0x54u) = 0.5f;                 /* the game's pause after a press */
     fprintf(stderr, "[UCAM] t=%ld reset: pitch %.0f, zoom 1, behind Conker\n",
             attach_ms(), lo);
+}
+
+/* camera_update (eax = camera; each camera, every frame): the swing piece's
+ * normal view with the bat or frying pan out (swing.c, the camera switch;
+ * swing_camera_normal): the camera's "aiming" byte +0 (0x00301410 sets it
+ * every frame a weapon is out) is 0 for the call, so the camera is the one
+ * without a weapon: the mode pick (0x0003CE30) pushes no over-the-shoulder
+ * mode (and eases out of one that is up, as when the weapon goes away), the
+ * camera's own look record and cam_stick_look take the right stick
+ * (0x0003CAE3), the Unlocked Camera is in charge. The weapon's code still
+ * sees 1 (outside the call). */
+extern void sub_0003C6F0_gen(void);
+void sub_0003C6F0(void)
+{
+    uint32_t cam = g_eax;
+
+    swing_shoulder_tick(cam);           /* the weaponless shoulder view's framing */
+    if (!swing_camera_normal(cam)) {
+        sub_0003C6F0_gen();
+        return;
+    }
+    MEM8(cam) = 0;
+    sub_0003C6F0_gen();
+    MEM8(cam) = 1;
+}
+
+/* camera_update_view_matrix (cdecl: camera): the view from the camera +0x330
+ * and its look-at point +0x2F4 (copied to +0x324 / +0x318 for the next
+ * frame). The Camera Switch's weaponless shoulder view (swing.c) moves both
+ * to the side for the call, then puts them and the copies back (the camera
+ * eases from them next frame). Not while the controller's +0x7FA view of its
+ * own is set (it writes them itself). */
+extern void sub_00046490_gen(void);
+void sub_00046490(void)
+{
+    uint32_t cam = MEM32(g_esp + 4u), ctl = cam ? MEM32(cam + 4u) : 0;
+    static const uint32_t xs[] = { 0x2F4u, 0x330u, 0x318u, 0x324u };
+    float dx, dz;
+    int i;
+
+    swing_shoulder_side(cam, &dx, &dz);
+    if ((dx == 0.0f && dz == 0.0f) || !ctl || MEM8(ctl + 0x7FAu) == 1u) {
+        sub_00046490_gen();
+        return;
+    }
+    for (i = 0; i < 2; i++) {
+        MEMF(cam + xs[i]) += dx;
+        MEMF(cam + xs[i] + 8u) += dz;
+    }
+    sub_00046490_gen();
+    for (i = 0; i < 4; i++) {
+        MEMF(cam + xs[i]) -= dx;
+        MEMF(cam + xs[i] + 8u) -= dz;
+    }
+}
+
+/* The sound key event (cdecl: character; the event's sound-table entry at
+ * 0x007FDBF4): Free Swing's own take-out / put-away plays without the bat's
+ * two sounds (swing.c; user 2026-11-23). */
+extern void sub_00305250_gen(void);
+void sub_00305250(void)
+{
+    if (swing_mute_sound(MEM32(g_esp + 4u), MEM32(0x007FDBF4u))) {
+        g_esp += 4;                     /* ret (cdecl): the generated body is skipped */
+        return;
+    }
+    sub_00305250_gen();
+}
+
+/* The B handler (cdecl: character, ?, the put-away recursion's flag, kind,
+ * ...; called from player_b_kind_update 0x002F48A0 each frame B has
+ * something to do): Free Swing needs what B does here (swing.c), which the
+ * game keeps nowhere. The put-away recursion (flag 1) is left out. */
+void sub_002FD7D0_enter(void)
+{
+    if (!MEM32(g_esp + 0xCu))
+        swing_b_kind(MEM32(g_esp + 4u), (int)MEM32(g_esp + 0x10u));
+}
+
+/* The move turn (thiscall: ecx = character, ax = the heading he moves
+ * along): on the swing piece's normal view Conker runs the way the stick
+ * points from the camera and faces it (swing.c, Txukie's facing hook). */
+void sub_002DEF80_enter(void)
+{
+    uint32_t h = g_eax & 0xFFFFu;       /* the plain movement's heading */
+
+    if (swing_heading(g_ecx, &h))
+        g_eax = h;
 }
 
 /* cam_aim_update (eax = camera): the aim camera, every frame of camera mode
@@ -12835,6 +13318,9 @@ static int pad_filter(DWORD port, XBOX_INPUT_STATE *st)
             InterlockedExchange(&s_skip_lt_block, 0);
     }
     binds_filter(st);
+    /* Free Swing's controller button: Reload's (the game's X after the
+     * binds); swing.c's final hook keeps it from the game where it applies. */
+    swing_pad_x(a[XBOX_BUTTON_X] > XBOX_ANALOG_BUTTON_THRESHOLD);
     start_held_back(port, st);
     /* Modern on foot: B and, while aiming, RT are modern_poll's answer
      * (Context, Aim and Attack went to it from the binds); not aiming,
@@ -13388,10 +13874,25 @@ static void controls_poll(void)
         if (!hooked) {
             hooked = 1;
             xbox_InputSetPadFilter(pad_filter);
+            swing_install();        /* the final hook: keys and pad merged */
         }
         zoom_poll(set);
         bat_poll(set);
         binds_poll(set);
+        /* The swing piece (Extras; swing.c): Quick Swing, Forgiving Combo,
+         * Free Swing (the Attack key; Modern's aim held), the camera switch. */
+        {
+            uint32_t cam = MEM32(0x008470DCu);
+            uint32_t chr = xact_va_ok(cam) ? MEM32(cam + 0x3E0u) : 0;
+            int ok = xact_va_ok(chr);
+            ControlKeys aim_k, att_k;
+            int atk, aiming;
+            controls_modern(NULL, &aim_k, &att_k);
+            atk = controls_keys_held(CONTROLS_STORY, att_k);
+            aiming = controls_keys_held(CONTROLS_STORY, aim_k) || s_pad_in_lt;
+            swing_frame(set, ok ? chr : 0,
+                        ok && !driven_vehicle(chr) && !MEM8(chr + 0x1B5u), atk, aiming);
+        }
         if (InterlockedExchange(&s_pad_mode, mode) != mode)
             fprintf(stderr, "[CONTROLS] t=%ld controller layout: %s\n",
                     attach_ms(), mode == PAD_FOOT ? "modern, on foot"
@@ -14516,14 +15017,321 @@ static void crate_fall_att_end(void)
     s_cf.att_m = 0;
 }
 
+/* Blood in Conker's eyes (to-do 283, user 2026-11-24). The particle sprites
+ * (blood drops, dust: blended point sprites, no depth writes) are drawn after
+ * every character's opaque pass and before the fur pass (9). A drop flying
+ * between the camera and Conker's face passes the depth test on his face; the
+ * fur shells drawn after it paint over it everywhere but on his eyes, which
+ * have no fur: the eyes alone fill dark red (frame trace: the drop's w 267,
+ * the eye's 327-331). The original draws in the same order; the camera locked
+ * at his back hid it. Fix: in his fur pass his eyes are drawn again right
+ * before the shells, so they cover what the particles left on them, as the
+ * fur does on the rest of him.
+ * His model's tree (root [[[model+8]+8]]; node +4 type, +6 pass flags: 1
+ * opaque, 8 fur; +0x14 first child, +0x18 next, +0x1C parent) has its meshes
+ * in groups (type 0x0C, ndShader2): in the field, the Bunker and the Vault
+ * the last group, after the fur group, holds the two eyes. The walk
+ * (0x003F01F0) draws a node whose flags hold the list's mask, but above the
+ * groups sits an ndStaticPushBuffer (type 0x14, 0x003F3510): a push buffer
+ * recorded at load, one for masks without bit 2 and one with, replayed
+ * whole. Its fixup walk (0x003F3410) leaves a group out only by a jump from
+ * the group's jump slot (+0x20, an offset in the recording) to its end
+ * (+0x24), and only for a group recorded in that buffer (flag bit 1 for the
+ * first one). His clothes group (0x244..0x64EC in the field) and the eye group
+ * have slots, his fur group has none (0 / 0), so any list replays its 7 base
+ * pieces (and an opaque redraw with bit 1 cleared on groups drew all of him:
+ * no bit 1, no jump). The eyes go in through a list of their own:
+ * char_render_pass draws list 0x20 (0x00080211) in any pass when the model's
+ * flags hold 0x20, right before the fur shells. For the fur pass call the
+ * model gets 0x20, and so do the eye groups, everything under them and every
+ * node above them; a group left out without a slot of its own is jumped over
+ * by the left-out group before it (that group's end moved on to the next
+ * group's slot for the call). Afterwards all flags and ends as they were.
+ * The eyes' render-state variant [0x0081BE48] is the one
+ * his opaque list uses (model +0x24, as 0x00082730 sets it for list 0): set
+ * at the list's StencilEnable (return 0x0008022A), back to 0 at the fur
+ * block's (return 0x00080358; sub_00537230). Only for Conker (character 0,
+ * not in multiplayer), drawn opaque this frame, when fur shells are drawn
+ * (more than 1, as char_render_pass decides). RECOMP_EYE_FIX=0 = original,
+ * =2 on in every other fur pass only (A/B: frame dumps at a slow timescale
+ * give pairs of nearly the same moment, without and with). */
+#define EYE_GROUPS_MAX 16
+#define EYE_NODES_MAX 256
+static int s_eye_opaque;                /* his opaque pass ran since his last fur pass */
+static int s_eye_active;                /* list 0x20 holds his eyes in this fur pass */
+static uint32_t s_eye_variant;
+static uint32_t s_eye_node[EYE_NODES_MAX];
+static uint16_t s_eye_flags[EYE_NODES_MAX];
+static int s_eye_n;
+static uint32_t s_eye_model;
+static uint16_t s_eye_model_flags;
+#define EYE_SKIPS_MAX 8
+static uint32_t s_eye_skip_node[EYE_SKIPS_MAX];  /* left-out groups whose jump goes further */
+static uint32_t s_eye_skip_end[EYE_SKIPS_MAX];   /* their own ends (+0x24) */
+static int s_eye_skip_n;
+
+/* A left-out group (groups[i]: not in list 0x20, no jump slot) jumped over:
+ * the nearest left-out group before it with a slot jumps on to the slot of
+ * the next group that has one (a left-out one jumps on from there, the eye
+ * group's slot holds a jump to itself). Groups in between: no slot, not in
+ * the list. Returns 1 when its draws are left out. */
+static int eye_skip(const uint32_t *groups, int n, int i)
+{
+    int j, k, s;
+    uint32_t prev, next, end;
+
+    for (j = i - 1; j >= 0 && !MEM32(groups[j] + 0x20u) && !(MEM16(groups[j] + 6u) & 0x20u); j--)
+        ;
+    for (k = i + 1; k < n && !MEM32(groups[k] + 0x20u) && !(MEM16(groups[k] + 6u) & 0x20u); k++)
+        ;
+    if (j < 0 || k >= n)
+        return 0;
+    prev = groups[j];
+    next = groups[k];
+    /* prev jumped over in the first buffer (bit 1, not in the list); one parent */
+    if ((MEM16(prev + 6u) & 0x21u) != 1u || !MEM32(prev + 0x20u) || !MEM32(next + 0x20u)
+        || MEM32(prev + 0x1Cu) != MEM32(groups[i] + 0x1Cu) || MEM32(next + 0x1Cu) != MEM32(prev + 0x1Cu))
+        return 0;
+    end = MEM32(next + 0x20u);
+    for (s = 0; s < s_eye_skip_n; s++)
+        if (s_eye_skip_node[s] == prev)
+            return MEM32(prev + 0x24u) == end;
+    if (end <= MEM32(prev + 0x24u) || s_eye_skip_n >= EYE_SKIPS_MAX)
+        return 0;
+    s_eye_skip_node[s_eye_skip_n] = prev;
+    s_eye_skip_end[s_eye_skip_n++] = MEM32(prev + 0x24u);
+    MEM32(prev + 0x24u) = end;
+    return 1;
+}
+
+static int eye_fix_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_EYE_FIX");
+        on = e && *e ? atoi(e) : 1;
+    }
+    return on;
+}
+
+/* The model's mesh groups in draw order (depth first; groups are not entered). */
+static int eye_groups(uint32_t node, uint32_t *out, int n, int *visits)
+{
+    while (node && xact_va_ok(node) && *visits < 512) {
+        (*visits)++;
+        if (MEM16(node + 4u) == 0x0Cu) {
+            if (n < EYE_GROUPS_MAX)
+                out[n++] = node;
+        } else if (MEM32(node + 0x14u)) {
+            n = eye_groups(MEM32(node + 0x14u), out, n, visits);
+        }
+        node = MEM32(node + 0x18u);
+    }
+    return n;
+}
+
+/* Bit 0x20 on a node (its old flags kept, once). */
+static void eye_mark(uint32_t node)
+{
+    int i;
+    for (i = 0; i < s_eye_n; i++)
+        if (s_eye_node[i] == node)
+            return;
+    if (s_eye_n >= EYE_NODES_MAX)
+        return;
+    s_eye_node[s_eye_n] = node;
+    s_eye_flags[s_eye_n++] = MEM16(node + 6u);
+    MEM16(node + 6u) = (uint16_t)(MEM16(node + 6u) | 0x20u);
+}
+
+static void eye_mark_tree(uint32_t node, int depth)
+{
+    for (; node && xact_va_ok(node) && depth < 16 && s_eye_n < EYE_NODES_MAX;
+         node = MEM32(node + 0x18u)) {
+        eye_mark(node);
+        if (MEM32(node + 0x14u))
+            eye_mark_tree(MEM32(node + 0x14u), depth + 1);
+    }
+}
+
+/* Calls a cdecl game function with edi set and the arguments on the guest
+ * stack; registers and esp as they were afterwards. Returns its eax. */
+static uint32_t eye_call(void (*fn)(void), uint32_t edi, const uint32_t *args, int n)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp, ret;
+    for (int i = n - 1; i >= 0; i--) {
+        g_esp -= 4;
+        MEM32(g_esp) = args[i];
+    }
+    g_edi = edi;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;
+    fn();
+    ret = g_eax;
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+    return ret;
+}
+
+extern void sub_00081FC0(void);
+
+/* Before Conker's fur pass (viewport vp): his eye groups into list 0x20. */
+static void eye_begin(uint32_t vp)
+{
+    static uint32_t told_model;
+    static int ab;
+    uint32_t chr = MEM32(0x0084A5F8u), obj, model, cont, root, node, args[2], scratch;
+    uint32_t groups[EYE_GROUPS_MAX];
+    int n, visits = 0, last_fur = -1, eyes = 0, i, shells, skipped = 0;
+
+    if (!xact_va_ok(chr) || MEM8(0x007819D5u))
+        return;
+    if (eye_fix_on() == 2 && (ab ^= 1))
+        return;
+    obj = MEM32(chr + 0x4B0u + (uint32_t)MEM8(chr + 0x3A8u) * 4u);
+    model = xact_va_ok(obj) ? MEM32(obj + 0x24u) : 0;
+    if (!xact_va_ok(model) || !(MEM16(model + 0xCu) & 8u) || (MEM16(model + 0xCu) & 0x20u))
+        return;                             /* no fur, or a list 0x20 of its own */
+    cont = MEM32(model + 8u);
+    root = xact_va_ok(cont) && xact_va_ok(MEM32(cont + 8u)) ? MEM32(MEM32(cont + 8u)) : 0;
+    n = eye_groups(root, groups, 0, &visits);
+    for (i = 0; i < n; i++)
+        if (MEM16(groups[i] + 6u) & 8u)
+            last_fur = i;
+    for (i = last_fur + 1; last_fur >= 0 && i < n; i++)
+        if ((MEM16(groups[i] + 6u) & 9u) == 1u)
+            eyes++;
+    if (!eyes)
+        return;
+    /* Fur shells this frame? (char_render_pass: 16 for kinds 7 and 9, else
+     * 0x00081FC0's count; drawn when more than 1.) */
+    if (MEM8(chr + 0xA1u) == 7u || MEM8(chr + 0xA1u) == 9u) {
+        shells = 16;
+    } else {
+        g_esp -= 16;
+        scratch = g_esp;
+        MEMF(scratch) = 1.0f;
+        args[0] = vp;
+        args[1] = scratch;
+        shells = (int)eye_call(sub_00081FC0, chr, args, 2);
+        g_esp += 16;
+    }
+    if (shells <= 1)
+        return;
+    s_eye_n = 0;
+    for (i = last_fur + 1; i < n; i++) {
+        if ((MEM16(groups[i] + 6u) & 9u) != 1u)
+            continue;
+        for (node = MEM32(groups[i] + 0x1Cu); node && xact_va_ok(node); node = MEM32(node + 0x1Cu))
+            eye_mark(node);                 /* the way down to it */
+        eye_mark(groups[i]);
+        if (MEM32(groups[i] + 0x14u))
+            eye_mark_tree(MEM32(groups[i] + 0x14u), 0);
+    }
+    /* Left-out groups without a jump slot (his fur group): jumped over too. */
+    s_eye_skip_n = 0;
+    for (i = 0; i < n; i++)
+        if (!(MEM16(groups[i] + 6u) & 0x20u) && !MEM32(groups[i] + 0x20u))
+            skipped += eye_skip(groups, n, i);
+    s_eye_model = model;
+    s_eye_model_flags = MEM16(model + 0xCu);
+    MEM16(model + 0xCu) = (uint16_t)(s_eye_model_flags | 0x20u);
+    s_eye_variant = MEM16(model + 0x24u) != 0xFFFFu ? (uint32_t)(int16_t)MEM16(model + 0x24u) : 0u;
+    s_eye_active = 1;
+    if (told_model != model) {
+        told_model = model;
+        fprintf(stderr, "[EYES] Conker's eyes drawn again before his fur (model %08X: %d groups, "
+                "%d eye group(s) after the fur, %d nodes into list 0x20, %d group(s) without a jump "
+                "slot jumped over; RECOMP_EYE_FIX=0 = original)\n", model, n, eyes, s_eye_n, skipped);
+    }
+}
+
+/* The moved ends back: right after list 0x20, before the fur block (its
+ * shells replay the same recording, the fur group in it), and at the end. */
+static void eye_unskip(void)
+{
+    int i;
+    for (i = s_eye_skip_n - 1; i >= 0; i--)
+        MEM32(s_eye_skip_node[i] + 0x24u) = s_eye_skip_end[i];
+    s_eye_skip_n = 0;
+}
+
+/* After list 0x20: did its writes run past the fixup buffer (eye_reserve)? */
+static void eye_check_fixups(void)
+{
+    static int over;
+    uint32_t fx = MEM32(0x0081BE34u);
+    if (xact_va_ok(fx) && MEM32(fx + 0x10u) > MEM32(fx + 0x14u))
+        fprintf(stderr, "[EYES] fixup buffer full in list 0x20 (%d so far: %u of %u)\n", ++over,
+                MEM32(fx + 0x10u), MEM32(fx + 0x14u));
+}
+
+/* Room in the push-buffer fixup ring before list 0x20. The replay writes its
+ * jumps and matrices into the current fixup buffer ([0x0081BE34]); the
+ * game's lists ask 0x003ED220 for room first (bits 1, 2, 8: the container's
+ * need +0x3C / +0x40, the next buffer when short), but list 0x20 asks with
+ * none of those bits and gets no check. Past a full buffer the writes stop
+ * (D3DPushBuffer_Jump 0x0053B620) and the record's end mark is left out, so
+ * D3D's fixup copy (0x0053AD90, at the next return from the replay) runs off
+ * into memory: a crash (2026-11-25, write at 0x84010000). Bit 1 asks for room
+ * as his opaque list does (the first buffer's need, 19060 bytes in the field;
+ * the buffers hold 163840). RECOMP_EYE_RESERVE=0: no reservation (A/B). */
+extern void sub_003ED220(void);
+static void eye_reserve(void)
+{
+    static int on = -1;
+    uint32_t cont = MEM32(s_eye_model + 8u);
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_EYE_RESERVE");
+        on = !(e && *e == '0');
+    }
+    if (!on || !xact_va_ok(cont))
+        return;
+    g_ecx = cont;                       /* thiscall, the argument left on the stack */
+    g_esp -= 4;
+    MEM32(g_esp) = 1;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;
+    sub_003ED220();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+}
+
+static void eye_end(void)
+{
+    int i;
+    if (!s_eye_active)
+        return;
+    MEM16(s_eye_model + 0xCu) = s_eye_model_flags;
+    for (i = s_eye_n - 1; i >= 0; i--)
+        MEM16(s_eye_node[i] + 6u) = s_eye_flags[i];
+    eye_unskip();
+    s_eye_n = 0;
+    s_eye_active = 0;
+}
+
 /* 0x0007FB00 char_render_pass (cdecl, [esp+4] character index, [esp+0x14]
  * pass: 1 OPAQUE, 12 OPAQUE_BACKGROUND, conker-notes 2026-10-29). */
 extern void sub_0007FB00_gen(void);
 void sub_0007FB00(void)
 {
     uint32_t pass = MEM32(g_esp + 0x14u);
-    int two, stump, big, crate;
+    int two, stump, big, crate, eye = 0;
 
+    /* Conker's eyes into his fur pass (to-do 283): his opaque pass seen, then
+     * eye_begin right before the draw, eye_end after it. */
+    if (MEM32(g_esp + 4u) == 0 && eye_fix_on()) {
+        if (pass == 1 || pass == 12)
+            s_eye_opaque = 1;
+        else if (pass == 9) {
+            eye = s_eye_opaque && !photo_hides_char(0);
+            s_eye_opaque = 0;
+        }
+    }
     if (photo_hides_char(MEM32(g_esp + 4u))) {
         g_esp += 4;                     /* ret (cdecl) */
         return;
@@ -14544,9 +15352,12 @@ void sub_0007FB00(void)
     stump = stump_begin(MEM32(g_esp + 4u));
     big = bh_begin(MEM32(g_esp + 4u));
     crate = crate_fall_begin(MEM32(g_esp + 4u));
+    if (eye)
+        eye_begin(MEM32(g_esp + 8u));
     wire_enter();
     sub_0007FB00_gen();
     wire_leave();
+    eye_end();
     if (crate)
         crate_fall_end();
     if (big)
@@ -17762,6 +18573,127 @@ static void cheat_speed(uint32_t c, int on)
     pz = z;
 }
 
+/* Recomp Addons, Weapon Bat (to-do 44; addons.c, SPEC 10.4).
+ * player_has_bat 0x002F6850 (cdecl, [esp+4] = the character, AL = result):
+ * single player ([0x007819D5] == 0), level not the front end 0x1D or 0x46,
+ * and ctl ([char + 0x568]) +0x2C bit 2 clear, the "no bat" bit the training
+ * tasks set until the gargoyle's hit. Its only caller, player_b_kind_update
+ * 0x002F48A0, gives B the bat (item 0x75) when it says 1, else the frying
+ * pan (0x76) in the training levels 0x29 / 0x2E and nothing elsewhere.
+ * With weapon = bat it says 1 under the same first two tests: the bat from
+ * the start. The model, its hand animations, camera and hit sound are the
+ * bat's own (BaseballBat is in General\Singleplayer, always loaded).
+ *
+ *
+ * The rack scene (TrainingCave scene 2) puts the frying pan in his hand with
+ * a cutscene event "add attachment 275" (0x00056DB7 -> 0x002B37D0: model
+ * 0x281 FryingPanBound, per-frame callback 29) and never takes it off; the
+ * weapon take-out animation (index 2100, every weapon's) shows it, and it goes
+ * with the first draw. In the original that draw is the pan's, so it never
+ * shows; in Bat mode the first bat draw after the scene showed the frying pan
+ * in his hand before the bat (user 2026-11-23, frame dump _work\a060\fb3 in
+ * the worktree). So in Bat mode, while he is idle (this runs only when B has
+ * nothing to do and never in a cutscene; weapon not out: ctl +0xA0 and +0x1F8
+ * both 0) in the training levels, attachment 275 still on him is taken off
+ * with the game's own 0x002B38F0 (eax = character, [esp+4] = type; what the
+ * scene event "remove attachment" calls). The scene's close-up keeps its pan.
+ *
+ * The other way round: the held weapon (ctl +0x444, a weapon object: +8 =
+ * 0x25 bat, 0x26 pan) stays after a put-away when it is the bat (0x0031AB10
+ * frees only the others), and the take-out shows it until
+ * player_weapon_attach 0x0031A7A0 swaps it partway through. After a switch
+ * from Bat back to Both in a pan level, the held bat is dropped at idle with
+ * the game's own 0x0031A730 (eax = character; what 0x0031A7A0 does at the
+ * draw), so the pan's first draw starts empty-handed. The original never
+ * holds the bat while B draws the pan. */
+#define WEAPON_OBJ_BAT  0x25u
+#define ATTACH_RACK_PAN 275u
+extern void sub_002F6850_gen(void);
+extern void sub_0031A730(void);
+extern void sub_002B38F0(void);
+
+/* A call into the game from inside a wrapper: registers kept, a return
+ * address pushed (popped by the callee), the arguments pushed first. */
+static void guest_call(void (*fn)(void), uint32_t eax, const uint32_t *args, int n)
+{
+    uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+    uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+    for (int i = n - 1; i >= 0; i--) {
+        g_esp -= 4;
+        MEM32(g_esp) = args[i];
+    }
+    g_eax = eax;
+    g_esp -= 4;
+    MEM32(g_esp) = 0;
+    fn();
+    g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+    g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+}
+
+/* Update Cutscene (to-do 47, cutscene_edits.h): the speech stopped when it
+ * is this sound ([0x00657C58]; [0x00657C54] -1 = none) with ad_mpeg_Stop
+ * 0x0001B180, which also lets go of its lip timeline. */
+int conker_voice_stop(unsigned sound)
+{
+    if ((int32_t)MEM32(0x00657C54u) == -1 || MEM32(0x00657C58u) != sound)
+        return 0;
+    guest_call(sub_0001B180, 0, NULL, 0);
+    return 1;
+}
+
+/* An attachment of this type on the character with this id (the list at
+ * 0x00847200, "character attachments" above). */
+static int char_has_attach(uint8_t id, uint16_t type)
+{
+    uint32_t a = MEM32(0x00847200u);
+    for (int n = 0; n < 512 && xact_va_ok(a); n++, a = MEM32(a + 0xE0u))
+        if (MEM8(a) == id && MEM16(a + 0x0Au) == type)
+            return 1;
+    return 0;
+}
+
+void sub_002F6850(void)
+{
+    uint32_t chr = MEM32(g_esp + 4), lvl, ctl, held;
+    int bat_mode = addons_weapon() == ADDON_WEAPON_BAT;
+    sub_002F6850_gen();
+    lvl = MEM32(0x007FA1F8u);
+    if (MEM8(0x007819D5u) || lvl == 0x1Du || lvl == 0x46u)
+        return;
+    if (bat_mode && !(g_eax & 0xFFu)) {
+        g_eax = (g_eax & ~0xFFu) | 1u;
+        addons_note_bat();
+    }
+    /* Weapon Frying Pan on or off mid-level (user 2026-11-23: at once, no
+     * level load; addons.c addons_pan_now): while he stands with no weapon
+     * out, outside cutscenes, the pan's name and sounds go in or out and a
+     * held bat is dropped, so the next draw makes it with its new model. */
+    if (!conker_SceneBusy() && xact_va_ok(chr) && xact_va_ok(ctl = MEM32(chr + 0x568u))
+        && !MEM32(ctl + 0xA0u) && !MEM32(ctl + 0x1F8u) && addons_pan_now()
+        && xact_va_ok(held = MEM32(ctl + 0x444u)) && MEM32(held + 8u) == WEAPON_OBJ_BAT) {
+        fprintf(stderr, "[WEAPON] held bat dropped: the next draw makes it with its new "
+                "model (level %02X)\n", lvl);
+        guest_call(sub_0031A730, chr, NULL, 0);
+    }
+    if ((lvl != 0x29u && lvl != 0x2Eu) || conker_SceneBusy() || !xact_va_ok(chr)
+        || !xact_va_ok(ctl = MEM32(chr + 0x568u))
+        || MEM32(ctl + 0xA0u) || MEM32(ctl + 0x1F8u))
+        return;
+    if (bat_mode && char_has_attach(MEM8(chr + 0x10Bu), ATTACH_RACK_PAN)) {
+        uint32_t type = ATTACH_RACK_PAN;
+        /* With Update Cutscene its model is the bat's (cutscene_edits.c). */
+        fprintf(stderr, "[WEAPON] the rack scene's prop (attachment 275) taken off his "
+                "hand (level %02X)\n", lvl);
+        guest_call(sub_002B38F0, chr, &type, 1);
+    }
+    if (!(g_eax & 0xFFu) && xact_va_ok(held = MEM32(ctl + 0x444u))
+        && MEM32(held + 8u) == WEAPON_OBJ_BAT) {
+        fprintf(stderr, "[WEAPON] held bat dropped: B draws the frying pan "
+                "(level %02X)\n", lvl);
+        guest_call(sub_0031A730, chr, NULL, 0);
+    }
+}
+
 /* Each frame, after the world moved and drew: the top-ups. A hit lands between
  * two of these and is gone before the character's next update looks at it. Not
  * a character already dying with no energy left (a scripted kill): he goes on
@@ -17772,6 +18704,8 @@ static void cheats_frame(void)
     int cue = g_play_cue;
     uint32_t on, c, ctl;
 
+    addons_frame();            /* Recomp Addons (0.6.0): Key Goblin */
+    cutedits_frame();          /* Update Cutscene's lip base / weapon steps (to-do 47) */
     cutview_frame();
     warp_frame();
     speech_wait_frame();
@@ -18918,6 +19852,9 @@ void conker_SetNoclip(int on)
     g_noclip = on != 0;
 }
 
+extern void sub_002F48A0(void);
+extern void sub_002EF810(void);
+
 static void noclip_fly(uint32_t c, int first)
 {
     uint32_t cam = MEM32(0x0084A13Cu), ctl = MEM32(c + 0x568u), cams = MEM32(0x008470DCu);
@@ -18972,6 +19909,42 @@ static void noclip_fly(uint32_t c, int first)
     if (xact_va_ok(ctl)) {
         MEMF(ctl + 0x3D8u) = 0.0f;
         MEM32(ctl + 0x204u) = 0;
+    }
+    /* Swing While Jumping with Free Swing (to-do 48, swing.c): the movement left out
+     * above also held the B / weapon step (0x002F48A0, cdecl: character, his height
+     * +0xDC, 0; from 0x002D82C6), which draws the bat, runs its update (the swings)
+     * and puts it away: run here. While a weapon is out or a swing plays, his
+     * animation is the weapon's (the spin's pose below waits). */
+    {
+        int air = swing_air_noclip(c);
+        if (air & 1) {
+            uint32_t r_eax = g_eax, r_ecx = g_ecx, r_edx = g_edx, r_ebx = g_ebx;
+            uint32_t r_esi = g_esi, r_edi = g_edi, r_esp = g_esp;
+            g_esp -= 4; MEM32(g_esp) = 0;
+            g_esp -= 4; MEM32(g_esp) = MEM32(c + 0xDCu);
+            g_esp -= 4; MEM32(g_esp) = c;
+            g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
+            sub_002F48A0();
+            g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+            g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+            air = swing_air_noclip(c);
+            /* The hit test the movement makes for an attack in progress (0x002D8A5B:
+             * [c+0x1D8] = the attack's entry, then 0x002EF810 cdecl: attacker, 0, his
+             * index [c+0x60], 0; it tests every character in reach and hits them):
+             * without it his swings in noclip hit nothing (user 2026-11-24). */
+            if (MEM8(c + 0x1D8u)) {
+                g_esp -= 4; MEM32(g_esp) = 0;
+                g_esp -= 4; MEM32(g_esp) = MEM16(c + 0x60u);
+                g_esp -= 4; MEM32(g_esp) = 0;
+                g_esp -= 4; MEM32(g_esp) = c;
+                g_esp -= 4; MEM32(g_esp) = 0;   /* return address, popped by the callee */
+                sub_002EF810();
+                g_eax = r_eax; g_ecx = r_ecx; g_edx = r_edx; g_ebx = r_ebx;
+                g_esi = r_esi; g_edi = r_edi; g_esp = r_esp;
+            }
+        }
+        if (air & 2)
+            return;
     }
     /* The tail spin's pose, asked every frame as the game does: anim_by_index
      * 0x002F1620 (edx = index, stack: character, speed, blend, 0, 0, 0); 0xE9 at the
@@ -19515,6 +20488,10 @@ static void cheat_spin_hide_crouch(uint32_t c)
     s_spin_rt_hidden = s_spin_crouch = 0;
     if (!cheat_spin_mine(c, &ctl) || MEM8(ctl + 0x45u) < 3u)  /* 3 up: spinning */
         return;
+    /* Swing While Jumping: with the bat / pan out (Free Swing's draw in the
+     * spin) RT is the swing; hidden, every swing waited for the landing. */
+    if (swing_air_weapon(c))
+        return;
     s_spin_crouch = PAD_HELD(c, 0x68u) != 0;
     for (size_t i = 0; i < sizeof(s_spin_rt_off) / sizeof(s_spin_rt_off[0]); i++) {
         s_spin_rt[i] = PAD_HELD(c, s_spin_rt_off[i]);
@@ -19728,8 +20705,18 @@ void sub_00537230(void)
 {
     static int on = -1;
     int here = MEM32(g_esp) == 0x00080358u;
+    int eyes = s_eye_active && MEM32(g_esp) == 0x0008022Au;
 
     sub_00537230_gen();
+    if (eyes) {                         /* list 0x20: his eyes (to-do 283) */
+        MEM32(0x0081BE48u) = s_eye_variant;
+        eye_reserve();
+    }
+    else if (here && s_eye_active) {    /* the fur block: back to the game's 0 */
+        MEM32(0x0081BE48u) = 0;
+        eye_unskip();                   /* the shells replay the same recording */
+        eye_check_fixups();
+    }
     if (!here)
         return;
     if (on < 0) {

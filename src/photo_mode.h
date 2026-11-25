@@ -38,6 +38,10 @@ int photo_freecam(void);
 int photo_freecam_pos(float *x, float *y, float *z);
 int photo_freecam_game(void);
 void photo_freecam_set(int on);
+/* The console's freecam at: v = x y z yaw pitch (degrees; yaw 0 = +z,
+ * 90 = +x). 0 = the freecam is off. */
+int photo_freecam_place(const float *v);
+int photo_freecam_pose(float *v);
 /* Nonzero while photo mode's keys are in use: frozen, or just left with a
  * key the game would take (Esc, its pause) still held. */
 int photo_keys_wanted(void);

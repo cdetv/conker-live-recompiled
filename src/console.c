@@ -1007,6 +1007,28 @@ static void cmd_freecam(int argc, char **argv)
 {
     int on = !photo_freecam();
 
+    if (argc >= 2 && !strcmp(argv[1], "at")) {
+        float v[5];
+        int i;
+        if (argc == 2) {
+            if (!photo_freecam_pose(v))
+                complain("freecam at needs freecam on (freecam)");
+            else
+                reply("Freecam at %.0f %.0f %.0f, yaw %.1f, pitch %.1f", v[0], v[1], v[2], v[3], v[4]);
+            return;
+        }
+        if (argc != 7) {
+            complain("freecam at <x> <y> <z> <yaw> <pitch> (degrees; yaw 0 = +z, 90 = +x)");
+            return;
+        }
+        for (i = 0; i < 5; i++)
+            v[i] = (float)atof(argv[i + 2]);
+        if (!photo_freecam_place(v))
+            complain("freecam at needs freecam on (freecam)");
+        else
+            reply("Freecam to %.0f %.0f %.0f, yaw %.1f, pitch %.1f", v[0], v[1], v[2], v[3], v[4]);
+        return;
+    }
     if (argc >= 2) {
         if (!strcmp(argv[1], "on") || !strcmp(argv[1], "1"))
             on = 1;
@@ -2448,7 +2470,8 @@ static const Command s_commands[] = {
     { "editSave", "<1|2|3> <word><number> | list",
       "moves a save to the start of a chapter's part, as the Chapters list starts it",
       cmd_editsave },
-    { "freecam", "[on|off]", "photo mode's fly camera with the world running", cmd_freecam },
+    { "freecam", "[on|off] | at [<x> <y> <z> <yaw> <pitch>]",
+      "photo mode's fly camera with the world running; at = put it there (no values: where it is)", cmd_freecam },
     { "timescale", "[0-300]", "the game's speed in percent; no value swaps with the last",
       cmd_timescale },
     { "godmode", "[on|off]", "God mode", cmd_cheat },

@@ -1057,6 +1057,97 @@ de: Unter dem Poo nach dem Bullenkampf ist der Dunst passend braun statt als bla
 en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
 de: Über 30 fps bewegen sich Schwänze, Ragdolls und Stoff mit der Originalgeschwindigkeit (aus: schneller, bei 120 viermal so schnell)
 
+## addons_tab
+en: Bat
+de: Schläger
+
+en: Frying Pan
+de: Bratpfanne
+
+en: Off
+de: Aus
+
+en: Normal
+de: Normal
+
+en: Easy
+de: Leicht
+
+en: Options that change the game itself. All off by default, as the original; nothing here is kept in your saves
+de: Optionen, die das Spiel selbst verändern. Standardmäßig alle aus, wie im Original; nichts hiervon wird in deinen Spielständen gespeichert
+
+en: Melee
+de: Nahkampf
+
+en: Quick Swing
+de: Schnellschlag
+
+en: Hold attack to keep swinging the bat or frying pan. Normal: the first two hits again and again (a press in time still does the uppercut). Easy: all three hits. In the Vault suit two punches, or up to four when they land
+de: Angriff halten, um mit Schläger oder Bratpfanne weiterzuschlagen. Normal: die ersten beiden Schläge immer wieder (ein rechtzeitiger Druck gibt trotzdem den Aufwärtshaken). Leicht: alle drei Schläge. Im Anzug des Endkampfs zwei Fausthiebe, oder bis zu vier, wenn sie treffen
+
+en: Forgiving Combo
+de: Nachsichtige Kombo
+
+en: A bat or frying-pan press made a little too early waits for its moment instead of breaking the combo
+de: Ein etwas zu früher Druck mit Schläger oder Bratpfanne wartet auf seinen Moment, statt die Kombo abzubrechen
+
+en: Fast Weapon Draw
+de: Schnelles Waffenziehen
+
+en: Every weapon comes out and goes away 2.5 times as fast (the bat is in hand in about half a second instead of over a second)
+de: Jede Waffe wird 2,5-mal so schnell gezogen und weggesteckt (der Schläger ist nach etwa einer halben Sekunde statt nach über einer Sekunde in der Hand)
+
+en: Camera Switch
+de: Kamerawechsel
+
+en: The camera zoom button (right stick click, V) switches between the normal camera and over the shoulder, with nothing out or the bat / frying pan out; drawing them never changes the view. Over the shoulder with nothing out the camera stays behind Conker and the right stick or mouse turn him. The Unlocked Camera's reset on that button is off
+de: Die Kamera-Zoom-Taste (rechter Stick gedrückt, V) wechselt zwischen der normalen Kamera und der Schulteransicht, ohne Waffe oder mit Schläger / Bratpfanne in der Hand; das Ziehen ändert die Ansicht nie. In der Schulteransicht ohne Waffe bleibt die Kamera hinter Conker, und rechter Stick oder Maus drehen ihn. Das Zurücksetzen der Entsperrten Kamera auf dieser Taste ist aus
+
+en: Swing While Jumping
+de: Schlagen im Sprung
+
+en: The bat or frying pan swings during a jump too (attack with it out; with Free Swing on, its button takes it out, swings and puts it away in the air). The jump keeps its arc
+de: Schläger oder Bratpfanne schlagen auch im Sprung (Angriff mit gezogener Waffe; ist Freier Schlag an, zieht dessen Taste die Waffe, schlägt und steckt sie in der Luft wieder weg). Der Sprung behält seinen Bogen
+
+en: Unload Reloaded
+de: Unload Reloaded
+
+en: All of it at once: Weapon Frying Pan with Update Cutscene, and Milk Fix, No Key Goblings and Free Swing on. Untick to put them back to the original
+de: Alles auf einmal: Waffe Bratpfanne mit Zwischensequenz anpassen, dazu Milch-Korrektur, Keine Schlüssel-Goblings und Freier Schlag an. Abwählen setzt sie auf das Original zurück
+
+en: Weapon
+de: Waffe
+
+en: Both: as the game (the frying pan in the training, then the bat). Bat: the bat from the start. Frying Pan: the frying pan all game long. Changes at the next draw
+de: Beide: wie im Spiel (die Bratpfanne im Training, danach der Schläger). Schläger: der Schläger von Anfang an. Bratpfanne: die Bratpfanne das ganze Spiel über. Gilt ab dem nächsten Ziehen
+
+en: The frying pan is made from your game files at the start; it was not found. Start the game again, or re-import the game files in the launcher
+de: Die Bratpfanne wird beim Start aus deinen Spieldateien erstellt; sie wurde nicht gefunden. Starte das Spiel neu oder importiere die Spieldateien im Launcher erneut
+
+en: Update Cutscene
+de: Zwischensequenz anpassen
+
+en: The training's weapon scenes match the weapon. Bat: no frying-pan line in the weapon rack scene, and the gargoyle scene starts at the uppercut. Frying Pan: the gargoyle scene goes from his first line straight to the uppercut. From the next cutscene
+de: Die Waffenszenen im Training passen zur Waffe. Schläger: kein Bratpfannen-Satz in der Waffenständer-Szene, und die Gargoyle-Szene beginnt beim Aufwärtshaken. Bratpfanne: Die Gargoyle-Szene springt von seinem ersten Satz direkt zum Aufwärtshaken. Ab der nächsten Zwischensequenz
+
+en: Milk Fix
+de: Milch-Korrektur
+
+en: In the opening scene Conker holds a glass of milk instead of the goblet, as on the N64 (made from your game files at the start). From the next level load
+de: In der Eröffnungsszene hält Conker ein Glas Milch statt des Kelchs, wie auf dem N64 (beim Start aus deinen Spieldateien erstellt). Ab dem nächsten geladenen Level
+
+en: No Key Goblings
+de: Keine Schlüssel-Goblings
+
+en: In the training cave the key hops out after the frying-pan tutorial: no goblins (as the original N64 game). Changes at once until the goblins have come out
+de: In der Trainingshöhle hüpft der Schlüssel nach dem Bratpfannen-Tutorial heraus: keine Goblins (wie im N64-Original). Gilt sofort, solange die Goblins noch nicht herausgekommen sind
+
+en: Free Swing
+de: Freier Schlag
+
+en: The controller's Reload button (X) or the keyboard's Attack key (Mouse 1) takes the bat or frying pan out and swings at once; it goes away as soon as the swinging is over. The camera stays free
+de: Die Nachladen-Taste des Controllers (X) oder die Angriff-Taste der Tastatur (Mouse 1) zieht den Schläger oder die Bratpfanne und schlägt sofort zu; die Waffe wird weggesteckt, sobald das Schlagen vorbei ist. Die Kamera bleibt frei
+
 en: Display
 de: Anzeige
 
@@ -1068,6 +1159,9 @@ de: Sound
 
 en: Fixes
 de: Korrekturen
+
+en: Extras
+de: Extras
 
 ## preset_tip
 en: Upscaler
@@ -1638,9 +1732,6 @@ en: The photo could not be taken (%s)
 de: Das Foto konnte nicht aufgenommen werden (%s)
 
 ## build_photo_picture
-en: Off
-de: Aus
-
 en: CRT
 de: CRT
 

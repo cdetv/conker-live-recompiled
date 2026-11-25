@@ -47,6 +47,11 @@ static const struct {
       "questions): the window with the focus and the windows' order per change, each key, "
       "pad press and window focus change they get; [IMGUI] ImGui's own focus, pop-up and "
       "navigation events (to-do 272)", 1 },
+    { "cutedit", "RECOMP_CUTEDIT_LOG", "[CUTEDIT] Update Cutscene (Extras): each edit's start "
+      "and end, the lip base and weapon steps", 1 },
+    { "swing", "RECOMP_SWING_LOG", "[SWING] the swing piece (Extras): Quick Swing presses, "
+      "Forgiving Combo's kept presses, the bat's combo state per change, Fast Weapon Draw, "
+      "Free Swing, the camera switch, layered draws, the strafe's arm; 2 = [SWTRACE] the player and [ARMQ] his arms every frame", 2 },
 };
 
 static volatile LONG s_level[DLOG_COUNT];

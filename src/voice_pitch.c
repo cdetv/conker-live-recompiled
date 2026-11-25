@@ -61,6 +61,12 @@
  * recorded and the length never changes. On with either cheat, like his own
  * lines. RECOMP_VOICE_MIXED=0 = off, =2 = [VOICEMIX] lines only;
  * RECOMP_VOICE_MIXED_EXTEND=0 = no reaching on.
+ *
+ * Wave edits (to-do 47, "Update Cutscene", cutscene_edits.c): the same read
+ * hook serves one speech wave cut (voice_wave_edit, voice_pitch.h): the
+ * gargoyle scene in Bat mode starts its voice 43.3 s in. Last in the read, so
+ * a pitched wave (Mouse / Bear) is the one cut; a cache write gets the wave
+ * as recorded back, as for the pitched ones.
  */
 #include <windows.h>
 #include <ctype.h>
@@ -1472,6 +1478,202 @@ void voice_mixed_start(unsigned sound, int sdbk, int cue, const char *cue_name,
     LeaveCriticalSection(&s_lock);
 }
 
+/* ---- wave edits (to-do 47, voice_pitch.h) ------------------------------ */
+
+#define EDIT_KEEPS 4
+
+static struct {
+    volatile LONG on;
+    char cue[32], bank[17];
+    uint16_t wave;
+    uint32_t off, len;                  /* the wave in its bank's file */
+    VoiceKeep keep[EDIT_KEEPS];
+    int nkeep;
+    /* The wave as recorded, read at the edit's start; kept after a clear so
+     * a cache write of bytes read while it was on still gets them back. */
+    uint8_t *raw;
+    char raw_bank[17];
+    uint32_t raw_off, raw_len;
+} s_edit;
+
+/* Our own handle on the bank's file: the path the game opened it by, else
+ * the folder of another bank the game opened + <bank>.xwb (its header must
+ * name the bank). */
+static HANDLE edit_open(const Bank *b, const char *bank)
+{
+    HANDLE f = INVALID_HANDLE_VALUE;
+    wchar_t p[MAX_PATH];
+
+    if (b && b->path[0])
+        f = CreateFileW(b->path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        NULL, OPEN_EXISTING, 0, NULL);
+    for (int i = 0; f == INVALID_HANDLE_VALUE && i < s_nbank; i++) {
+        const wchar_t *slash;
+        uint8_t hdr[0x60];
+        uint32_t s0;
+        int n;
+
+        if (!s_bank[i].path[0] || !(slash = wcsrchr(s_bank[i].path, L'\\')))
+            continue;
+        n = swprintf(p, MAX_PATH, L"%.*s\\%S.xwb", (int)(slash - s_bank[i].path), s_bank[i].path, bank);
+        if (n <= 0)
+            continue;
+        f = CreateFileW(p, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        NULL, OPEN_EXISTING, 0, NULL);
+        if (f == INVALID_HANDLE_VALUE)
+            break;                      /* the banks' folder has no such file */
+        if (!read_at(f, 0, hdr, sizeof hdr) || memcmp(hdr, "WBND", 4)
+            || (s0 = *(uint32_t *)(hdr + 8)) + 24 > sizeof hdr
+            || _strnicmp((const char *)hdr + s0 + 8, bank, 16)) {
+            CloseHandle(f);
+            f = INVALID_HANDLE_VALUE;
+            break;
+        }
+    }
+    return f;
+}
+
+int voice_wave_edit(const char *cue, unsigned len, const VoiceKeep *keep, int n,
+                    char *why, int why_size)
+{
+    char bank[4][17];
+    uint16_t wave[4];
+    uint32_t off = 0, wlen = 0, rate = 0;
+    HANDLE f = INVALID_HANDLE_VALUE;
+    int nw, ok = 0;
+    Bank *b;
+
+    why[0] = 0;
+    if (n < 1 || n > EDIT_KEEPS) {
+        snprintf(why, (size_t)why_size, "bad keep list");
+        return 0;
+    }
+    for (int i = 0; i < n; i++)
+        if (keep[i].from >= keep[i].to || keep[i].to > len || (keep[i].from & 1) || (keep[i].to & 1)) {
+            snprintf(why, (size_t)why_size, "bad keep range %u-%u", keep[i].from, keep[i].to);
+            return 0;
+        }
+    EnterCriticalSection(&s_lock);
+    InterlockedExchange(&s_edit.on, 0);
+    if (s_parsed <= 0)
+        snprintf(why, (size_t)why_size, "sound banks not read");
+    else if ((nw = cue_waves(-1, 0, cue, bank, wave, 4)) != 1)
+        snprintf(why, (size_t)why_size, "cue %s plays %d waves", cue, nw);
+    else if ((b = bank_named(bank[0], 1)) == NULL)
+        snprintf(why, (size_t)why_size, "too many banks");
+    else if ((f = edit_open(b, bank[0])) == INVALID_HANDLE_VALUE)
+        snprintf(why, (size_t)why_size, "bank %s: file not found", bank[0]);
+    else {
+        if (b->ready <= 0)
+            read_bank(b, f);
+        if (!wave_loc(b, wave[0], &off, &wlen, &rate))
+            snprintf(why, (size_t)why_size, "wave %s/%u is not plain PCM", bank[0], wave[0]);
+        else if (wlen != len)
+            snprintf(why, (size_t)why_size, "wave %s/%u is %u bytes, not %u", bank[0], wave[0], wlen, len);
+        else {
+            if (!s_edit.raw || _stricmp(s_edit.raw_bank, bank[0]) || s_edit.raw_off != off
+                || s_edit.raw_len != wlen) {
+                uint8_t *raw = malloc(wlen);
+                if (raw && read_at(f, off, raw, wlen)) {
+                    free(s_edit.raw);
+                    s_edit.raw = raw;
+                    memcpy(s_edit.raw_bank, bank[0], sizeof s_edit.raw_bank);
+                    s_edit.raw_off = off;
+                    s_edit.raw_len = wlen;
+                } else {
+                    free(raw);
+                    snprintf(why, (size_t)why_size, "wave %s/%u unreadable", bank[0], wave[0]);
+                }
+            }
+            if (!why[0]) {
+                snprintf(s_edit.cue, sizeof s_edit.cue, "%s", cue);
+                memcpy(s_edit.bank, bank[0], sizeof s_edit.bank);
+                s_edit.wave = wave[0];
+                s_edit.off = off;
+                s_edit.len = wlen;
+                memcpy(s_edit.keep, keep, (size_t)n * sizeof *keep);
+                s_edit.nkeep = n;
+                InterlockedExchange(&s_edit.on, 1);
+                ok = 1;
+            }
+        }
+    }
+    if (f != INVALID_HANDLE_VALUE)
+        CloseHandle(f);
+    LeaveCriticalSection(&s_lock);
+    if (ok)
+        snprintf(why, (size_t)why_size, "wave %s/%u at %u, %u bytes", s_edit.bank, s_edit.wave,
+                 s_edit.off, s_edit.len);
+    return ok;
+}
+
+void voice_wave_edit_clear(void)
+{
+    InterlockedExchange(&s_edit.on, 0);
+}
+
+/* The edited wave's bytes as the game would get them unedited: pitched
+ * (Mouse / Bear: his own wave, or a mixed track's) or as recorded. Under
+ * s_lock. */
+static const uint8_t *edit_source(Bank *b, HANDLE h, int pitch, int which)
+{
+    if (pitch) {
+        for (int w = 0; b->ready > 0 && w < b->nwaves; w++)
+            if (b->waves[w].off == s_edit.off) {
+                const int16_t *p = pitched(b, &b->waves[w], which, h);
+                if (p)
+                    return (const uint8_t *)p;
+            }
+        for (int x = 0; mixed_mode() == 1 && x < MAX_MIX; x++) {
+            MixWave *m = &s_mix[x];
+            const int16_t *p;
+            if (m->cue[0] && !_stricmp(m->bank, b->name) && m->located > 0 && m->off == s_edit.off
+                && (p = mix_out(b, m, which, h)) != NULL)
+                return (const uint8_t *)p;
+        }
+    }
+    return s_edit.raw;
+}
+
+/* A read that covers the edited wave: its bytes from the kept ranges. */
+static void edit_apply(Bank *b, HANDLE h, int pitch, int which, unsigned long long off,
+                       uint8_t *buf, unsigned long bytes)
+{
+    const unsigned long long a = s_edit.off, z = a + s_edit.len, end = off + bytes;
+    unsigned long long lo, hi, q;
+    const uint8_t *src;
+
+    if (!s_edit.on || _stricmp(s_edit.bank, b->name) || z <= off || a >= end)
+        return;
+    src = edit_source(b, h, pitch, which);
+    if (!src)
+        return;
+    lo = a > off ? a : off;
+    hi = z < end ? z : end;
+    for (q = lo - a; q < hi - a;) {
+        unsigned long long at = 0, from = 0, n = 0;
+        int k;
+        for (k = 0; k < s_edit.nkeep; k++) {
+            unsigned long long span = s_edit.keep[k].to - s_edit.keep[k].from;
+            if (q < at + span) {
+                from = s_edit.keep[k].from + (q - at);
+                n = at + span - q;
+                break;
+            }
+            at += span;
+        }
+        if (n > hi - a - q)
+            n = hi - a - q;
+        if (k < s_edit.nkeep)
+            memcpy(buf + (a + q - off), src + from, (size_t)n);
+        else {
+            n = hi - a - q;             /* past the kept bytes: silence */
+            memset(buf + (a + q - off), 0, (size_t)n);
+        }
+        q += n;
+    }
+}
+
 /* ---- the hooks --------------------------------------------------------- */
 
 static void opened(const wchar_t *path, HANDLE h)
@@ -1583,10 +1785,12 @@ static void read_done(HANDLE h, unsigned long long off, void *buf, unsigned long
 {
     const float k = conker_SizeFactor();
     const unsigned long long end = off + bytes;
+    const int pitch = k != 1.0f && on();
     int which, i;
     Bank *b;
 
-    if (k == 1.0f || !on())
+    /* A wave edit (to-do 47) works without a size cheat too. */
+    if (!pitch && !s_edit.on)
         return;
     which = k > 1.0f;
     EnterCriticalSection(&s_lock);
@@ -1599,6 +1803,11 @@ static void read_done(HANDLE h, unsigned long long off, void *buf, unsigned long
     b = &s_bank[s_open[i].bank];
     if (!b->ready)
         read_bank(b, h);
+    if (!pitch) {
+        edit_apply(b, h, 0, which, off, (uint8_t *)buf, bytes);
+        LeaveCriticalSection(&s_lock);
+        return;
+    }
     for (int w = 0; b->ready > 0 && w < b->nwaves; w++) {
         Wave *v = &b->waves[w];
         unsigned long long a = v->off, z = (unsigned long long)v->off + v->len, lo, hi;
@@ -1633,6 +1842,7 @@ static void read_done(HANDLE h, unsigned long long off, void *buf, unsigned long
         if ((p = mix_out(b, m, which, h)) != NULL)
             memcpy((uint8_t *)buf + (lo - off), (const uint8_t *)p + (lo - a), (size_t)(hi - lo));
     }
+    edit_apply(b, h, 1, which, off, (uint8_t *)buf, bytes);
     LeaveCriticalSection(&s_lock);
 }
 
@@ -1675,6 +1885,15 @@ static void written(HANDLE h, unsigned long long off, void *buf, unsigned long b
         lo = a > off ? a : off;
         hi = z < end ? z : end;
         memcpy((uint8_t *)buf + (lo - off), (const uint8_t *)m->raw + (lo - a), (size_t)(hi - lo));
+    }
+    /* An edited wave (to-do 47): as recorded. */
+    if (b && s_edit.raw && !_stricmp(s_edit.raw_bank, b->name)) {
+        unsigned long long a = s_edit.raw_off, z = a + s_edit.raw_len, lo, hi;
+        if (z > off && a < end) {
+            lo = a > off ? a : off;
+            hi = z < end ? z : end;
+            memcpy((uint8_t *)buf + (lo - off), s_edit.raw + (lo - a), (size_t)(hi - lo));
+        }
     }
     LeaveCriticalSection(&s_lock);
 }

@@ -9,7 +9,8 @@ their .nuspec.
 
 Covers what the zip ships: conker.exe and xemu_apu.dll (toolkit, xemu APU,
 Dear ImGui, SDL3 + HIDAPI, the picture filters, GamepadMotionHelpers, the
-package reader's extraction after Txukie's MIT code, the Full DSP sound effects
+package reader's extraction, the Frying Pan, the Milk Fix and Free Swing after
+Txukie's MIT code, the Full DSP sound effects
 after yacineolivier-maker's MIT code) and conker-launcher.exe (the
 .NET runtime, Avalonia and what it pulls in, CommunityToolkit.Mvvm,
 SharpCompress). Build-only packages (ILLink, Avalonia.BuildServices) and tools
@@ -215,13 +216,25 @@ def main():
         'the toolkit (third_party/gamepadmotionhelpers).\n\n'
         + read(os.path.join(lic, 'GamepadMotionHelpers.txt'))))
     parts.append(section(
-        "10. Txukie's xboxrecomp-conker (the package reader's resource extraction)",
+        "10. Txukie's xboxrecomp-conker (extraction, Frying Pan, Milk Fix, Free Swing)",
         'https://github.com/Txukie/xboxrecomp-conker (commit d0edebc,\n'
-        'work/conker/project/src/conker_caff.c).\n'
+        'work/conker/project/src/conker_caff.c, conker_weapon.c, conker_intro.c,\n'
+        'conker_swing.c, recomp_manual.c).\n'
         "The package reader's resource extraction (src/caff.c: one model and all it\n"
         "needs written as a loose package) follows their conker_caff.c, written anew\n"
         'in this project. They worked out how a single model can be written as a\n'
         'loose file; thank you.\n'
+        "Extras' Frying Pan (src/addons.c) follows their conker_weapon.c: the\n"
+        "held-object name and sound-table swap. The Milk Fix's glass of milk\n"
+        '(src/milk_glass.c) is their make_milk() from conker_intro.c, changed only to\n'
+        'work on the carved bytes in memory, and their idea of the goblet\'s name\n'
+        'letter.\n'
+        "Extras' Free Swing (src/swing.c) follows their Swing Button (conker_swing.c):\n"
+        'its press logic and timings (presses kept until the weapon can take them,\n'
+        'the retry, the chain gap, the press life, the idle put-away) and running\n'
+        "the way the stick points with the weapon out (the stick straight ahead and\n"
+        "their facing hook on 0x002DEF80, recomp_manual.c), written anew in this\n"
+        'project.\n'
         'MIT licence:\n\nCopyright (c) 2026 sp00nz\n\n' + MIT))
     parts.append(section(
         "11. yacineolivier-maker's ConkerLR-Recomp (the Full DSP sound effects)",

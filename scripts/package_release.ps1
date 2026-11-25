@@ -15,9 +15,11 @@
        the .pdb files dotnet publish drops next to it), the title
        logo and the cheat words (fire_imps.journal) in textures\, the menus' translations
        (lang\*.txt, checked by scripts\check_lang.py first), LICENSE.txt,
-       THIRD_PARTY_NOTICES.txt, README.txt, DEBUG_MODE.txt (release\DEBUG_MODE.md).
-    4. Zips it and checks the zip holds exactly that list: never settings.ini or anything
-       else from a save folder (SPEC 9.6), never game\ or decensor\ (SPEC 9.1).
+       THIRD_PARTY_NOTICES.txt, README.txt, DEBUG_MODE.txt (release\DEBUG_MODE.md),
+       add-to-steam.sh (release\, LF line endings checked).
+    4. Zips it, marks add-to-steam.sh executable for Linux (mode 0755 in its zip entry), and
+       checks the zip holds exactly that list: never settings.ini or anything else from a
+       save folder (SPEC 9.6), never game\ or decensor\ (SPEC 9.1).
 
     The launcher's updater replaces the files this zip holds and keeps everything else
     in the player's folder, so a file added here reaches players on their next update.
@@ -67,6 +69,8 @@ $Files = [ordered]@{
     'README.txt'                                   = Join-Path $Repo 'README.txt'
     # The public debug mode page (SPEC 10.3), Markdown read as plain text (user 2026-11-11).
     'DEBUG_MODE.txt'                               = Join-Path $Repo 'release\DEBUG_MODE.md'
+    # Add to Steam on Linux and the Steam Deck (to-do 285, SPEC 9.7): executable in the zip (step 4).
+    'add-to-steam.sh'                              = Join-Path $Repo 'release\add-to-steam.sh'
 }
 $Docs = 'LICENSE.txt', 'THIRD_PARTY_NOTICES.txt', 'README.txt', 'DEBUG_MODE.txt'
 # The menus' translations (to-do 229, SPEC 10.1 "Menu language"): our own text, from the repo.
@@ -118,12 +122,23 @@ foreach ($Entry in $Files.GetEnumerator()) {
     }
 }
 
+# bash stops at the first line with a Windows line ending ($'\r': command not found).
+if ([IO.File]::ReadAllText($Files['add-to-steam.sh']).Contains("`r")) {
+    throw 'release\add-to-steam.sh has Windows line endings (CR LF): bash on Linux would fail (.gitattributes keeps *.sh LF)'
+}
+
 # A translation that drops or reorders a %s would print garbage or crash: refused here.
 $env:PYTHONIOENCODING = 'utf-8'
 $LangReport = & (Join-Path $Repo '.venv\Scripts\python.exe') (Join-Path $Repo 'scripts\check_lang.py')
 $LangCode = $LASTEXITCODE
 $LangReport | Select-String -Pattern 'translated|PRINTF|LINES' | ForEach-Object { Write-Host "  $_" }
 if ($LangCode -ne 0) { throw 'scripts\check_lang.py: a translation breaks a %s or a line break (see above)' }
+# Every menu text ships translated (user 2026-11-25, CLAUDE.md "Conventions"): a missing line
+# would show English in that language's menu. -Draft lets it pass.
+$Missing = $LangReport | Select-String -Pattern '(\d+) missing' | Where-Object { [int]$_.Matches[0].Groups[1].Value -gt 0 }
+if ($Missing -and -not $Draft) {
+    throw 'lang\*.txt: menu texts without a translation (see "missing" above): fill them in every language first'
+}
 
 foreach ($Exe in 'conker.exe', 'conker-launcher.exe') {
     $Info = [Diagnostics.FileVersionInfo]::GetVersionInfo($Files[$Exe])
@@ -143,14 +158,49 @@ foreach ($Entry in $Files.GetEnumerator()) {
 }
 
 # ── 4. Zip and check it ──────────────────────────────────────────────────────
+# A zip made on Windows marks every file "made on Windows", so Linux unpacks add-to-steam.sh
+# without its executable bit (a double-click on the Deck would open it in a text editor).
+# Its central directory entry is marked "made on Unix" with mode 0755 (rwxr-xr-x), which
+# Info-ZIP's unzip, libarchive and Ark honour. Nothing else in the zip changes.
+function Set-ZipEntryExecutable([string]$ZipPath, [string]$EntryName) {
+    $Bytes = [IO.File]::ReadAllBytes($ZipPath)
+    $Eocd = -1      # end of central directory record, searched from the end (a comment can follow it)
+    for ($i = $Bytes.Length - 22; $i -ge [Math]::Max(0, $Bytes.Length - 22 - 65535); $i--) {
+        if ([BitConverter]::ToUInt32($Bytes, $i) -eq 0x06054b50) { $Eocd = $i; break }
+    }
+    if ($Eocd -lt 0) { throw "$ZipPath has no end of central directory record" }
+    $Count = [BitConverter]::ToUInt16($Bytes, $Eocd + 10)
+    $Pos   = [int][BitConverter]::ToUInt32($Bytes, $Eocd + 16)
+    $Found = 0
+    for ($n = 0; $n -lt $Count; $n++) {
+        if ([BitConverter]::ToUInt32($Bytes, $Pos) -ne 0x02014b50) { throw "$ZipPath`: no central directory entry at byte $Pos" }
+        $NameLen = [BitConverter]::ToUInt16($Bytes, $Pos + 28)
+        $Skip    = [BitConverter]::ToUInt16($Bytes, $Pos + 30) + [BitConverter]::ToUInt16($Bytes, $Pos + 32)
+        if ([Text.Encoding]::UTF8.GetString($Bytes, $Pos + 46, $NameLen) -eq $EntryName) {
+            $Bytes[$Pos + 5] = 3                    # "version made by" high byte: host 3 = Unix
+            $Bytes[$Pos + 38] = 0; $Bytes[$Pos + 39] = 0    # external attributes: no DOS flags,
+            $Bytes[$Pos + 40] = 0xED; $Bytes[$Pos + 41] = 0x81   # high 16 bits = 0o100755
+            $Found++
+        }
+        $Pos += 46 + $NameLen + $Skip
+    }
+    if ($Found -ne 1) { throw "$ZipPath holds $EntryName $Found times, not once" }
+    [IO.File]::WriteAllBytes($ZipPath, $Bytes)
+}
+
 Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($Stage, $Zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+Set-ZipEntryExecutable $Zip 'add-to-steam.sh'
 
 $Expected = @($Files.Keys | Where-Object { Test-Path -LiteralPath (Join-Path $Stage $_) } | ForEach-Object { $_.Replace('\', '/') } | Sort-Object)
 $Archive  = [IO.Compression.ZipFile]::OpenRead($Zip)
 try {
     $Inside = @($Archive.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.Replace('\', '/') } | Sort-Object)
+    $Script = $Archive.GetEntry('add-to-steam.sh')
+    if (-not $Script -or (($Script.ExternalAttributes -shr 16) -band 0xFFFF) -ne 0x81ED) {
+        throw "add-to-steam.sh isn't marked executable in the zip"
+    }
 } finally {
     $Archive.Dispose()
 }

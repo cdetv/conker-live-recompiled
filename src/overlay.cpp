@@ -150,6 +150,8 @@
 #include "gpu_busy.h"
 #include "audio_fx.h"               /* Processing (to-do 50, --debug) */
 #include "speaker_test.h"           /* to-do 231 (--debug) */
+#include "addons.h"                 /* Extras (0.6.0's Recomp Addons) */
+#include "swing.h"                  /* Extras: the swing piece */
 #include "room_reverb.h"            /* to-do 232 (--debug) */
 #include "legacy_cp.h"              /* WM_CHAR's code page (to-do 262) */
 #include "ui_text.h"                /* T(), TL(), N_(): the menu language (to-do 229) */
@@ -2714,6 +2716,66 @@ static void section(const char *label)
         fputs(" }", s_dump);
 }
 
+/* A heading with a checkbox in front that sets a group of options at once
+ * (Extras' "Unload Reloaded", user 2026-11-25): ticked while every option
+ * has its `on` value ("1" = a checkbox that is on); ticking sets them all,
+ * unticking puts each back to its `off` value (the original). `missing`:
+ * greyed out (an option it sets can't be had: the frying pan or the glass
+ * of milk not carved). The launcher shows the same ("group" in the dump). */
+struct GroupSet {
+    const char *key, *on, *off;
+};
+
+static void group_apply(const char *key, const char *value);
+
+static void group_section(const char *label, const char *tip,
+                          const GroupSet *set, int n, bool missing)
+{
+    bool all = true;
+    for (int i = 0; i < n; i++) {
+        const char *v = settings_get(set[i].key);
+        if (!strcmp(set[i].on, "1") ? !strcmp(v, "0") : _stricmp(v, set[i].on) != 0)
+            all = false;
+    }
+    ImGui::BeginDisabled(missing);
+    ImGui::PushID(label);
+    bool changed = ImGui::Checkbox("##group", &all);
+    ImGui::PopID();
+    if (tip && ImGui::BeginItemTooltip()) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(T(tip));
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::SeparatorText(T(label));
+    if (dump_item("group", label, NULL)) {
+        if (tip) {
+            fputs(", \"tip\": ", s_dump);
+            settings_json_string(s_dump, tip);
+        }
+        const char *keys[8], *ons[8], *offs[8];
+        int m = n < 8 ? n : 8;
+        for (int i = 0; i < m; i++) {
+            keys[i] = set[i].key;
+            ons[i] = set[i].on;
+            offs[i] = set[i].off;
+        }
+        dump_list("group_keys", keys, m);
+        dump_list("group_on", ons, m);
+        dump_list("group_off", offs, m);
+        fputs(" }", s_dump);
+    }
+    if (changed && !missing)
+        for (int i = 0; i < n; i++) {
+            const char *value = all ? set[i].on : set[i].off;
+            save(set[i].key, value);
+            if (!s_error[0] && !settings_env_override(set[i].key))
+                group_apply(set[i].key, value);
+        }
+}
+
 /* A plain line between groups of options (no heading). */
 static void line(void)
 {
@@ -2800,6 +2862,24 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             conker_SetPhys30(on);
         if (!strcmp(key, "skippable_cutscenes") && !settings_env_override(key))
             conker_SetCutsceneSkip(on);
+        if (!strcmp(key, "no_key_goblings") && !settings_env_override(key))
+            addons_set_key_goblin(on);
+        if (!strcmp(key, "update_cutscenes") && !settings_env_override(key))
+            addons_set_update_cutscenes(on);
+        if (!strcmp(key, "milk_fix") && !settings_env_override(key))
+            addons_set_milk_fix(on);
+        if (!strcmp(key, "forgiving_combo") && !settings_env_override(key))
+            swing_set_forgiving(on);
+        if (!strcmp(key, "fast_draw") && !settings_env_override(key))
+            swing_set_fast_draw(on);
+        if (!strcmp(key, "free_swing") && !settings_env_override(key)) {
+            swing_set_free(on);
+            controls_apply();           /* Classic's Attack key (controls.c) */
+        }
+        if (!strcmp(key, "camera_switch") && !settings_env_override(key))
+            swing_set_camera_switch(on);
+        if (!strcmp(key, "air_swing") && !settings_env_override(key))
+            swing_set_air(on);
         if (!strcmp(key, "hold_to_skip") && !settings_env_override(key))
             conker_SetSkipHold(on);
         if (!strncmp(key, "popin_", 6) && !settings_env_override(key))
@@ -2969,9 +3049,12 @@ static void apply_crt(void)
 
 /* A drop-down over values[], shown as names[]. The current value is always
  * in the list, even one only reachable by editing the file. */
+/* off: values that can't be picked now (bit i = values[i]), greyed with
+ * off_tip on hover (the Frying Pan without its carved file). */
 static void choice(const char *label, const char *key,
                    const char *const *values, const char *const *names,
-                   int count, bool applies_now, const char *tip = NULL)
+                   int count, bool applies_now, const char *tip = NULL,
+                   unsigned off = 0, const char *off_tip = NULL)
 {
     const char *cur = settings_get(key);
     const char *preview = cur;
@@ -3001,7 +3084,18 @@ static void choice(const char *label, const char *key,
         s_popup_open = true;
         for (int i = 0; i < count; i++) {
             bool sel = !_stricmp(values[i], cur);
-            if (ImGui::Selectable(TL(names[i]), sel) && !sel) {
+            bool cant = (off >> i) & 1u;
+            ImGui::BeginDisabled(cant && !sel);
+            bool picked = ImGui::Selectable(TL(names[i]), sel);
+            ImGui::EndDisabled();
+            if (cant && off_tip && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)
+                && ImGui::BeginTooltip()) {
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+                ImGui::TextUnformatted(T(off_tip));
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
+            if (picked && !sel) {
                 save(key, values[i]);
                 if (!s_error[0] && !strcmp(key, "render_resolution"))
                     apply_resolution();
@@ -3027,6 +3121,12 @@ static void choice(const char *label, const char *key,
                 if (!s_error[0] && !strcmp(key, "cutscene_blur")
                     && !settings_env_override(key))
                     conker_SetCutsceneBlur(i);
+                if (!s_error[0] && !strcmp(key, "weapon")
+                    && !settings_env_override(key))
+                    addons_set_weapon(values[i]);
+                if (!s_error[0] && !strcmp(key, "quick_swing")
+                    && !settings_env_override(key))
+                    swing_set_quick(values[i]);
                 if (!s_error[0] && !strcmp(key, "shadow_resolution")
                     && !settings_env_override(key))
                     conker_SetShadowRes((unsigned)atoi(values[i]));
@@ -4079,6 +4179,130 @@ static void fixes_tab(unsigned w, unsigned h, bool *close)
                     "speed (off: faster, 4x as fast at 120)"));
 }
 
+/* Extras (the Recomp Addons of 0.6.0, to-dos 44-47; the tab's name: user
+ * 2026-11-23; SPEC 10.4; addons.c): options that
+ * change the game itself, all off by default (user 2026-11-16). "Unload
+ * Reloaded" = undoing what Live & Reloaded changed (the user's ideas file):
+ * Weapon (+ Update Cutscene), the Milk Fix, No Key Goblings. */
+/* group_section's options, changed at once as their own rows do. */
+static void group_apply(const char *key, const char *value)
+{
+    bool on = strcmp(value, "0") != 0;
+
+    if (!strcmp(key, "weapon")) {
+        addons_set_weapon(value);
+    } else if (!strcmp(key, "update_cutscenes")) {
+        addons_set_update_cutscenes(on);
+    } else if (!strcmp(key, "milk_fix")) {
+        addons_set_milk_fix(on);
+    } else if (!strcmp(key, "no_key_goblings")) {
+        addons_set_key_goblin(on);
+    } else if (!strcmp(key, "free_swing")) {
+        swing_set_free(on);
+        controls_apply();               /* Classic's Attack key (controls.c) */
+    }
+}
+
+static void addons_tab(unsigned w, unsigned h, bool *close)
+{
+    static const char *const weapon_values[] = { "both", "bat", "pan" };
+    static const char *const weapon_names[] = { N_("Both"), N_("Bat"), N_("Frying Pan") };
+    static const char *const quick_values[] = { "off", "normal", "easy" };
+    static const char *const quick_names[] = { N_("Off"), N_("Normal"), N_("Easy") };
+    (void)w; (void)h; (void)close;
+
+    info(N_("Options that change the game itself. All off by default, as the "
+            "original; nothing here is kept in your saves"));
+    /* The swing piece (to-dos 42, 233, 234; swing.c; folded into 0.6.0,
+     * user 2026-11-23; names: user 2026-11-23; "Melee", first: user
+     * 2026-11-25). */
+    section(N_("Melee"));
+    choice(N_("Quick Swing"), "quick_swing", quick_values, quick_names, 3, true,
+           N_("Hold attack to keep swinging the bat or frying pan. Normal: the "
+              "first two hits again and again (a press in time still does the "
+              "uppercut). Easy: all three hits. In the Vault suit two punches, "
+              "or up to four when they land"));
+    checkbox(N_("Forgiving Combo"), "forgiving_combo", true,
+             N_("A bat or frying-pan press made a little too early waits for its "
+                "moment instead of breaking the combo"));
+    checkbox(N_("Fast Weapon Draw"), "fast_draw", true,
+             N_("Every weapon comes out and goes away 2.5 times as fast (the bat is "
+                "in hand in about half a second instead of over a second)"));
+    /* The camera switch (to-do 42; off = the original, user 2026-11-23). */
+    checkbox(N_("Camera Switch"), "camera_switch", true,
+             N_("The camera zoom button (right stick click, V) switches between the "
+                "normal camera and over the shoulder, with nothing out or the bat / "
+                "frying pan out; drawing them never changes the view. Over the "
+                "shoulder with nothing out the camera stays behind Conker and the "
+                "right stick or mouse turn him. The Unlocked Camera's reset on that "
+                "button is off"));
+    /* Swing While Jumping (to-do 48; swing.c). */
+    checkbox(N_("Swing While Jumping"), "air_swing", true,
+             N_("The bat or frying pan swings during a jump too (attack with it out; "
+                "with Free Swing on, its button takes it out, swings and puts it away "
+                "in the air). The jump keeps its arc"));
+    /* After Melee, with a checkbox that sets the whole set (user 2026-11-25:
+     * the Frying Pan with Update Cutscene, Milk Fix, No Key Goblings, Free
+     * Swing; select-all style: unticking puts them back). Greyed while the
+     * pan or the glass is missing (both can't be had then). */
+    static const GroupSet unload[] = {
+        { "weapon", "pan", "both" },
+        { "update_cutscenes", "1", "0" },
+        { "milk_fix", "1", "0" },
+        { "no_key_goblings", "1", "0" },
+        { "free_swing", "1", "0" },
+    };
+    group_section(N_("Unload Reloaded"),
+                  N_("All of it at once: Weapon Frying Pan with Update Cutscene, and "
+                     "Milk Fix, No Key Goblings and Free Swing on. Untick to put them "
+                     "back to the original"),
+                  unload, 5, !addons_pan_available() || !addons_milk_available());
+    /* The Frying Pan needs the pan carved from the player's files (the
+     * asset cache, made at the first start): greyed without it. */
+    choice(N_("Weapon"), "weapon", weapon_values, weapon_names, 3, true,
+           N_("Both: as the game (the frying pan in the training, then the "
+              "bat). Bat: the bat from the start. Frying Pan: the frying pan "
+              "all game long. Changes at the next draw"),
+           addons_pan_available() ? 0u : 4u,
+           N_("The frying pan is made from your game files at the start; it "
+              "was not found. Start the game again, or re-import the game "
+              "files in the launcher"));
+    /* To-do 47 (cutscene_edits.c): greyed with Both (user 2026-11-23); the
+     * launcher shows it while Weapon is Bat or Frying Pan. */
+    ImGui::Indent();
+    ImGui::BeginDisabled(!_stricmp(settings_get("weapon"), "both"));
+    s_dump_parent = "weapon";
+    s_dump_parent_value = "bat|pan";
+    checkbox(N_("Update Cutscene"), "update_cutscenes", true,
+             N_("The training's weapon scenes match the weapon. Bat: no "
+                "frying-pan line in the weapon rack scene, and the gargoyle "
+                "scene starts at the uppercut. Frying Pan: the gargoyle scene "
+                "goes from his first line straight to the uppercut. From the "
+                "next cutscene"));
+    s_dump_parent = NULL;
+    s_dump_parent_value = NULL;
+    ImGui::EndDisabled();
+    ImGui::Unindent();
+    /* To-do 45 ("Intro Fix" in the plans; the name: user 2026-11-23): the
+     * glass is made from the player's files at the start (greyed without). */
+    begin_needs("milk_glass", !addons_milk_available());
+    checkbox(N_("Milk Fix"), "milk_fix", true,
+             N_("In the opening scene Conker holds a glass of milk instead of the "
+                "goblet, as on the N64 (made from your game files at the start). "
+                "From the next level load"));
+    end_needs();
+    checkbox(N_("No Key Goblings"), "no_key_goblings", true,
+             N_("In the training cave the key hops out after the frying-pan "
+                "tutorial: no goblins (as the original N64 game). Changes at "
+                "once until the goblins have come out"));
+    /* Free Swing (to-do 42; swing.c; user 2026-11-23: Reload's controller
+     * button and Attack's key). */
+    checkbox(N_("Free Swing"), "free_swing", true,
+             N_("The controller's Reload button (X) or the keyboard's Attack key "
+                "(Mouse 1) takes the bat or frying pan out and swings at once; it "
+                "goes away as soon as the swinging is over. The camera stays free"));
+}
+
 struct MenuTab {
     const char *name;
     void (*body)(unsigned w, unsigned h, bool *close);
@@ -4088,6 +4312,7 @@ static const MenuTab s_menu_tabs[] = {
     { N_("Graphics"), graphics_tab },
     { N_("Sound"), sound_tab },
     { N_("Fixes"), fixes_tab },
+    { N_("Extras"), addons_tab },
 };
 static const int MENU_TABS = (int)(sizeof(s_menu_tabs) / sizeof(s_menu_tabs[0]));
 

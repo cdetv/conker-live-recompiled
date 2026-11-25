@@ -133,6 +133,7 @@ extern void sub_002C5070(void);
 
 static volatile LONG s_frozen;  /* written by the game thread */
 static volatile LONG s_freecam, s_fc_game, s_fc_ask;  /* photo_freecam_set */
+static int s_fc_hold;           /* RECOMP_PHOTO_FILE in freecam: the world held, the camera kept */
 static volatile LONG s_pause;   /* frozen by the pause key, not photo mode */
 static int s_settle;            /* left by a key still held: its set stays */
 static volatile LONG s_toggle;  /* asked by the window thread */
@@ -220,6 +221,32 @@ int photo_freecam_game(void)
 void photo_freecam_set(int on)
 {
     InterlockedExchange(&s_fc_ask, on ? 1 : 2);
+}
+
+/* The console's freecam at: the camera put at x y z, looking yaw / pitch
+ * (degrees; yaw 0 = +z, 90 = +x), at the next photo frame. */
+static volatile LONG s_fc_place;
+static float s_fc_place_v[5];
+
+int photo_freecam_place(const float *v)
+{
+    if (!photo_freecam())
+        return 0;
+    memcpy(s_fc_place_v, v, sizeof(s_fc_place_v));
+    InterlockedExchange(&s_fc_place, 1);
+    return 1;
+}
+
+int photo_freecam_pose(float *v)
+{
+    if (!photo_freecam())
+        return 0;
+    v[0] = s_pos[0];
+    v[1] = s_pos[1];
+    v[2] = s_pos[2];
+    v[3] = s_yaw / DEG;
+    v[4] = s_pitch / DEG;
+    return 1;
 }
 
 void photo_request_toggle(void)
@@ -523,6 +550,7 @@ static void leave(void)
     InterlockedExchange(&s_frozen, 0);
     InterlockedExchange(&s_freecam, 0);
     InterlockedExchange(&s_fc_game, 0);
+    s_fc_hold = 0;
     InterlockedExchange(&s_pause, 0);
     InterlockedExchange(&s_resumed, 0);
     InterlockedExchange(&s_running, 0);
@@ -814,7 +842,12 @@ void photo_frame_begin(void)
     want = InterlockedExchange(&s_toggle, 0)
         || (fired & CHORD_FN_BIT(CHORD_PHOTO));
     if (file >= 0 && file != file_was) {
-        if (file != (int)s_frozen)
+        /* In freecam the file holds the world still and keeps the fly
+         * camera where it is (A/B frame dumps from a placed view, to-do 283). */
+        if (s_freecam) {
+            s_fc_hold = file;
+            fprintf(stderr, "[FREECAM] world %s by RECOMP_PHOTO_FILE\n", file ? "held" : "let go");
+        } else if (file != (int)s_frozen)
             want = 1;
         file_was = file;
     }
@@ -891,6 +924,13 @@ void photo_frame_begin(void)
             fprintf(stderr, "[FREECAM] the pad and keys: %s\n",
                     s_fc_game ? "Conker" : "the camera");
         }
+        if (s_freecam && InterlockedExchange(&s_fc_place, 0)) {
+            memcpy(s_pos, s_fc_place_v, sizeof(s_pos));
+            s_yaw = s_fc_place_v[3] * DEG;
+            s_pitch = s_fc_place_v[4] * DEG;
+            fprintf(stderr, "[FREECAM] at %.0f %.0f %.0f, yaw %.1f, pitch %.1f\n", s_pos[0], s_pos[1],
+                    s_pos[2], s_fc_place_v[3], s_fc_place_v[4]);
+        }
     }
     if (!s_frozen)
         return;
@@ -924,7 +964,7 @@ void photo_frame_begin(void)
     {
         /* Not under a menu (the panel, F2, Report Bug): those hold it, but for
          * freecam, where the game runs under the menus as without it. */
-        LONG run = s_freecam || (!menu && (s_resumed || s_step_held));
+        LONG run = (s_freecam && !s_fc_hold) || (!s_freecam && !menu && (s_resumed || s_step_held));
         if (run != s_running) {
             InterlockedExchange(&s_running, run);
             fprintf(stderr, "[PHOTO] world %s\n", run ? "running" : "frozen");

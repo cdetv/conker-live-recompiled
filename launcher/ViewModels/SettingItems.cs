@@ -80,6 +80,45 @@ public sealed class SectionItem(MenuEntry entry) : SettingItem(entry)
     }
 }
 
+/// <summary>
+/// A heading with a checkbox in front that sets a group of options at once (F2 Extras' "Unload
+/// Reloaded", user 2026-11-25): ticked while every option has its "on" value; ticking sets them
+/// all, unticking puts each back to its "off" value.
+/// </summary>
+public sealed partial class GroupItem(MenuEntry entry, Action<GroupItem, bool> apply) : SettingItem(entry)
+{
+    private bool showing;
+
+    /// <summary>Each option the group sets: its key, its value when ticked, its value when unticked.</summary>
+    public IReadOnlyList<(string Key, string On, string Off)> Set { get; } =
+        [.. (entry.GroupKeys ?? []).Select((k, i) => (k, entry.GroupOn?[i] ?? "1", entry.GroupOff?[i] ?? "0"))];
+
+    [ObservableProperty]
+    public partial bool IsOn { get; set; }
+
+    public override void Show(string value)
+    {
+    }
+
+    /// <summary>Ticked while every option has its "on" value ("1" = a checkbox that is on).</summary>
+    public void Update(IReadOnlyDictionary<string, string> values)
+    {
+        bool all = Set.Count > 0 && Set.All(s => values.TryGetValue(s.Key, out string? v)
+            && (s.On == "1" ? v != "0" : string.Equals(v, s.On, StringComparison.OrdinalIgnoreCase)));
+        showing = true;
+        IsOn = all;
+        showing = false;
+    }
+
+    partial void OnIsOnChanged(bool value)
+    {
+        if (!showing)
+        {
+            apply(this, value);
+        }
+    }
+}
+
 /// <summary>A plain line between groups of options, with no heading (F2's Fixes tab).</summary>
 public sealed class LineItem(MenuEntry entry) : SettingItem(entry)
 {

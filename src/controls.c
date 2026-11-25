@@ -27,6 +27,7 @@
 #include "settings.h"
 #include "chords.h"
 #include "pad_binds.h"
+#include "swing.h"     /* Free Swing: Classic's Attack key (to-do 42) */
 #include "ui_text.h"   /* N_(): the menus' text (to-do 229) */
 
 /* ---- key names ------------------------------------------------------------ */
@@ -1047,6 +1048,12 @@ static void apply_set(int set)
             && (!strcmp(a->a.key, "story_context")
                 || !strcmp(a->a.key, "story_aim")
                 || !strcmp(a->a.key, "story_attack")))
+            continue;
+        /* Free Swing (Extras, swing.c) in Classic: the Attack key is its
+         * button where it applies and the right trigger elsewhere, both
+         * made by swing.c's pad hook, so the story set leaves it out. */
+        if (!modern && set == CONTROLS_STORY && swing_free()
+            && !strcmp(a->a.key, "story_attack"))
             continue;
         /* Multiplayer zoom held (mp_zoom_mode): the key follows the
          * game's zoom state on foot (controls_zoom_hold; recomp_manual.c),

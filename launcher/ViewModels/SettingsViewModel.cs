@@ -86,6 +86,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             SettingItem? item = entry.Type switch
             {
                 "section" => new SectionItem(entry),
+                "group" => new GroupItem(entry, ApplyGroup),
                 "line" => new LineItem(entry),
                 "checkbox" => new CheckItem(this, entry),
                 "choice" => new ChoiceItem(this, entry),
@@ -206,12 +207,39 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             }
             else if (item.Parent is { } chosen && items.OfType<ChoiceItem>().FirstOrDefault(c => c.Key == chosen) is { } choice)
             {
+                // ParentValue may list several values with '|' (Update Cutscene: "bat|pan").
                 item.IsShown = choice.IsShown && (item.ParentValue is null
-                    || string.Equals(choice.Selected?.Value, item.ParentValue, StringComparison.OrdinalIgnoreCase));
+                    || item.ParentValue.Split('|').Any(v =>
+                        string.Equals(choice.Selected?.Value, v, StringComparison.OrdinalIgnoreCase)));
             }
         }
 
+        foreach (GroupItem group in items.OfType<GroupItem>())
+        {
+            group.Update(values);
+        }
+
         presetRow?.Update(values);
+    }
+
+    /// <summary>A group heading's checkbox (Unload Reloaded): every option it sets, shown and saved shortly.</summary>
+    private void ApplyGroup(GroupItem group, bool on)
+    {
+        foreach ((string key, string onValue, string offValue) in group.Set)
+        {
+            string value = on ? onValue : offValue;
+            foreach (SettingItem item in items.Where(i => string.Equals(i.Key, key, StringComparison.OrdinalIgnoreCase)))
+            {
+                item.Show(value);
+            }
+
+            pending[key] = value;
+            values[key] = value;
+        }
+
+        saveTimer.Stop();
+        saveTimer.Start();
+        ShowChildren();
     }
 
     /// <summary>A quality preset's button: every option it sets, shown and saved shortly.</summary>

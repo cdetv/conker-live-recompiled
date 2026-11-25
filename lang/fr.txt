@@ -1057,6 +1057,97 @@ fr: Sous le caca après le combat du taureau, la brume est marron pour s'accorde
 en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
 fr: Au-dessus de 30 fps, queues, poupées et tissus bougent à la vitesse d'origine (désactivé : plus vite, 4 fois plus à 120)
 
+## addons_tab
+en: Bat
+fr: Batte
+
+en: Frying Pan
+fr: Poêle
+
+en: Off
+fr: Désactivé
+
+en: Normal
+fr: Normal
+
+en: Easy
+fr: Facile
+
+en: Options that change the game itself. All off by default, as the original; nothing here is kept in your saves
+fr: Options qui modifient le jeu lui-même. Toutes désactivées par défaut, comme l'original ; rien ici n'est gardé dans vos sauvegardes
+
+en: Melee
+fr: Corps à corps
+
+en: Quick Swing
+fr: Frappe rapide
+
+en: Hold attack to keep swinging the bat or frying pan. Normal: the first two hits again and again (a press in time still does the uppercut). Easy: all three hits. In the Vault suit two punches, or up to four when they land
+fr: Maintenez l'attaque pour continuer à frapper avec la batte ou la poêle. Normal : les deux premiers coups encore et encore (un appui à temps donne toujours l'uppercut). Facile : les trois coups. Dans l'armure du combat final, deux coups de poing, ou jusqu'à quatre s'ils touchent
+
+en: Forgiving Combo
+fr: Combo tolérant
+
+en: A bat or frying-pan press made a little too early waits for its moment instead of breaking the combo
+fr: Un appui avec la batte ou la poêle un peu trop tôt attend son moment au lieu de casser le combo
+
+en: Fast Weapon Draw
+fr: Dégainage rapide
+
+en: Every weapon comes out and goes away 2.5 times as fast (the bat is in hand in about half a second instead of over a second)
+fr: Chaque arme sort et se range 2,5 fois plus vite (la batte est en main en une demi-seconde environ au lieu de plus d'une seconde)
+
+en: Camera Switch
+fr: Bascule de caméra
+
+en: The camera zoom button (right stick click, V) switches between the normal camera and over the shoulder, with nothing out or the bat / frying pan out; drawing them never changes the view. Over the shoulder with nothing out the camera stays behind Conker and the right stick or mouse turn him. The Unlocked Camera's reset on that button is off
+fr: Le bouton de zoom de la caméra (clic du stick droit, V) bascule entre la caméra normale et la vue par-dessus l'épaule, sans rien en main ou avec la batte / la poêle sortie ; les sortir ne change jamais la vue. Par-dessus l'épaule sans rien en main, la caméra reste derrière Conker et le stick droit ou la souris le font tourner. Le recentrage de la Caméra débloquée sur ce bouton est désactivé
+
+en: Swing While Jumping
+fr: Frappe en saut
+
+en: The bat or frying pan swings during a jump too (attack with it out; with Free Swing on, its button takes it out, swings and puts it away in the air). The jump keeps its arc
+fr: La batte ou la poêle frappe aussi pendant un saut (attaquez avec l'arme sortie ; avec Frappe libre activée, son bouton la sort, frappe et la range en l'air). Le saut garde sa trajectoire
+
+en: Unload Reloaded
+fr: Unload Reloaded
+
+en: All of it at once: Weapon Frying Pan with Update Cutscene, and Milk Fix, No Key Goblings and Free Swing on. Untick to put them back to the original
+fr: Tout d'un coup : Arme Poêle avec Adapter la cinématique, et Correctif du lait, Sans Goblings à clé et Frappe libre activés. Décochez pour revenir à l'original
+
+en: Weapon
+fr: Arme
+
+en: Both: as the game (the frying pan in the training, then the bat). Bat: the bat from the start. Frying Pan: the frying pan all game long. Changes at the next draw
+fr: Les deux : comme le jeu (la poêle à l'entraînement, puis la batte). Batte : la batte dès le début. Poêle : la poêle pendant tout le jeu. Change à la prochaine sortie d'arme
+
+en: The frying pan is made from your game files at the start; it was not found. Start the game again, or re-import the game files in the launcher
+fr: La poêle est créée à partir de vos fichiers du jeu au démarrage ; elle est introuvable. Relancez le jeu, ou importez à nouveau les fichiers du jeu dans le lanceur
+
+en: Update Cutscene
+fr: Adapter la cinématique
+
+en: The training's weapon scenes match the weapon. Bat: no frying-pan line in the weapon rack scene, and the gargoyle scene starts at the uppercut. Frying Pan: the gargoyle scene goes from his first line straight to the uppercut. From the next cutscene
+fr: Les scènes d'armes de l'entraînement suivent l'arme. Batte : pas de réplique sur la poêle dans la scène du râtelier d'armes, et la scène de la gargouille commence à l'uppercut. Poêle : la scène de la gargouille passe de sa première réplique directement à l'uppercut. À la prochaine cinématique
+
+en: Milk Fix
+fr: Correctif du lait
+
+en: In the opening scene Conker holds a glass of milk instead of the goblet, as on the N64 (made from your game files at the start). From the next level load
+fr: Dans la scène d'ouverture, Conker tient un verre de lait au lieu du gobelet, comme sur N64 (créé à partir de vos fichiers du jeu au démarrage). Au prochain chargement de niveau
+
+en: No Key Goblings
+fr: Sans Goblings à clé
+
+en: In the training cave the key hops out after the frying-pan tutorial: no goblins (as the original N64 game). Changes at once until the goblins have come out
+fr: Dans la grotte de l'entraînement, la clé sort en sautillant après le tutoriel de la poêle : pas de gobelins (comme le jeu N64 d'origine). Change aussitôt tant que les gobelins ne sont pas sortis
+
+en: Free Swing
+fr: Frappe libre
+
+en: The controller's Reload button (X) or the keyboard's Attack key (Mouse 1) takes the bat or frying pan out and swings at once; it goes away as soon as the swinging is over. The camera stays free
+fr: Le bouton Recharger de la manette (X) ou la touche Attaquer du clavier (Mouse 1) sort la batte ou la poêle et frappe aussitôt ; l'arme est rangée dès que les coups sont finis. La caméra reste libre
+
 en: Display
 fr: Affichage
 
@@ -1068,6 +1159,9 @@ fr: Son
 
 en: Fixes
 fr: Correctifs
+
+en: Extras
+fr: Extras
 
 ## preset_tip
 en: Upscaler
@@ -1638,9 +1732,6 @@ en: The photo could not be taken (%s)
 fr: Impossible de prendre la photo (%s)
 
 ## build_photo_picture
-en: Off
-fr: Désactivé
-
 en: CRT
 fr: CRT
 

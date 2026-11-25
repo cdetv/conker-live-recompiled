@@ -46,6 +46,9 @@ public sealed partial class FilesViewModel : ObservableObject
     /// <summary>The Report Bug pop-up (to-do 12d).</summary>
     public ReportBugViewModel Report { get; }
 
+    /// <summary>The Steam section: Add to Steam (to-do 285; real Windows only).</summary>
+    public SteamViewModel Steam { get; } = new();
+
     /// <summary>Raised when the game files or the busy state change (Play depends on both).</summary>
     public event EventHandler? StateChanged;
 

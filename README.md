@@ -62,6 +62,11 @@ the real game running in xemu and various gameplay footage from Xbox, Xbox
    finds it by itself: click **Import Xbox Store version**.
 4. Click **Play**.
 
+Playing through Steam? **Add to Steam** on the **Files** tab adds the launcher
+to your Steam library as a non-Steam game, with artwork from
+[SteamGridDB](https://www.steamgriddb.com/) (Steam closes for a moment if it
+is open, then starts again).
+
 On Linux or a Steam Deck, see [Linux and Steam Deck](#linux-and-steam-deck) below.
 
 <p align="center">
@@ -83,31 +88,40 @@ Switch to Desktop):
 1. Unpack `conker-live-recompiled-<version>.zip` into a folder of its own,
    for example `~/Games/Conker` (the internal drive or a microSD card), and
    copy your disc image onto the Deck.
-2. In Steam: **Games → Add a Non-Steam Game to My Library → Browse**, set the
+2. **Add it to Steam**: in that folder, double-click **`add-to-steam.sh`** and
+   choose **Execute** (or press **F4** in the file manager for a terminal and
+   type `bash add-to-steam.sh`). It closes Steam, adds `conker-launcher.exe`
+   as *Conker: Live & Recompiled* with **Proton 11.0** forced and its artwork
+   from SteamGridDB, then starts Steam again. Running it again updates the
+   same entry; after moving the folder, run it from the new place.
+   <details><summary>Or add it by hand</summary>
+
+   In Steam: **Games → Add a Non-Steam Game to My Library → Browse**, set the
    file type to **All Files**, pick **`conker-launcher.exe`** in that folder
-   and click **Add Selected Programs**.
-3. Right-click it in your library → **Properties → Compatibility**: tick
-   **Force the use of a specific Steam Play compatibility tool** and choose
-   **Proton 11.0**.
-4. Start it from Steam and import your game on the **Files** tab, as on
+   and click **Add Selected Programs**. Then right-click it in your library →
+   **Properties → Compatibility**: tick **Force the use of a specific Steam
+   Play compatibility tool** and choose **Proton 11.0**.
+   </details>
+3. Start it from Steam and import your game on the **Files** tab, as on
    Windows. In the file browser your home folder is `Z:` → `home` → your user
    name (`deck` on a Steam Deck), and a Deck's microSD card is `D:`. The Xbox
    Store version installs only on Windows: import it there and copy the whole
    folder over.
-5. Click **Play**. From now on it starts from your Steam library like any
+4. Click **Play**. From now on it starts from your Steam library like any
    game, in Gaming Mode too: the launcher first, then **Play**. **Back +
    Start → Close Game** takes you back to Steam.
 
-To go straight into the game, add `conker.exe` the same way (with Proton
-11.0 too); the launcher is still there for settings, Precompile Shaders and
+To go straight into the game, add `conker.exe` by hand (with Proton 11.0
+too); the launcher is still there for settings, Precompile Shaders and
 updates.
 
 **On the Steam Deck:**
 
 - The first start picks the **Medium** quality preset at **60 fps**. For a
-  longer battery life choose **30 fps** in F2 → Graphics: in busy scenes it
-  uses about a quarter less power. Steam's own frame limit (Performance menu)
-  doesn't save power with this game.
+  longer battery life set Steam's **Framerate Limit** (Performance menu): at
+  40 the Deck's chip uses about half the power it does at 60. Or choose
+  **30 fps** in F2 → Graphics: in busy scenes it uses about a quarter less
+  power.
 - Run **Precompile Shaders** once (launcher, Files tab; about 7 minutes).
   Without it the first minute or so stutters while the shaders are made;
   after it, only the very first walk into the main menu stutters for a few
@@ -291,6 +305,47 @@ included.
 - **Field of view** from 40° to 75° (50° as on the Xbox); story cutscenes keep
   their own.
 
+### Extras
+
+Options that change the game itself, in F2 → **Extras** (and the launcher's
+Settings tab). All are off by default, as the original, and none is kept in
+your saves, so you can switch them on and off at any time. Single player only.
+
+**Melee**:
+
+- **Quick Swing**: hold attack to keep swinging. **Normal** repeats the first
+  two hits (a press in time still gives the uppercut), **Easy** all three.
+- **Forgiving Combo**: a press made a little too early waits for its moment
+  instead of breaking the combo.
+- **Fast Weapon Draw**: every weapon comes out and goes away 2.5 times as fast.
+- **Camera Switch**: the camera button (right stick click, V) switches between
+  the normal camera and over the shoulder, with nothing out or with the bat or
+  frying pan out; drawing them never changes the view.
+- **Swing While Jumping**: the bat or frying pan swings in the air too, combo
+  included, and the jump keeps its arc.
+
+**Unload Reloaded** undoes some of what *Live & Reloaded* changed. The
+checkbox beside its title turns on all of it at once (Weapon Frying Pan with
+Update Cutscene, Milk Fix, No Key Goblings and Free Swing), and off again:
+
+- **Weapon**: **Bat** gives Conker the bat from the start, in the training
+  too; **Frying Pan** keeps the frying pan all game long; **Both** is the game
+  as it was (the frying pan in the training, then the bat). It changes at the
+  next draw. With **Update Cutscene** the training's weapon scenes match: with
+  the bat, Conker takes the bat off the rack and the gargoyle scene starts at
+  the uppercut; with the frying pan, the gargoyle scene goes from his first
+  line straight to the uppercut.
+- **Milk Fix**: in the opening scene King Conker holds a glass of milk instead
+  of the jewelled goblet, as on the N64.
+- **No Key Goblings**: in the training cave the key hops out after the
+  frying-pan tutorial, with no goblins, as in the N64 game.
+- **Free Swing**: the controller's Reload button (X) or the keyboard's Attack
+  key (left mouse button) takes the bat or frying pan out and swings at once;
+  it goes away as soon as the swinging is over, and the camera stays free.
+
+The frying pan and the glass of milk are made from your own game files when
+the game first starts.
+
 ### Photo mode
 
 Press **F4** (or Back + RB) in gameplay or a cutscene to freeze the moment
@@ -315,7 +370,7 @@ at a time. Or turn off Hold to Skip to skip on a press.
 On a wide screen, cutscenes fill it like the rest of the game, or turn on
 **Cutscenes in 4:3** to watch them in their original shape with black bars.
 
-### On screen and extras
+### On screen and more
 
 - **Speedrun Timer**: game time without loads from a new game, total and per
   chapter part, with or without cutscenes.
@@ -449,6 +504,9 @@ A few glitches the Xbox version has too are fixed:
 - A resizable window, or full screen with **F11** (or `--fullscreen`) for
   TVs and handhelds.
 - A **Debug** tab: [debug mode](#debug-mode) on or off, and Edit Save.
+- **Add to Steam**: the launcher in your Steam library as a non-Steam game,
+  with its artwork, in one click (on Linux and the Steam Deck,
+  `add-to-steam.sh` does the same, with Proton 11 set).
 
 <table>
   <tr>
@@ -587,9 +645,10 @@ minutes.
   the Full DSP sound effects (speaker crosstalk, filters, reverb) follow their
   effect code (MIT); thank you.
 - **[Txukie/xboxrecomp-conker](https://github.com/Txukie/xboxrecomp-conker)**:
-  the package reader's resource extraction follows their `conker_caff.c`
-  (MIT). They worked out how a single model can be written as a loose file;
-  thank you.
+  the package reader's resource extraction follows their `conker_caff.c`,
+  and the [Extras](#extras)' Frying Pan, the Milk Fix's glass of milk and Free
+  Swing follow their weapon, intro and Swing Button code (all MIT). They
+  worked out how a single model can be written as a loose file; thank you.
 - **[codepdbh/xboxrecomp-conker](https://github.com/codepdbh/xboxrecomp-conker)**,
   the *[Conker Xbox 60fps + Widescreen patch](https://www.moddb.com/mods/conker-live-reloaded-wip-60fps-patch)
   by picardsfish*, **[XboxDev/ghidra-xbe](https://github.com/XboxDev/ghidra-xbe)**
@@ -597,6 +656,13 @@ minutes.
   and tools along the way.
 - Dear ImGui, SDL3, GamepadMotionHelpers, AMD FidelityFX CAS and FSR 1, NVIDIA FXAA, SMAA, .NET,
   Avalonia, CommunityToolkit.Mvvm and SharpCompress.
+- The Steam artwork that **Add to Steam** downloads from
+  [SteamGridDB](https://www.steamgriddb.com/) (not part of this download):
+  [cover](https://www.steamgriddb.com/grid/866446),
+  [wide cover](https://www.steamgriddb.com/grid/866445) and
+  [logo](https://www.steamgriddb.com/logo/186060) shared by **PopASquatt**,
+  [background](https://www.steamgriddb.com/hero/8418) by **Jiquita**,
+  [icon](https://www.steamgriddb.com/icon/10449) by **EVE Online**.
 
 Full licences: [`LICENSE.txt`](LICENSE.txt) (this project, MIT) and
 [`THIRD_PARTY_NOTICES.txt`](THIRD_PARTY_NOTICES.txt).

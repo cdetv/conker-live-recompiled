@@ -18,9 +18,12 @@
  *     assets\<resource>;
  *   "<feature> lips <package> <prefix>": every <prefix><track>\default.cut.bin
  *     of the package goes into assets\lipsync.bin (one file for all such
- *     recipes; outside aid\, so the game is never served it).
- * Built in: the lip timelines of the 43 packages that hold them (feature
- * "voice", to-do 216). Developer switch RECOMP_CARVE_RECIPES=<file> adds
+ *     recipes; outside aid\, so the game is never served it);
+ *   "<feature> milk <package> <resource>": as "loose", then made a glass of
+ *     milk (src/milk_glass.c) and written as MILK_GLASS_OUT (to-do 45).
+ * Built in: the frying pan (feature "pan", to-do 44) and the lip timelines of
+ * the 43 packages that hold them (feature "voice", to-do 216). Developer
+ * switch RECOMP_CARVE_RECIPES=<file> adds
  * lines (feature "dev" there or not, they always count as wanted).
  *
  * The stamp holds the cache format, a fingerprint of the game's packages
@@ -47,6 +50,7 @@
 
 #include "caff.h"
 #include "caff_cache.h"
+#include "milk_glass.h"
 
 #define CACHE_FORMAT      1
 #define INVENTORY_FORMAT  1                 /* the stamp's "inventory" */
@@ -59,6 +63,7 @@ typedef struct {
     char resource[256];         /* lips: the prefix before <track>\ */
     int  dev;
     int  lips;                  /* kind "lips" (else "loose") */
+    int  milk;                  /* kind "milk": "loose", then milk_glass_make, to MILK_GLASS_OUT */
 } Recipe;
 
 /* Built into the exe; see the top of the file. The packages that hold lip
@@ -67,6 +72,14 @@ typedef struct {
 #define LIPS(pkg) "voice lips " pkg " aid\\mpegspeech\\\n"
 static const char s_builtin[] =
     "# <feature> loose <package> <resource>  |  <feature> lips <package> <prefix>\n"
+    /* Extras' Frying Pan (to-do 44, src/addons.c): the model held as the bat.
+     * TrainingLevel's: its .data comes out 13,721 bytes, the cave's 7,857
+     * (the .gpu the same); TrainingLevel's is the one seen working in play
+     * (2026-11-18). */
+    "pan loose Level\\TrainingLevel aid\\bfdmodel\\attach\\FryingPanBound\\default.rbm\n"
+    /* Extras' Milk Fix (to-do 45, src/milk_glass.c): the front end's whiskey
+     * glass made a glass of milk, at the goblet's changed name. */
+    "milk milk Level\\Frontend aid\\bfdmodel\\attach\\effects_models_whiskey_glass_filled\\default.rbm\n"
     LIPS("General\\Singleplayer")
     LIPS("Level\\BankEnd") LIPS("Level\\BankEntranceAtNight") LIPS("Level\\BankEntrance")
     LIPS("Level\\BarnArena") LIPS("Level\\BarnInside") LIPS("Level\\BarnOutside")
@@ -87,7 +100,7 @@ static const char s_builtin[] =
 /* Where a recipe's output goes, below assets\. */
 static const char *recipe_out(const Recipe *r)
 {
-    return r->lips ? CAFF_LIPS_FILE : r->resource;
+    return r->lips ? CAFF_LIPS_FILE : r->milk ? MILK_GLASS_OUT : r->resource;
 }
 
 /* ── Small helpers ─────────────────────────────────────────────────────── */
@@ -187,12 +200,14 @@ static int parse_recipes(const char *text, int dev, Recipe **list, int *n, int *
             continue;
         memset(&r, 0, sizeof r);
         if (sscanf(line, "%31s %15s %255s %255s", r.feature, kind, r.package, r.resource) != 4
-            || (strcmp(kind, "loose") && strcmp(kind, "lips")) || _strnicmp(r.resource, "aid\\", 4)) {
+            || (strcmp(kind, "loose") && strcmp(kind, "lips") && strcmp(kind, "milk"))
+            || _strnicmp(r.resource, "aid\\", 4)) {
             fprintf(stderr, "[CAFF] recipe not understood, skipped: %s\n", line);
             continue;
         }
         r.dev = dev;
         r.lips = !strcmp(kind, "lips");
+        r.milk = !strcmp(kind, "milk");
         if (*n == *cap) {
             int c = *cap ? *cap * 2 : 16;
             Recipe *nl = realloc(*list, (size_t)c * sizeof *nl);
@@ -250,6 +265,8 @@ static uint64_t recipes_hash(const Recipe *r, int n)
         h = fnv(h, r[i].resource, strlen(r[i].resource) + 1);
         if (r[i].lips)
             h = fnv(h, "lips", 5);
+        if (r[i].milk)
+            h = fnv(h, "milk", 5);
     }
     return h;
 }
@@ -885,14 +902,19 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
             }
             /* Two recipes, one file: the first that works (a damaged package
              * leaves it to another one holding the same resource). */
-            prev = (Out *)stamp_find(&s, r[j].resource);
+            prev = (Out *)stamp_find(&s, recipe_out(&r[j]));
             if (prev && !prev->failed)
                 continue;
-            snprintf(path, sizeof path, "%s\\assets\\%s", save, r[j].resource);
+            snprintf(path, sizeof path, "%s\\assets\\%s", save, recipe_out(&r[j]));
             if (rc || (d = caff_find(k, r[j].resource)) < 0
                 || caff_write_loose(k, d, &buf, &len)) {
                 fprintf(stderr, "[CAFF] %s: %s from %s failed\n", r[j].feature,
                         r[j].resource, r[j].package);
+                ok = 0;
+            } else if (r[j].milk && !milk_glass_make(buf, len)) {
+                fprintf(stderr, "[CAFF] %s: %s from %s is not the glass the Milk Fix was made "
+                        "for: no glass of milk\n", r[j].feature, r[j].resource, r[j].package);
+                free(buf);
                 ok = 0;
             } else {
                 ok = !caff_make_parent_dirs(path) && !caff_write_file(path, buf, len);
@@ -907,7 +929,7 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
                 prev->failed = 0;
                 bad--;
             } else if (!prev) {
-                stamp_add(&s, r[j].resource, ok ? len : 0, !ok);
+                stamp_add(&s, recipe_out(&r[j]), ok ? len : 0, !ok);
                 bad += !ok;
             }
         }
