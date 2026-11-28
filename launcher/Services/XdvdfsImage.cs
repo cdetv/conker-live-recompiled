@@ -146,7 +146,7 @@ public sealed class XdvdfsImage : IDisposable
         {
             throw new ImportException(partition < 0
                 ? GodPackageStream.DamagedMessage
-                : "The disc image is damaged: a folder lies outside it.");
+                : S("The disc image is damaged: a folder lies outside it."));
         }
 
         return entries;
@@ -164,7 +164,7 @@ public sealed class XdvdfsImage : IDisposable
             int n = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, left));
             if (n == 0)
             {
-                throw new ImportException("The disc image ends early; it may be damaged or incomplete.");
+                throw new ImportException(S("The disc image ends early; it may be damaged or incomplete."));
             }
 
             destination.Write(buffer, 0, n);

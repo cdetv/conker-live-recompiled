@@ -197,6 +197,8 @@ int caff_read_file(const char *path, uint8_t **data, size_t *n);
 int caff_write_file(const char *path, const void *data, size_t n);
 /* Make every folder above `path` (not the last part). CAFF_OK or CAFF_E_OPEN. */
 int caff_make_parent_dirs(const char *path);
+/* 1 when a file can be opened for reading at `path` (UTF-8). */
+int caff_file_exists(const char *path);
 
 /* Every package (.rbm / .rba) below `aid_root` (a game's dvddata\aid), from
  * the folder listing alone (no file opened): its path below the root with

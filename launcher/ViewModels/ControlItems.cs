@@ -27,7 +27,11 @@ public sealed partial class RadioOption(RadioItem owner, string value, string na
 {
     public string Value { get; } = value;
 
-    public string Name { get; } = name;
+    /// <summary>The choice's name in the language shown (the game's own words).</summary>
+    public string Name => Lang.Menu(name);
+
+    /// <summary>After a language switch: the name said again.</summary>
+    public void SayAgain() => OnPropertyChanged(nameof(Name));
 
     public string Group => owner.Key!;
 
@@ -61,6 +65,15 @@ public sealed class RadioItem : SettingItem
     }
 
     public ObservableCollection<RadioOption> Options { get; } = [];
+
+    public override void SayAgain()
+    {
+        base.SayAgain();
+        foreach (RadioOption o in Options)
+        {
+            o.SayAgain();
+        }
+    }
 
     public override void Show(string value)
     {
@@ -98,10 +111,12 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 {
     private readonly string defaultKey = defaultKey;
 
-    /// <summary>The controller button in brackets; single player's rows have the Controller column instead.</summary>
-    public string? ButtonText { get; } =
+    private readonly string? bracketButton =
         entry.ButtonShown && entry.Key?.StartsWith("story_", StringComparison.Ordinal) != true
-        && entry.Button is { Length: > 0 } b ? $"({b})" : null;
+        && entry.Button is { Length: > 0 } b ? b : null;
+
+    /// <summary>The controller button in brackets ("(Back + D-pad Up)", said part by part); single player's rows have the Controller column instead.</summary>
+    public string? ButtonText => bracketButton is null ? null : $"({Lang.Button(bracketButton)})";
 
     public string Button { get; } = entry.Button ?? "";
 
@@ -110,7 +125,7 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
     /// <summary>Photo mode's two keys that work anywhere: they clash with every row of the tab.</summary>
     public bool ClashesAll { get; } = entry.ClashesAll;
 
-    public string AutomationName => $"{Label} key";
+    public string AutomationName => T("{0} key", Label);
 
     /// <summary>The keys' settings.ini value: up to three names, "space, mouse4" (to-do 38).</summary>
     [ObservableProperty]
@@ -119,12 +134,12 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 
     public string KeyLabel => owner.KeyLabel(Value);
 
-    /// <summary>"Press a key"'s line with the keys it has now.</summary>
-    public string KeysNow => $"Keys now: {(Value == "none" ? "none" : owner.KeyLabel(Value))}";
+    /// <summary>"Press a key"'s line with the keys it has now (key names stay English, as in F3).</summary>
+    public string KeysNow => T("Keys now: {0}", Value == "none" ? T("none") : owner.KeyLabel(Value));
 
     public bool IsChanged => !Value.Equals(defaultKey, StringComparison.OrdinalIgnoreCase);
 
-    public string ResetTip => $"Back to the default ({owner.KeyLabel(defaultKey)})";
+    public string ResetTip => T("Back to the default ({0})", owner.KeyLabel(defaultKey));
 
     /// <summary>What the row's keys do to other rows' (a shared key, a combo's side effects), or null.</summary>
     [ObservableProperty]
@@ -156,10 +171,12 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 
     public bool ShowPadFixed => ShowPad && PadAction is null;
 
-    /// <summary>The controller's own button for a fixed row ("Left stick up").</summary>
-    public string PadFixed { get; } = entry.Button ?? "";
+    private readonly string padFixed = entry.Button ?? "";
 
-    public string PadName => $"{Label} controller button";
+    /// <summary>The controller's own button for a fixed row ("Left stick up"), in the language shown.</summary>
+    public string PadFixed => Lang.Button(padFixed);
+
+    public string PadName => T("{0} controller button", Label);
 
     /// <summary>The bind's settings.ini value for the scheme shown ("a", "rt", "none").</summary>
     public string PadValue { get; private set; } = "none";
@@ -168,7 +185,7 @@ public sealed partial class KeyItem(ControlsViewModel owner, MenuEntry entry, st
 
     public bool PadChanged => HasPad && !PadValue.Equals(owner.PadDefault(this), StringComparison.OrdinalIgnoreCase);
 
-    public string PadResetTip => $"Back to the default ({owner.PadButtonLabel(owner.PadDefault(this))})";
+    public string PadResetTip => T("Back to the default ({0})", owner.PadButtonLabel(owner.PadDefault(this)));
 
     /// <summary>Shows the bind's value (also after the scheme changed: the default may be another).</summary>
     internal void RefreshPad(string value)
@@ -195,14 +212,17 @@ public sealed class KeyHeaderItem(MenuEntry entry) : SettingItem(entry)
     }
 }
 
-/// <summary>A controller button in the "press a button" pop-up's list; one another action has at that moment says whose.</summary>
+/// <summary>
+/// A controller button in the "press a button" pop-up's list; one another action has at that moment says whose.
+/// Made when the pop-up opens (the language can't change while it is open).
+/// </summary>
 public sealed class PadOption(string name, string label, string? takenBy)
 {
     public string Name { get; } = name;
 
     public string Label { get; } = label;
 
-    public string Display { get; } = takenBy is null ? label : $"{label}  ({takenBy}'s)";
+    public string Display { get; } = takenBy is null ? label : T("{0}  ({1}'s)", label, takenBy);
 }
 
 /// <summary>"Reset the controller buttons": asks first, then puts the scheme shown's binds back (to-do 39).</summary>
@@ -217,7 +237,10 @@ public sealed partial class ResetPadItem(ControlsViewModel owner, MenuEntry entr
 
     /// <summary>The last controller button change's swap, or why it was refused (shown above the button).</summary>
     [ObservableProperty]
-    public partial string? Message { get; set; }
+    [NotifyPropertyChangedFor(nameof(Message))]
+    public partial Said? MessageSaid { get; set; }
+
+    public string? Message => MessageSaid?.ToString();
 
     public override void Show(string value)
     {
@@ -244,7 +267,9 @@ public sealed partial class ResetPadItem(ControlsViewModel owner, MenuEntry entr
 /// <summary>"Reset all ... controls": asks first, then puts its keys and mouse options back.</summary>
 public sealed partial class ResetItem(ControlsViewModel owner, MenuEntry entry) : SettingItem(entry)
 {
-    public string Question { get; } = entry.Question ?? "Put everything back to the defaults?";
+    private readonly string? question = entry.Question;
+
+    public string Question => question is not null ? Lang.Menu(question) : T("Put everything back to the defaults?");
 
     public IReadOnlyList<string> Keys { get; } = entry.Keys ?? [];
 
@@ -279,14 +304,24 @@ public sealed partial class SlotRow(SlotsItem owner, int index) : ObservableObje
 
     public int Index { get; } = index;
 
-    public string Name => $"Slot {Index + 1}";
+    public string Name => T("Slot {0}", Index + 1);
 
     /// <summary>The entries of this slot's Options window, in F3's order.</summary>
     public ObservableCollection<SettingItem> Items { get; } = [];
 
-    public string OptionsTitle => $"Slot {Index + 1} controller";
+    public string OptionsTitle => T("Slot {0} controller", Index + 1);
 
-    public string OptionsName => $"Options for slot {Index + 1}";
+    public string OptionsName => T("Options for slot {0}", Index + 1);
+
+    /// <summary>After a language switch: the row's words and its Options window's rows said again.</summary>
+    public void SayAgain()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (SettingItem item in Items)
+        {
+            item.SayAgain();
+        }
+    }
 
     /// <summary>The controller picked for the slot, as the list names it.</summary>
     public string ControllerText => Selected?.Name ?? "";
@@ -303,9 +338,9 @@ public sealed partial class SlotRow(SlotsItem owner, int index) : ObservableObje
     [NotifyPropertyChangedFor(nameof(KeyboardTip))]
     public partial bool KeyboardOn { get; set; }
 
-    public string KeyboardName => $"Keyboard and mouse for slot {Index + 1}";
+    public string KeyboardName => T("Keyboard and mouse for slot {0}", Index + 1);
 
-    public string KeyboardTip => KeyboardOn ? "The keyboard and mouse are this player" : "Make the keyboard and mouse this player";
+    public string KeyboardTip => KeyboardOn ? T("The keyboard and mouse are this player") : T("Make the keyboard and mouse this player");
 
     internal void Show(IEnumerable<ChoiceOption> options, string value, bool keyboard)
     {
@@ -376,6 +411,16 @@ public sealed class SlotsItem : SettingItem
     {
     }
 
+    /// <summary>After a language switch: every slot row (its controller list is named again by the tab's next <see cref="Update"/>).</summary>
+    public override void SayAgain()
+    {
+        base.SayAgain();
+        foreach (SlotRow row in Rows)
+        {
+            row.SayAgain();
+        }
+    }
+
     /// <summary>Shows the slots from the current values, the controllers named as --list-pads names them.</summary>
     internal void Update(Func<string, string> valueOf, IReadOnlyList<Pad> pads)
     {
@@ -388,7 +433,7 @@ public sealed class SlotsItem : SettingItem
             var options = values
                 .Where(v => v is "none" or "any" || v.Equals(value, StringComparison.OrdinalIgnoreCase)
                             || pads.Any(p => p.Value == v && p.Connected))
-                .Select(v => new ChoiceOption(v, SourceName(v, pads)));
+                .Select(v => new ChoiceOption(v, Said.As(SourceName(v, pads))));
             row.Show(options, value, keyboard && keyboardSlot == (row.Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
     }
@@ -423,12 +468,13 @@ public sealed class SlotsItem : SettingItem
 
     private string SlotKey(int index) => key + (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
+    // A connected controller's own name (Windows' / SDL's) stays as it is.
     private static string SourceName(string value, IReadOnlyList<Pad> pads) => value switch
     {
-        "none" => "No input",
-        "any" => "Any controller",
+        "none" => T("No input"),
+        "any" => T("Any controller"),
         _ => pads.FirstOrDefault(p => p.Value == value)?.Name
-             ?? (value.StartsWith("ps", StringComparison.Ordinal) ? $"PlayStation / Switch controller {value[2..]}" : $"Controller {value}"),
+             ?? (value.StartsWith("ps", StringComparison.Ordinal) ? T("PlayStation / Switch controller {0}", value[2..]) : T("Controller {0}", value)),
     };
 }
 
@@ -443,22 +489,25 @@ public sealed partial class ChordsItem(ControlsViewModel owner, MenuEntry entry)
     private void Open() => owner.OpenChords();
 }
 
-/// <summary>A group of the Chords pop-up (Universal, Photo Mode, Cheats / Debug) with its rows.</summary>
-public sealed class ChordGroupView(string name, string tip)
+/// <summary>A group of the Chords pop-up (Universal, Photo Mode, Cheats / Debug) with its rows; its words in the language shown.</summary>
+public sealed partial class ChordGroupView(string name, string tip) : ObservableObject
 {
-    public string Name { get; } = name;
+    public string Name => Lang.Menu(name);
 
-    public string Tip { get; } = tip;
+    public string Tip => Lang.Menu(tip);
 
     public ObservableCollection<ChordRow> Rows { get; } = [];
+
+    /// <summary>After a language switch: the words said again.</summary>
+    public void SayAgain() => OnPropertyChanged(string.Empty);
 }
 
 /// <summary>A chord in a row's list; one another function has and may not share is greyed, with its name.</summary>
-public sealed partial class ChordOption(string name, string label) : ObservableObject
+public sealed partial class ChordOption(string name, Said label) : ObservableObject
 {
     public string Name { get; } = name;
 
-    public string Label { get; } = label;
+    public string Label => label.ToString();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsFree), nameof(Display))]
@@ -467,6 +516,13 @@ public sealed partial class ChordOption(string name, string label) : ObservableO
     public bool IsFree => TakenBy is null;
 
     public string Display => TakenBy is null ? Label : $"{Label}  ({TakenBy})";
+
+    /// <summary>After a language switch: the label said again.</summary>
+    public void SayAgain()
+    {
+        OnPropertyChanged(nameof(Label));
+        OnPropertyChanged(nameof(Display));
+    }
 }
 
 /// <summary>
@@ -485,12 +541,22 @@ public sealed partial class ChordRow : ObservableObject
         Default = defaultValue;
         if (!function.Required)
         {
-            Options.Add(new ChordOption("none", "None"));
+            Options.Add(new ChordOption("none", S("None")));
         }
 
         foreach (ChordChoice c in chords)
         {
-            Options.Add(new ChordOption(c.Name, c.Label));
+            Options.Add(new ChordOption(c.Name, Said.Button(c.Label)));
+        }
+    }
+
+    /// <summary>After a language switch: the row's words and its list's said again.</summary>
+    public void SayAgain()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (ChordOption o in Options)
+        {
+            o.SayAgain();
         }
     }
 
@@ -498,32 +564,35 @@ public sealed partial class ChordRow : ObservableObject
 
     public string Key => Function.Key;
 
-    public string Label => Function.Label;
+    public string Label => Lang.Menu(Function.Label);
 
-    public string Tip => Function.Tip;
+    public string Tip => Lang.Menu(Function.Tip);
 
     public bool Required => Function.Required;
 
     public string Default { get; }
 
-    public string Name => $"{Label} chord";
+    public string Name => T("{0} chord", Label);
 
-    public string PressName => $"Press the chord for {Label}";
+    public string PressName => T("Press the chord for {0}", Label);
 
-    public string ResetName => $"{Label}: back to the default";
+    public string ResetName => T("{0}: back to the default", Label);
 
     public ObservableCollection<ChordOption> Options { get; } = [];
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsDefault), nameof(ChordText))]
+    [NotifyPropertyChangedFor(nameof(IsDefault), nameof(ChordText), nameof(ChordNowText))]
     public partial ChordOption? Selected { get; set; }
 
     public bool IsDefault => Selected?.Name == Default;
 
     /// <summary>What it has now, as the Press question shows it.</summary>
-    public string ChordText => Selected is { Name: not "none" } s ? s.Label : "none";
+    public string ChordText => Selected is { Name: not "none" } s ? s.Label : T("none");
 
-    public string ResetTip => $"Back to the default ({owner.ChordLabel(Default)})";
+    /// <summary>The Press question's line: "Chord now: Back + Start".</summary>
+    public string ChordNowText => T("Chord now: {0}", ChordText);
+
+    public string ResetTip => T("Back to the default ({0})", owner.ChordLabel(Default));
 
     partial void OnSelectedChanged(ChordOption? value)
     {

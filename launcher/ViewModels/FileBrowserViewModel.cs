@@ -17,7 +17,7 @@ public sealed record BrowserEntry(string Name, string FullPath, bool IsFolder, l
 
     public string DateText => IsUp ? "" : Modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 
-    public string? Tip => IsUp ? "Up one folder" : null;
+    public string? Tip => IsUp ? T("Up one folder") : null;
 
     /// <summary>A file this choice doesn't take (listed with "Show all files"): drawn dimmed.</summary>
     public bool IsOther => !IsFolder && !Matches;
@@ -48,6 +48,8 @@ public sealed record AddressTarget(string? Folder, string? File, string? Error);
 /// Windows Open dialog. Opens in the launcher's own folder; Places down the side; folders
 /// first, then the files this choice takes (X / "Show all files": every file); an address
 /// field; files dropped from Explorer. <see cref="Result"/> is the chosen file, or null.
+/// Its words are said when they are made (<c>T()</c>, to-do 289): the Settings tab, where the
+/// language changes, can't be reached while a browser is open.
 /// </summary>
 /// <remarks>
 /// Folders are read on a background task; a newer open wins over a slow older one (network
@@ -178,7 +180,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         {
             if (id == loadId)
             {
-                Message = $"Can't open {path}: {Reason(e)}";
+                Message = T("Can't open {0}: {1}", path, Reason(e));
                 AddressText = CurrentFolder ?? "";
             }
 
@@ -242,7 +244,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         }
         else
         {
-            Message = $"{entry.Name} isn't a {FilterName}.";
+            Message = T("{0} isn't one of these: {1}.", entry.Name, FilterName);
         }
     }
 
@@ -257,7 +259,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         }
         else
         {
-            Message = $"Select a file first: a {FilterName}.";
+            Message = T("Select a file first: {0}.", FilterName);
         }
     }
 
@@ -308,9 +310,9 @@ public sealed partial class FileBrowserViewModel : ObservableObject
     /// <summary>Why a drop isn't taken, for a choice that takes <paramref name="filterName"/> (the Welcome pop-up's too).</summary>
     public static string DropProblem(IReadOnlyList<string> paths, string filterName) => paths.Count switch
     {
-        0 => "Only files can be dropped here.",
-        1 => $"{Path.GetFileName(Path.TrimEndingDirectorySeparator(paths[0]))} isn't a {filterName}.",
-        _ => $"None of these {paths.Count} is a {filterName}.",
+        0 => T("Only files can be dropped here."),
+        1 => T("{0} isn't one of these: {1}.", Path.GetFileName(Path.TrimEndingDirectorySeparator(paths[0])), filterName),
+        _ => T("None of the {0} items is one of these: {1}.", paths.Count, filterName),
     };
 
     /// <summary>
@@ -321,7 +323,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HintText), nameof(HintIsProblem))]
     public partial string? DragProblem { get; set; }
 
-    public string HintText => DragProblem ?? "or drag a file here";
+    public string HintText => DragProblem ?? T("or drag a file here");
 
     public bool HintIsProblem => DragProblem is not null;
 
@@ -394,7 +396,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         t = Environment.ExpandEnvironmentVariables(t);
         if (t.Length == 0)
         {
-            return new(null, null, "Type or paste a folder or a file, then press Enter.");
+            return new(null, null, T("Type or paste a folder or a file, then press Enter."));
         }
 
         if (t.Length == 2 && char.IsAsciiLetter(t[0]) && t[1] == ':')
@@ -409,7 +411,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         }
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException or SecurityException)
         {
-            return new(null, null, $"\"{t}\" isn't a folder or file path.");
+            return new(null, null, T("\"{0}\" isn't a folder or file path.", t));
         }
 
         if (Directory.Exists(full))
@@ -422,17 +424,17 @@ public sealed partial class FileBrowserViewModel : ObservableObject
             return new(Path.GetDirectoryName(full), full, null);
         }
 
-        return new(null, null, $"Can't find {full}.");
+        return new(null, null, T("Can't find {0}.", full));
     }
 
-    /// <summary>Bytes as Explorer shows them (1 KB = 1,024 bytes).</summary>
+    /// <summary>Bytes as Explorer shows them (1 KB = 1,024 bytes); the units as the language writes them (Ko in French).</summary>
     public static string SizeText(long bytes) => bytes switch
     {
-        < 1024 => string.Create(CultureInfo.InvariantCulture, $"{bytes} bytes"),
-        < 1024 * 1024 => string.Create(CultureInfo.InvariantCulture, $"{Math.Ceiling(bytes / 1024.0):0} KB"),
-        < 1024L * 1024 * 1024 => string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024.0 * 1024):0.0} MB"),
-        < 1024L * 1024 * 1024 * 1024 => string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024.0 * 1024 * 1024):0.0} GB"),
-        _ => string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024.0 * 1024 * 1024 * 1024):0.0} TB"),
+        < 1024 => T("{0} bytes", bytes),
+        < 1024 * 1024 => T("{0:0} KB", Math.Ceiling(bytes / 1024.0)),
+        < 1024L * 1024 * 1024 => T("{0:0.0} MB", bytes / (1024.0 * 1024)),
+        < 1024L * 1024 * 1024 * 1024 => T("{0:0.0} GB", bytes / (1024.0 * 1024 * 1024)),
+        _ => T("{0:0.0} TB", bytes / (1024.0 * 1024 * 1024 * 1024)),
     };
 
     /// <summary>
@@ -441,7 +443,7 @@ public sealed partial class FileBrowserViewModel : ObservableObject
     /// </summary>
     public static List<BrowserPlace> BuildPlaces(string launcherFolder, IReadOnlyList<string> recent)
     {
-        List<BrowserPlace> places = [new("Launcher folder", launcherFolder, launcherFolder, PlaceKind.Launcher)];
+        List<BrowserPlace> places = [new(T("Launcher folder"), launcherFolder, launcherFolder, PlaceKind.Launcher)];
         foreach (string folder in recent)
         {
             if (!SamePath(folder, launcherFolder) && Directory.Exists(folder))
@@ -453,9 +455,9 @@ public sealed partial class FileBrowserViewModel : ObservableObject
 
         (string Label, string? Path)[] folders =
         [
-            ("Desktop", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)),
-            ("Downloads", ShellFolders.Downloads),
-            ("Documents", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)),
+            (T("Desktop"), Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)),
+            (T("Downloads"), ShellFolders.Downloads),
+            (T("Documents"), Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)),
         ];
         foreach ((string label, string? path) in folders)
         {
@@ -477,15 +479,15 @@ public sealed partial class FileBrowserViewModel : ObservableObject
                 string letter = drive.Name.TrimEnd(Path.DirectorySeparatorChar);
                 string kind = drive.DriveType switch
                 {
-                    DriveType.Fixed => "Local Disk",
-                    DriveType.Removable => "USB Drive",
-                    DriveType.Network => "Network Drive",
-                    DriveType.CDRom => "Disc Drive",
-                    _ => "Drive",
+                    DriveType.Fixed => T("Local Disk"),
+                    DriveType.Removable => T("USB Drive"),
+                    DriveType.Network => T("Network Drive"),
+                    DriveType.CDRom => T("Disc Drive"),
+                    _ => T("Drive"),
                 };
                 string name = drive.VolumeLabel is { Length: > 0 } label ? label : kind;
                 places.Add(new($"{name} ({letter})", drive.RootDirectory.FullName,
-                    $"{SizeText(drive.AvailableFreeSpace)} free of {SizeText(drive.TotalSize)}", PlaceKind.Drive));
+                    T("{0} free of {1}", SizeText(drive.AvailableFreeSpace), SizeText(drive.TotalSize)), PlaceKind.Drive));
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or SecurityException)
             {
@@ -533,8 +535,8 @@ public sealed partial class FileBrowserViewModel : ObservableObject
         SelectedEntry = select is null ? null      // ".." too (no real entry has that name): X keeps it selected
             : Entries.FirstOrDefault(e => e.Name.Equals(select, StringComparison.OrdinalIgnoreCase));
         EmptyText = shown.Count > 0 ? null
-            : all.Count > 0 ? $"No {FilterName} in this folder."
-            : "This folder is empty.";
+            : all.Count > 0 ? T("This folder holds none of these: {0}.", FilterName)
+            : T("This folder is empty.");
     }
 
     /// <summary>The folder above <paramref name="folder"/>, or null at a drive's top (or before one is listed).</summary>
@@ -553,8 +555,8 @@ public sealed partial class FileBrowserViewModel : ObservableObject
 
     private static string Reason(Exception e) => e switch
     {
-        UnauthorizedAccessException or SecurityException => "Windows doesn't allow reading it.",
-        DirectoryNotFoundException => "it isn't there (any more).",
+        UnauthorizedAccessException or SecurityException => T("Windows doesn't allow reading it."),
+        DirectoryNotFoundException => T("it isn't there (any more)."),
         _ => e.Message,
     };
 

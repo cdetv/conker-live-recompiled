@@ -27,12 +27,30 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     private readonly DispatcherTimer saveTimer;
     private SettingsSchema? schema;
 
+    /// <summary>The F2 menu as <c>--dump-settings</c> gave it (null until loaded, or when that failed).</summary>
+    public SettingsSchema? Schema => schema;
+
     public SettingsViewModel(GameFolder folder)
     {
         this.folder = folder;
         decensor = new DecensorPatch(folder);
         saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         saveTimer.Tick += (_, _) => Flush();
+        // A language switch (to-do 289): the tab's words and every row's said again (no rebuild:
+        // the drop-down that changed the language keeps its place).
+        Lang.Changed += (_, _) =>
+        {
+            OnPropertyChanged(string.Empty);
+            foreach (SettingItem item in items)
+            {
+                item.SayAgain();
+            }
+
+            foreach (MenuTab tab in Tabs)
+            {
+                tab.SayAgain();
+            }
+        };
     }
 
     /// <summary>What comes before F2's tabs (nothing today; everything, from a game without tabs).</summary>
@@ -53,7 +71,10 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
 
     /// <summary>Why the settings can't be shown, or a write that failed.</summary>
     [ObservableProperty]
-    public partial string? ErrorText { get; set; }
+    [NotifyPropertyChangedFor(nameof(ErrorText))]
+    public partial Said? ErrorSaid { get; set; }
+
+    public string? ErrorText => ErrorSaid?.ToString();
 
     /// <summary>Reset to defaults was pressed once: it asks before resetting.</summary>
     [ObservableProperty]
@@ -64,7 +85,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
     {
         if (loaded is null)
         {
-            ErrorText = $"The settings couldn't be read from conker.exe: {error}";
+            ErrorSaid = S("The settings couldn't be read from conker.exe: {0}", error);
             return;
         }
 
@@ -98,7 +119,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             {
                 if (item.Key is { } key && schema.ByKey.TryGetValue(key, out SettingOption? option))
                 {
-                    item.Tip ??= option.Help;
+                    item.SetHelp(option.Help);
                 }
 
                 if (item.Parent is { } parent && items.FirstOrDefault(i => i.Key == parent) is { } up)
@@ -113,6 +134,52 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
 
         IsLoaded = true;
         Reload();
+    }
+
+    /// <summary>
+    /// A quality-preset option with no line in an existing settings.ini (new since the file was written;
+    /// ambient_occlusion in 0.7.0, to-do 52): the value of the one preset all the file's other preset options
+    /// match, as the game reads it (preset_fill_new in src/settings.c), so a player on Low or Medium keeps that
+    /// preset. No match, or more than one: the default.
+    /// </summary>
+    private void FillNewPresetOptions(Dictionary<string, string> file)
+    {
+        if (schema is null || schema.Presets.Count == 0)
+        {
+            return;
+        }
+
+        List<QualityPreset> matches = schema.Presets.Where(p =>
+        {
+            bool any = false;
+            foreach ((string key, string v) in p.Values)
+            {
+                if (!file.ContainsKey(key) || !values.TryGetValue(key, out string? have))
+                {
+                    continue;
+                }
+
+                any = true;
+                if (!string.Equals(have, v, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return any;
+        }).ToList();
+        if (matches.Count != 1)
+        {
+            return;
+        }
+
+        foreach ((string key, string v) in matches[0].Values)
+        {
+            if (!file.ContainsKey(key) && values.ContainsKey(key))
+            {
+                values[key] = v;
+            }
+        }
     }
 
     /// <summary>Shows what settings.ini holds now (after the game ran, F2 may have changed it).</summary>
@@ -131,7 +198,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         }
         catch (IOException e)
         {
-            ErrorText = $"settings.ini couldn't be read: {e.Message}";
+            ErrorSaid = S("settings.ini couldn't be read: {0}", e.Message);
             return;
         }
 
@@ -145,6 +212,11 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
             values[option.Key] = file.TryGetValue(option.Key, out string? fv) && schema.Normalize(option, fv) is { } fok
                 ? fok
                 : fresh ? schema.NewFileValue(option) : option.Default;
+        }
+
+        if (!fresh)
+        {
+            FillNewPresetOptions(file);
         }
 
         // The Pop-in Fix's switch before 0.3.4 (to-do 219): the game reads 0 as character & foliage detail "original".
@@ -182,7 +254,14 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         }
 
         ShowChildren();
+        FollowLanguage();
     }
+
+    /// <summary>
+    /// The launcher speaks the Menu language this tab shows (to-do 289): after every reload (F2 may
+    /// have changed it) and at once when the player changes it or the Text language, saved or not yet.
+    /// </summary>
+    private void FollowLanguage() => Lang.Follow(values.GetValueOrDefault("ui_language"), values.GetValueOrDefault("language"));
 
     /// <summary>
     /// As in F2, a row under a checkbox (the Pop-in Fix's parts, the particle density under one of
@@ -286,11 +365,11 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         {
             SettingsFile.Write(SaveFolder.SettingsIni, schema, pending);
             before034 = false;
-            ErrorText = null;
+            ErrorSaid = null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            ErrorText = $"settings.ini couldn't be saved: {e.Message}";
+            ErrorSaid = S("settings.ini couldn't be saved: {0}", e.Message);
         }
 
         pending.Clear();
@@ -304,6 +383,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         saveTimer.Stop();
         saveTimer.Start();
         ShowChildren();
+        FollowLanguage();
     }
 
     [RelayCommand]
@@ -339,6 +419,7 @@ public sealed partial class SettingsViewModel : ObservableObject, ISettingsOwner
         }
 
         ShowChildren();
+        FollowLanguage();
         Flush();
     }
 }

@@ -20,7 +20,7 @@ PART 1: conker.exe and xemu_apu.dll (the game)
 
 https://github.com/sp00nznet/xboxrecomp by Ned Heller (sp00nznet) and
 contributors, used through the fork https://github.com/cdetv/xboxrecomp
-(version v0.13.1-537-g3c58eda). It translated the game's code and provides
+(version v0.13.1-561-g9a0c2c7). It translated the game's code and provides
 the runtime around it: the Xbox kernel, graphics, sound and controllers.
 MIT licence:
 
@@ -329,14 +329,16 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-11. yacineolivier-maker's ConkerLR-Recomp (the Full DSP sound effects)
-----------------------------------------------------------------------
+11. yacineolivier-maker's ConkerLR-Recomp (Full DSP, ambient occlusion)
+-----------------------------------------------------------------------
 
 https://github.com/yacineolivier-maker/ConkerLR-Recomp (commit 2013160,
-sdk/runtime/xdk/dsp_image.cpp).
+sdk/runtime/xdk/dsp_image.cpp, src/common/rendu_shaders.h).
 Processing "Full DSP" runs the console's own sound effects (gain, mixer,
 filter, speaker crosstalk, the I3DL2 reverb) natively: the toolkit's
-src/apu/apu_fx.c is a C port of their dsp_image.cpp. Thank you.
+src/apu/apu_fx.c is a C port of their dsp_image.cpp. Ambient occlusion
+(F2 Graphics) uses their GTAO shader and its blur, taken over to D3D11
+in the toolkit's src/kernel/ao_d3d11.c. Thank you.
 MIT licence:
 
 Copyright (c) 2026 yacineolivier-maker and the ConkerLR-Recomp contributors

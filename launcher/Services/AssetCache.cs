@@ -94,10 +94,10 @@ public static class AssetCache
     {
         if (!File.Exists(folder.GameExe))
         {
-            throw new IOException("conker.exe is missing from the launcher's folder.");
+            throw new SaidIOException(S("conker.exe is missing from the launcher's folder."));
         }
 
-        progress.Report(new JobProgress("Preparing game assets", null));
+        progress.Report(new JobProgress(S("Preparing game assets"), null));
         Process process;
         try
         {
@@ -105,7 +105,7 @@ public static class AssetCache
         }
         catch (System.ComponentModel.Win32Exception e)
         {
-            throw new IOException($"conker.exe didn't start: {e.Message}", e);
+            throw new SaidIOException(S("conker.exe didn't start: {0}", e.Message), e);
         }
 
         using (process)
@@ -141,10 +141,10 @@ public static class AssetCache
 
             if (process.ExitCode != 0)
             {
-                string why = (await errors).Split('\n').Select(l => l.Trim())
-                    .LastOrDefault(l => l.StartsWith("[CAFF] ", StringComparison.Ordinal))?["[CAFF] ".Length..]
-                    ?? $"conker.exe ended with {process.ExitCode}.";
-                throw new IOException(why);
+                // conker.exe's own reason stays English, as its log does.
+                string? why = (await errors).Split('\n').Select(l => l.Trim())
+                    .LastOrDefault(l => l.StartsWith("[CAFF] ", StringComparison.Ordinal))?["[CAFF] ".Length..];
+                throw why is not null ? new IOException(why) : new SaidIOException(S("conker.exe ended with {0}.", process.ExitCode));
             }
         }
     }
@@ -162,7 +162,7 @@ public static class AssetCache
 
         string name = parts.Length > 3 ? parts[3].Trim() : "";
         progress.Report(new JobProgress(
-            name.Length > 0 ? $"Preparing game assets ({done} of {total}: {name})" : "Preparing game assets",
+            name.Length > 0 ? S("Preparing game assets ({0} of {1}: {2})", done, total, name) : S("Preparing game assets"),
             total > 0 ? (double)done / total : null));
     }
 
@@ -188,6 +188,6 @@ public static class AssetCache
         start.ArgumentList.Add(folder.GameDir);
         start.ArgumentList.Add("--save-dir");
         start.ArgumentList.Add(SaveFolder.Root);
-        return OwnProcesses.Start(start) ?? throw new IOException("conker.exe didn't start.");
+        return OwnProcesses.Start(start) ?? throw new SaidIOException(S("conker.exe didn't start."));
     }
 }

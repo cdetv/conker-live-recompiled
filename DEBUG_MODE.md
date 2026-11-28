@@ -162,6 +162,11 @@ only, except Multiplayer unlocks.
 |---|---|
 | `timescale [0-300]` | The game's speed in percent (100 = normal), in the menus too. No value swaps with the last speed. `0` freezes the game (P resumes at 100). Sound stays at normal speed. |
 | `wireframe [models\|all\|off]` | `models`: characters, what they hold and placed objects as lines; `all`: the whole scene as lines on black. |
+| `hud [stretched\|4:3]`, `hud area <0-100>`, `hud bubbles stretched\|4:3`, `hud pause stretched\|4:3` | The shapes on a wide picture for this run (not saved; F2 Display's HUD Shape, HUD Placement, Bubble Shape and Pause Screen keep yours): the HUD stretched or each piece in its 4:3 shape as the original (`4:3` = Correct in F2), the side pieces from the 4:3 area in the middle (0) to the screen edges (100); speech bubbles stretched or 4:3; the pause screen's frame stretched or the whole screen in 4:3. Changes a paused picture too. The `hud mp...` commands are tests (see `help hud`). |
+| `ao [off\|on\|alone]`, `ao strength <0-100>`, `ao radius <10-100>` | Ambient occlusion for this run (not saved): off, on, or `alone` (only the occlusion, as grey), and its two sliders. Changes a photo-mode picture too. `ao span`, `ao luma`, `ao floor` tune the effect itself (see `help ao`). |
+| `mblur [off\|on\|view]`, `mblur strength <0-100>` | Camera motion blur for this run (not saved): off, on, or `view` (the camera's motion as colour instead of the blur), and how long the smear is. `mblur ramp`, `mblur max`, `mblur middle` tune when it starts, its longest smear and the sharp middle (see `help mblur`). |
+| `lit [off\|on]`, `lit view <name>` | Per-pixel character lighting for this run (not saved). Views show one part of the lighting on characters alone: `key`, `ambient`, `blobs` (the shadows characters cast on each other), `term`, `face`; `vertex` = worked out at the corners only; `off` = the normal picture. `lit soft <ramp> [knee]` tunes how soft the edges of those shadows are (`0 0` = the original's hard edges; see `help lit`). |
+| `texpacks [<pack>\|<pack>... \| off]` | Texture packs for this run (not saved): the folders in `textures\packs` to turn on, the top one first (it wins when two packs change the same texture), or `off`. Switches while you play, with a short hitch. No value: which are on, and which folders there are. |
 | `soak` | Starts the game's soak test (from the main menu; close the game to stop it). |
 | `debugpage [<number>\|next\|prev\|off]` | Rare's debug pages over the picture; no value lists them. |
 | `metrics [0\|1\|2\|3]` | The F1 counter: off, fps, fps with frame times and memory, or also what limits the frame rate. |
@@ -268,6 +273,10 @@ In debug mode the settings menu (F2) also offers:
 - **Frame rate** 240 fps and uncapped (normally up to 120).
 - **Keep speed in slowdowns** (Display, at 30 fps; on by default): untick it to bring back
   the original game's speed-up when it slows down.
+- **HDR: "On, HUD mask in red"** (Display): HDR as On, with everything kept at normal
+  brightness (the HUD, speech bubbles, menus, the pause screen) tinted red, so you can see
+  what gets the bright highlights and what doesn't. `RECOMP_HDR=mask` shows it on an SDR
+  monitor too.
 - **Physics at 30 Hz** (Fixes; on by default): above 30 fps, tails, ragdolls and cloth move
   at the original 30 Hz.
 - **Tail-shaped ring** (Fixes, under Cutscenes): the hold-to-skip ring drawn as Conker's

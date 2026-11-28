@@ -16,7 +16,8 @@
        logo and the cheat words (fire_imps.journal) in textures\, the menus' translations
        (lang\*.txt, checked by scripts\check_lang.py first), LICENSE.txt,
        THIRD_PARTY_NOTICES.txt, README.txt, DEBUG_MODE.txt (release\DEBUG_MODE.md),
-       add-to-steam.sh (release\, LF line endings checked).
+       TEXTURE_PACKS.txt (release\TEXTURE_PACKS.md), add-to-steam.sh (release\, LF line
+       endings checked).
     4. Zips it, marks add-to-steam.sh executable for Linux (mode 0755 in its zip entry), and
        checks the zip holds exactly that list: never settings.ini or anything else from a
        save folder (SPEC 9.6), never game\ or decensor\ (SPEC 9.1).
@@ -28,7 +29,7 @@
     Package what build\Release and the last publish hold, without building.
 
 .PARAMETER Draft
-    Allows LICENSE.txt, THIRD_PARTY_NOTICES.txt, README.txt and DEBUG_MODE.txt to be missing (the private
+    Allows LICENSE.txt, THIRD_PARTY_NOTICES.txt, README.txt, DEBUG_MODE.txt and TEXTURE_PACKS.txt to be missing (the private
     test zip before they exist). A public release never uses it.
 
 .EXAMPLE
@@ -69,10 +70,12 @@ $Files = [ordered]@{
     'README.txt'                                   = Join-Path $Repo 'README.txt'
     # The public debug mode page (SPEC 10.3), Markdown read as plain text (user 2026-11-11).
     'DEBUG_MODE.txt'                               = Join-Path $Repo 'release\DEBUG_MODE.md'
+    # The texture pack guide (to-do 238, SPEC 9.2 "Texture pack kit"), Markdown read as plain text too.
+    'TEXTURE_PACKS.txt'                            = Join-Path $Repo 'release\TEXTURE_PACKS.md'
     # Add to Steam on Linux and the Steam Deck (to-do 285, SPEC 9.7): executable in the zip (step 4).
     'add-to-steam.sh'                              = Join-Path $Repo 'release\add-to-steam.sh'
 }
-$Docs = 'LICENSE.txt', 'THIRD_PARTY_NOTICES.txt', 'README.txt', 'DEBUG_MODE.txt'
+$Docs = 'LICENSE.txt', 'THIRD_PARTY_NOTICES.txt', 'README.txt', 'DEBUG_MODE.txt', 'TEXTURE_PACKS.txt'
 # The menus' translations (to-do 229, SPEC 10.1 "Menu language"): our own text, from the repo.
 foreach ($Lang in Get-ChildItem -LiteralPath (Join-Path $Repo 'lang') -Filter '*.txt' | Sort-Object Name) {
     $Files["lang\$($Lang.Name)"] = $Lang.FullName

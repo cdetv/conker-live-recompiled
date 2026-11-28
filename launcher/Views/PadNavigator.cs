@@ -43,6 +43,10 @@ public sealed class PadNavigator
     private Slider? aDownOn;                // A went down on this slider and is still held
     private bool aDownWasAdjusting;         // ... while it was adjusting already
     private bool movedWhileADown;           // ... and Left / Right moved it before A let go
+    // A texture pack row (Files tab, to-do 288 part 2d): A went down on it and is still held. Up /
+    // Down move the pack meanwhile; let go without a move ticks or unticks it (user 2026-11-26).
+    private int packHeld = -1;              // the row's place now
+    private bool packMovedWhileHeld;
 
     public PadNavigator(MainWindow window, MainWindowViewModel vm)
     {
@@ -50,6 +54,8 @@ public sealed class PadNavigator
         this.vm = vm;
         vm.Pad.Pressed += (_, e) => OnPressed(e);
         vm.Pad.Released += (_, e) => OnReleased(e);
+        // The hints' words after a language switch (to-do 289).
+        Lang.Changed += (_, _) => UpdateHints();
         vm.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainWindowViewModel.Browser))
@@ -100,10 +106,10 @@ public sealed class PadNavigator
             // A says what it does on the focused row; X what the list will show.
             string a = Focused switch
             {
-                ListBoxItem { Content: BrowserEntry { IsUp: true } } => "Up",
-                ListBoxItem { Content: BrowserEntry { IsFolder: true } } or ListBoxItem { Content: BrowserPlace } => "Open",
-                ListBoxItem { Content: BrowserEntry } => "Choose",
-                _ => "Select",
+                ListBoxItem { Content: BrowserEntry { IsUp: true } } => T("Up"),
+                ListBoxItem { Content: BrowserEntry { IsFolder: true } } or ListBoxItem { Content: BrowserPlace } => T("Open"),
+                ListBoxItem { Content: BrowserEntry } => T("Choose"),
+                _ => T("Select"),
             };
             vm.Hints = PadHints.ForBrowser(vm.Pad.LastKind, a, browser.ShowAllFiles);
             return;
@@ -130,6 +136,12 @@ public sealed class PadNavigator
         // "Press a button" (a single player row's controller button): the press answered.
         if (vm.Controls.IsPadCapturing)
         {
+            return;
+        }
+
+        if (e.Button == PadButton.A && packHeld >= 0)
+        {
+            PackLetGo();
             return;
         }
 
@@ -170,6 +182,15 @@ public sealed class PadNavigator
             }
 
             return;
+        }
+
+        // A texture pack row held with A: any button but Up / Down ends the hold (a move so far
+        // is kept and saved; letting go of A then ticks nothing).
+        if (packHeld >= 0 && b is not (PadButton.Up or PadButton.Down or PadButton.A))
+        {
+            vm.Files.Packs.EndMove(packMovedWhileHeld);
+            packHeld = -1;
+            packMovedWhileHeld = false;
         }
 
         // B while a slider is adjusting: stop adjusting (keeps the value), nothing else.
@@ -278,6 +299,20 @@ public sealed class PadNavigator
         if (Focused is not Control from || !Allowed(from) || !Root.IsVisualAncestorOf(from))
         {
             FocusFirst(PageRoot());
+            return;
+        }
+
+        // A texture pack row held with A: Up / Down move the pack, the focus going with it.
+        if (packHeld >= 0 && b is PadButton.Up or PadButton.Down && vm.Pad.IsDown(PadButton.A))
+        {
+            int to = vm.Files.Packs.Move(packHeld, b == PadButton.Down ? 1 : -1);
+            if (to != packHeld)
+            {
+                packHeld = to;
+                packMovedWhileHeld = true;
+                FocusPackRow(to);
+            }
+
             return;
         }
 
@@ -729,6 +764,16 @@ public sealed class PadNavigator
             return;
         }
 
+        // A texture pack row: nothing yet; Up / Down while A is held move it, letting go ticks
+        // (PackLetGo).
+        if (f is CheckBox { DataContext: TexturePackItem item } && vm.Files.Packs is { CanChange: true } packs)
+        {
+            packHeld = packs.Packs.IndexOf(item);
+            packMovedWhileHeld = false;
+            packs.BeginMove(packHeld);
+            return;
+        }
+
         lastActed = f;
         lastActedAt = Bounds(f)?.Center;
         switch (f)
@@ -750,6 +795,36 @@ public sealed class PadNavigator
         }
 
         AfterAction();
+    }
+
+    /// <summary>
+    /// A let go on a texture pack row: after a move, the new order is saved; without one, the
+    /// pack is ticked or unticked, however long A was held (user 2026-11-26). Only on the row
+    /// the focus is still on (B or a tab change meanwhile: no tick).
+    /// </summary>
+    private void PackLetGo()
+    {
+        TexturePacksViewModel packs = vm.Files.Packs;
+        int i = packHeld;
+        bool moved = packMovedWhileHeld;
+        packHeld = -1;
+        packMovedWhileHeld = false;
+        packs.EndMove(moved);
+        if (!moved && i < packs.Packs.Count && Focused is CheckBox { DataContext: TexturePackItem item }
+            && item == packs.Packs[i] && packs.CanChange)
+        {
+            item.On = !item.On;
+        }
+    }
+
+    /// <summary>The focus onto a pack row's check box (after its pack moved there), scrolled into view.</summary>
+    private void FocusPackRow(int i)
+    {
+        if (window.PackList.ContainerFromIndex(i) is Control row && row.FindDescendantOfType<CheckBox>() is { } box)
+        {
+            box.Focus(NavigationMethod.Directional);
+            box.BringIntoView();
+        }
     }
 
     // Through its automation peer, as a screen reader would: HyperlinkButton's link opens too.
@@ -1026,7 +1101,7 @@ public sealed class PadNavigator
 
         if (!vm.Files.GameFilesImported)
         {
-            vm.Message = "Import the game files first: Import Files, then pick your disc image.";
+            vm.MessageSaid = S("Import the game files first: Import Files, then pick your disc image.");
             MainTabs.SelectedIndex = 0;
             Dispatcher.UIThread.Post(() =>
             {
@@ -1043,15 +1118,15 @@ public sealed class PadNavigator
     /// <summary>Back: closes the launcher; while something would be cut off, only on a second press within 3 s.</summary>
     private void Quit()
     {
-        string? running = vm.Files.IsBusy ? "An import or download is running"
-            : vm.IsUpdating ? "The update is running"
-            : vm.UserFiles.IsBusy ? "User files are being moved"
+        Said? running = vm.Files.IsBusy ? S("An import or download is running: press Back again to close the launcher anyway.")
+            : vm.IsUpdating ? S("The update is running: press Back again to close the launcher anyway.")
+            : vm.UserFiles.IsBusy ? S("User files are being moved: press Back again to close the launcher anyway.")
             : null;
         long now = Environment.TickCount64;
         if (running is not null && now > backArmedUntil)
         {
             backArmedUntil = now + 3000;
-            vm.Message = $"{running}: press Back again to close the launcher anyway.";
+            vm.MessageSaid = running;
             return;
         }
 

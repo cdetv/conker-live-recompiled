@@ -1,8 +1,12 @@
-r"""check_lang.py: the menus' translation files (to-do 229, lang\<code>.txt) against the code.
+r"""check_lang.py: the menus' translation files (to-dos 229 and 289, lang\<code>.txt) against the code.
 
 The English text in the code is the key: every string marked T("..."), TL("...") or N_("...") in src/*.c,
-src/*.cpp (src/ui_text.h). Each lang\<code>.txt holds "en: <English>" then "<code>: <text>" ("\\n" for a line
-break), grouped under "## <function>" lines; "#" lines are comments.
+src/*.cpp (src/ui_text.h), then the launcher's (to-do 289, launcher/Services/Lang.cs): T("...") and S("...")
+in launcher/**/*.cs (literals joined with +) and {l:T '...'} in launcher/**/*.axaml. Each lang\<code>.txt holds
+"en: <English>" then "<code>: <text>" ("\\n" for a line break), grouped under "## <function>" lines (the
+launcher's: "## launcher/<file>"); "#" lines are comments. The game and the launcher read the same files; a
+text both use is one line. The game's texts keep their printf slots (%s, %d), the launcher's their {0} slots
+(any order; the format after ":" kept).
 
   python scripts/check_lang.py            report: missing / unused lines, printf mismatches, letters the menu
                                           font lacks (Latin languages), translations much longer than English;
@@ -12,10 +16,11 @@ break), grouped under "## <function>" lines; "#" lines are comments.
                                           the end under "## no longer in the code"
   python scripts/check_lang.py --list     the English strings, one a line (with their function)
 """
-import io, os, re, struct, sys
+import html, io, os, re, struct, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "src")
+LAUNCHER = os.path.join(ROOT, "launcher")
 LANG = os.path.join(ROOT, "lang")
 CODES = ["de", "fr", "es", "it", "ja"]
 NAMES = {"de": "German (Deutsch)", "fr": "French (Français)", "es": "Spanish (Español)",
@@ -26,6 +31,15 @@ MARK = re.compile(r'(?<![\w])(N_|TL|T)\(\s*((?:' + LIT + r'\s*)+)\)')
 FUNC = re.compile(r'^(?:static\s+|extern\s+"C"\s+)?[\w:\*<>]+[\s\*]+(\w+)\s*\([^;]*$')
 # No space flag: our formats never use it, and "14 % is" in a note is plain text.
 SPEC = re.compile(r'%[-+#0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|L|z|j|t|I64|I32)?[diouxXeEfgGaAcspn%]')
+
+# The launcher (C#): T("...") / S("...") with literals joined by +, never an interpolated $"..." (its words
+# would change with every value); {l:T '...'} in .axaml (\\ a backslash, \' an apostrophe, XML entities).
+CS_LIT = r'"(?:[^"\\\n]|\\.)*"'
+CS_MARK = re.compile(r'(?<![\w.])(T|S)\(\s*(' + CS_LIT + r'(?:\s*\+\s*' + CS_LIT + r')*)')
+CS_INTERP = re.compile(r'(?<![\w.])(T|S)\(\s*\$@?"')
+AX_MARK = re.compile(r"\{l:T\s+'((?:[^'\\]|\\.)*)'\s*\}")
+# C#'s composite format slots: {0}, {1:N0}, {2,5}; {{ and }} are plain braces.
+SLOT = re.compile(r'(?<!\{)\{(\d+)(?:,-?\d+)?(?::[^{}]*)?\}')
 
 
 def c_unescape(lits):
@@ -94,6 +108,67 @@ def source_strings():
     return out
 
 
+def cs_unescape(lits):
+    """C# literals joined with + -> their text."""
+    out = []
+    for lit in re.findall(CS_LIT, lits):
+        s, i = lit[1:-1], 0
+        while i < len(s):
+            if s[i] != "\\":
+                out.append(s[i])
+                i += 1
+                continue
+            e = s[i + 1]
+            if e == "u":
+                out.append(chr(int(s[i + 2:i + 6], 16)))
+                i += 6
+            elif e == "x":
+                j = i + 2
+                while j < len(s) and j < i + 6 and s[j] in "0123456789abcdefABCDEF":
+                    j += 1
+                out.append(chr(int(s[i + 2:j], 16)))
+                i = j
+            else:
+                out.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0"}.get(e, e))
+                i += 2
+    return "".join(out)
+
+
+def launcher_files():
+    """The launcher's sources in reading order: windows (.axaml first), view models, services, the rest."""
+    found = []
+    for dirpath, dirs, files in os.walk(LAUNCHER):
+        dirs[:] = [d for d in dirs if d not in ("bin", "obj")]
+        found += [os.path.relpath(os.path.join(dirpath, f), LAUNCHER).replace(os.sep, "/")
+                  for f in files if f.endswith((".cs", ".axaml"))]
+    rank = {"Views": 0, "ViewModels": 1, "Services": 2}
+    return sorted(found, key=lambda p: (rank.get(p.split("/")[0], 3), not p.endswith(".axaml"), p))
+
+
+def launcher_strings():
+    """([(key, "launcher/<file>")] in reading order, first use each; [(file, line)] of T($"...") / S($"...")."""
+    seen, out, interp = set(), [], []
+    for rel in launcher_files():
+        text = io.open(os.path.join(LAUNCHER, rel), encoding="utf-8-sig", errors="replace").read()
+        if rel.endswith(".axaml"):
+            text = re.sub(r"<!--.*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+            found = [html.unescape(re.sub(r"\\(.)", r"\1", m.group(1))) for m in AX_MARK.finditer(text)]
+        else:
+            text = strip_comments(text)
+            found = [cs_unescape(m.group(2)) for m in CS_MARK.finditer(text)]
+            interp += [(rel, text.count("\n", 0, m.start()) + 1) for m in CS_INTERP.finditer(text)]
+        for key in found:
+            if key and key not in seen:
+                seen.add(key)
+                out.append((key, "launcher/" + rel))
+    return out, interp
+
+
+def slots(s):
+    """A launcher text's {0} slots, in any order."""
+    return sorted(m.group(0) for m in SLOT.finditer(s))
+
+
 def esc(s):
     return s.replace("\\", "\\\\").replace("\n", "\\n")
 
@@ -126,10 +201,10 @@ def read_lang(code):
 
 
 def write_lang(code, keys, header, table):
-    out = list(header) or ["# %s: the menus of this port (to-do 229). \"en:\" is the English in the code (the key, "
-                           "never change it), \"%s:\" the translation" % (NAMES[code], code),
-                           "# (empty = English). \\n = a line break. Keep every %s, %d, %.0f etc. in the same order. "
-                           "scripts/check_lang.py checks it."]
+    out = list(header) or ["# %s: the menus of this port and its launcher (to-dos 229, 289). \"en:\" is the English in "
+                           "the code (the key, never change it), \"%s:\" the translation" % (NAMES[code], code),
+                           "# (empty = English). \\n = a line break. Keep every %s, %d, %.0f etc. in the same order, and "
+                           "every {0}, {1:N0} etc. (any order). scripts/check_lang.py checks it."]
     func = None
     code_keys = set()
     for key, f in keys:
@@ -217,7 +292,15 @@ def default_font_chars():
 
 
 def main():
-    keys = source_strings()
+    game = source_strings()
+    launcher, interp = launcher_strings()
+    game_keys = {k for k, _ in game}
+    launcher_keys = {k for k, _ in launcher}
+    keys = game + [(k, f) for k, f in launcher if k not in game_keys]
+    bad = 0
+    for rel, line in interp:
+        print("  INTERP  launcher/%s:%d: T($\"...\") / S($\"...\") can't be translated: use {0} slots" % (rel, line))
+        bad += 1
     if "--list" in sys.argv:
         for k, f in keys:
             print("%-28s %s" % (f, esc(k)))
@@ -229,10 +312,10 @@ def main():
             header, table, _ = read_lang(code)
             write_lang(code, keys, header, table)
         print("updated %d files, %d strings" % (len(CODES), len(keys)))
-        return 0
+        return 1 if bad else 0
     font = default_font_chars()
-    bad = 0
-    print("%d strings in the code" % len(keys))
+    print("%d strings in the code (%d the game's, %d the launcher's, %d of them both)"
+          % (len(keys), len(game_keys), len(launcher_keys), len(game_keys & launcher_keys)))
     for code in CODES:
         _, table, _ = read_lang(code)
         have = {k for k, f in keys if table.get(k)}
@@ -244,12 +327,17 @@ def main():
             v = table.get(k)
             if not v:
                 continue
-            if SPEC.findall(k) != SPEC.findall(v):
+            if k in game_keys and SPEC.findall(k) != SPEC.findall(v):
                 print("  PRINTF  %s: %r -> %r" % (f, k, v))
                 bad += 1
-            if k.count("\n") != v.count("\n") and "\n" in k:
+            if k in launcher_keys and slots(k) != slots(v):
+                print("  SLOTS   %s: %r -> %r" % (f, k, v))
+                bad += 1
+            # settings.c's marked texts with line breaks are settings.ini comments the launcher shows as one-line
+            # tooltips (to-do 289): their breaks only fit the file's width, so a one-line translation is right.
+            if k.count("\n") != v.count("\n") and "\n" in k and f != "settings.c":
                 print("  LINES   %s: %r has %d line breaks, the translation %d" % (f, k, k.count("\n"), v.count("\n")))
-            if font and code != "ja":
+            if font and code != "ja" and k in game_keys:
                 lack = sorted({ch for ch in v if ord(ch) not in font and ch not in "\n"})
                 if lack:
                     print("  FONT    %s: %r uses %s (not in the menu font: drawn from Segoe UI)" % (f, v, "".join(lack)))

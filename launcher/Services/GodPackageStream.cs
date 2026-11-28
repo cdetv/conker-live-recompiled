@@ -26,13 +26,13 @@ public sealed class GodPackageStream : Stream
     public const string PackageName = "DefaultPackage";
 
     /// <summary>The bad files message (user-approved wording, 2026-11-16).</summary>
-    public const string DamagedMessage =
-        "These files don't read as a complete Xbox Store version of the game. In the Xbox app, choose " +
-        "Manage > Files > Verify and repair (or reinstall it), then try again.";
+    public static Said DamagedMessage =>
+        S("These files don't read as a complete Xbox Store version of the game. In the Xbox app, choose " +
+          "Manage > Files > Verify and repair (or reinstall it), then try again.");
 
     /// <summary>The missing files message (user-approved wording, 2026-11-16).</summary>
-    public const string PartMessage =
-        "This folder holds only part of the Xbox Store version. In the Xbox app, use Verify and repair, then try again.";
+    public static Said PartMessage =>
+        S("This folder holds only part of the Xbox Store version. In the Xbox app, use Verify and repair, then try again.");
 
     public const int HeaderLength = 0x3AD;
     private const int Block = 4096;
@@ -128,7 +128,7 @@ public sealed class GodPackageStream : Stream
     public static GodPackageStream Open(string packageFile)
     {
         byte[] header = ReadHeader(packageFile)
-            ?? throw new ImportException($"{Path.GetFileName(packageFile)} isn't an Xbox Store version package.");
+            ?? throw new ImportException(S("{0} isn't an Xbox Store version package.", Path.GetFileName(packageFile)));
         int count = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(0x39D)), int.MaxValue);
         long total = (long)Math.Min(BinaryPrimitives.ReadUInt64BigEndian(header.AsSpan(0x3A1)), long.MaxValue);
         if (count is < 1 or > 9999)

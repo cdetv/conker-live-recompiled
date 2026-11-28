@@ -17,9 +17,13 @@ public interface ISettingsOwner
 /// One tab of the F2 menu (Display, Graphics, Sound, Fixes) or the F3 menu (Single player,
 /// Multiplayer, Photo mode, Menus, Slots), shown inside the Settings or Controls tab.
 /// </summary>
-public sealed class MenuTab(string name)
+public sealed partial class MenuTab(string name) : ObservableObject
 {
-    public string Name { get; } = name;
+    /// <summary>The tab's name in the language shown (the game's own words; to-do 289 step 3).</summary>
+    public string Name => Lang.Menu(name);
+
+    /// <summary>After a language switch: the name said again.</summary>
+    public void SayAgain() => OnPropertyChanged(nameof(Name));
 
     public ObservableCollection<SettingItem> Items { get; } = [];
 
@@ -34,14 +38,26 @@ public sealed class MenuTab(string name)
 /// <summary>One row of the Settings or Controls tab.</summary>
 public abstract partial class SettingItem(MenuEntry entry) : ObservableObject
 {
-    public string Label { get; } = entry.Label;
+    private readonly string label = entry.Label;
+    private readonly string? tip = entry.Tip;
+    private string? help;
+
+    /// <summary>The row's name in the language shown: the game's own translation of what --dump-settings printed (to-do 289 step 3).</summary>
+    public string Label => Lang.Menu(label);
 
     public string? Key { get; } = entry.Key;
 
     public string? Needs { get; } = entry.Needs;
 
-    /// <summary>The menu's tooltip, else the option's settings.ini comment.</summary>
-    public string? Tip { get; set; } = entry.Tip;
+    /// <summary>
+    /// The menu's tooltip in the language shown, else the option's settings.ini comment, in the
+    /// language shown too (to-do 289 step 4: the game marks those comments for translation; the
+    /// file itself keeps them English).
+    /// </summary>
+    public string? Tip => tip is not null ? Lang.Menu(tip) : help is null ? null : Lang.Help(help);
+
+    /// <summary>The settings.ini comment, the tooltip when the menu has none.</summary>
+    public void SetHelp(string? text) => help ??= text;
 
     /// <summary>False when what it needs (the decensor patch) isn't there.</summary>
     [ObservableProperty]
@@ -71,6 +87,12 @@ public abstract partial class SettingItem(MenuEntry entry) : ObservableObject
 
     /// <summary>Shows a value from the file without saving it.</summary>
     public abstract void Show(string value);
+
+    /// <summary>
+    /// After a language switch (to-do 289): every word of the row said again. The tab calls it on
+    /// each of its rows; a row with options or rows of its own passes it on.
+    /// </summary>
+    public virtual void SayAgain() => OnPropertyChanged(string.Empty);
 }
 
 public sealed class SectionItem(MenuEntry entry) : SettingItem(entry)
@@ -150,7 +172,16 @@ public sealed partial class CheckItem(ISettingsOwner owner, MenuEntry entry) : S
     }
 }
 
-public sealed record ChoiceOption(string Value, string Name);
+/// <summary>One entry of a drop-down: its settings.ini value and its name in the language shown.</summary>
+public sealed partial class ChoiceOption(string value, Said name) : ObservableObject
+{
+    public string Value { get; } = value;
+
+    public string Name => name.ToString();
+
+    /// <summary>After a language switch: the name said again.</summary>
+    public void SayAgain() => OnPropertyChanged(nameof(Name));
+}
 
 public sealed partial class ChoiceItem : SettingItem
 {
@@ -165,11 +196,20 @@ public sealed partial class ChoiceItem : SettingItem
         IReadOnlyList<string> names = entry.Names ?? values;
         for (int i = 0; i < values.Count; i++)
         {
-            Options.Add(new ChoiceOption(values[i], i < names.Count ? names[i] : values[i]));
+            Options.Add(new ChoiceOption(values[i], Said.Menu(i < names.Count ? names[i] : values[i])));
         }
     }
 
     public ObservableCollection<ChoiceOption> Options { get; } = [];
+
+    public override void SayAgain()
+    {
+        base.SayAgain();
+        foreach (ChoiceOption o in Options)
+        {
+            o.SayAgain();
+        }
+    }
 
     [ObservableProperty]
     public partial ChoiceOption? Selected { get; set; }
@@ -180,7 +220,7 @@ public sealed partial class ChoiceItem : SettingItem
         ChoiceOption? match = Options.FirstOrDefault(o => o.Value.Equals(value, StringComparison.OrdinalIgnoreCase));
         if (match is null)
         {
-            match = new ChoiceOption(value, value);
+            match = new ChoiceOption(value, Said.As(value));
             Options.Add(match);
         }
 
@@ -211,14 +251,16 @@ public sealed partial class SliderItem(ISettingsOwner owner, MenuEntry entry) : 
 
     public double Step { get; } = Math.Pow(10, -entry.Decimals);
 
-    public string? ResetTip { get; } = entry.ResetTip;
+    private readonly string? resetTip = entry.ResetTip;
+
+    public string? ResetTip => resetTip is null ? null : Lang.Menu(resetTip);
 
     /// <summary>A sound channel's mute key: a Mute box beside the name (to-do 13); null for none.</summary>
     public string? MuteKey { get; } = entry.Mute;
 
     public bool HasMute => MuteKey is not null;
 
-    public string MuteName => $"Mute {Label}";
+    public string MuteName => T("Mute {0}", Label);
 
     [ObservableProperty]
     public partial bool IsMuted { get; set; }
@@ -265,8 +307,16 @@ public sealed partial class SliderItem(ISettingsOwner owner, MenuEntry entry) : 
     }
 }
 
-/// <summary>One entry of the quality preset list: a preset, or "Custom" (Preset null).</summary>
-public sealed record PresetOption(string Name, QualityPreset? Preset);
+/// <summary>One entry of the quality preset list: a preset, or "Custom" (Preset null); its name said in the language shown.</summary>
+public sealed partial class PresetOption(Said name, QualityPreset? preset) : ObservableObject
+{
+    public string Name => name.ToString();
+
+    public QualityPreset? Preset { get; } = preset;
+
+    /// <summary>After a language switch: the name said again.</summary>
+    public void SayAgain() => OnPropertyChanged(nameof(Name));
+}
 
 /// <summary>
 /// The quality preset drop-down at the top of F2's Graphics tab (to-do 202): Low / Medium / High /
@@ -275,7 +325,7 @@ public sealed record PresetOption(string Name, QualityPreset? Preset);
 public sealed partial class PresetItem : SettingItem
 {
     private readonly Action<QualityPreset> choose;
-    private readonly PresetOption custom = new("Custom", null);
+    private readonly PresetOption custom = new(S("Custom"), null);
     private bool showing;
 
     public PresetItem(MenuEntry entry, IReadOnlyList<QualityPreset> presets, Action<QualityPreset> choose)
@@ -284,7 +334,17 @@ public sealed partial class PresetItem : SettingItem
         this.choose = choose;
         foreach (QualityPreset p in presets)
         {
-            Options.Add(new PresetOption(p.Name, p));
+            Options.Add(new PresetOption(Said.Menu(p.Name), p));
+        }
+    }
+
+    public override void SayAgain()
+    {
+        base.SayAgain();
+        custom.SayAgain();
+        foreach (PresetOption o in Options)
+        {
+            o.SayAgain();
         }
     }
 

@@ -33,6 +33,41 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         this.folder = folder;
         saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         saveTimer.Tick += (_, _) => Flush();
+        Lang.Changed += (_, _) => SayAgain();
+    }
+
+    /// <summary>
+    /// After a language switch (to-do 289): the tab's words, every row's (the slots' Options rows
+    /// and the chords too), the Slots lists' names ("No input") and the keys' clash notes.
+    /// </summary>
+    private void SayAgain()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (SettingItem item in items)
+        {
+            item.SayAgain();
+        }
+
+        foreach (ChordRow row in chordRows)
+        {
+            row.SayAgain();
+        }
+
+        foreach (MenuTab tab in Tabs)
+        {
+            tab.SayAgain();
+        }
+
+        foreach (ChordGroupView group in ChordGroups)
+        {
+            group.SayAgain();
+        }
+
+        if (schema is not null)
+        {
+            slots?.Update(ValueOf, pads);
+            UpdateKeys();
+        }
     }
 
     /// <summary>What comes before F3's tabs ("Use keyboard and mouse").</summary>
@@ -52,7 +87,10 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
     public bool IsEditable => IsLoaded && !IsLocked;
 
     [ObservableProperty]
-    public partial string? ErrorText { get; set; }
+    [NotifyPropertyChangedFor(nameof(ErrorText))]
+    public partial Said? ErrorSaid { get; set; }
+
+    public string? ErrorText => ErrorSaid?.ToString();
 
     /// <summary>The row whose key is being asked for ("Press a key"), or null.</summary>
     [ObservableProperty]
@@ -134,7 +172,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
 
     /// <summary>A chord's label ("Back + Start"), "none" for none.</summary>
     internal string ChordLabel(string name) =>
-        chords?.Chords.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Label ?? "none";
+        chords?.Chords.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } c ? Lang.Button(c.Label) : T("none");
 
     /// <summary>Two functions may share a chord when neither is Universal (group 0) and their groups differ.</summary>
     private static bool MayShare(ChordFunction a, ChordFunction b) => a.Group != 0 && b.Group != 0 && a.Group != b.Group;
@@ -148,7 +186,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
     {
         if (TakenBy(row, name) is { } other)
         {
-            ChordsMessage = $"{ChordLabel(name)} is {other.Label}'s: change that one first";
+            ChordsMessage = T("{0} is {1}'s: change that one first", ChordLabel(name), other.Label);
             Dispatcher.UIThread.Post(UpdateChords);     // the list shows the old one again
             return;
         }
@@ -272,7 +310,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
         else if (TakenBy(row, chord.Name) is { } other)
         {
-            ChordCaptureMessage = $"{chord.Label} is {other.Label}'s: pick another";
+            ChordCaptureMessage = T("{0} is {1}'s: pick another", chord.Label, other.Label);
         }
         else
         {
@@ -298,10 +336,11 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             }
             else
             {
-                string names = string.Join(" + ", ChordButtons.Values.Where(v => chordSeen.Contains(v.Name)).Select(v => v.Label));
+                // "D-pad Up" is a line the game's F3 already has; button names (Back, LB) stay as they are.
+                string names = string.Join(" + ", ChordButtons.Values.Where(v => chordSeen.Contains(v.Name)).Select(v => Lang.Button(v.Label)));
                 ChordCaptureMessage = chordSeen.Count > 1
-                    ? $"{names} is not one of the chords"
-                    : $"{names} alone: hold it and press a second button";
+                    ? T("{0} is not one of the chords", names)
+                    : T("{0} alone: hold it and press a second button", names);
             }
         }
 
@@ -327,17 +366,18 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             : null;
 
     private string PadActionLabel(string action, bool modern) =>
-        PadActionOf(action) is { } a ? (modern ? a.Modern : a.Classic) ?? action : action;
+        Lang.Menu(PadActionOf(action) is { } a ? (modern ? a.Modern : a.Classic) ?? action : action);
 
     internal string PadDefault(KeyItem k) =>
         k.PadAction is { } a && PadKey(a, ModernScheme) is { } key ? Default(key) : "none";
 
     /// <summary>A button's label ("Right trigger"), "-" for none.</summary>
     internal string PadButtonLabel(string name) =>
-        padBinds?.Buttons.FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Label ?? "-";
+        padBinds?.Buttons.FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } b ? Lang.Button(b.Label) : "-";
 
-    internal string PadResetQuestion =>
-        $"Put every {(ModernScheme ? "Modern" : "Classic")} controller button back to its default?";
+    internal string PadResetQuestion => ModernScheme
+        ? T("Put every Modern controller button back to its default?")
+        : T("Put every Classic controller button back to its default?");
 
     /// <summary>
     /// The actions that would clash with action on button (F3's <c>pad_binds_clashes</c>): they act at
@@ -371,17 +411,17 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         return list;
     }
 
-    /// <summary>The last controller button change's swap, or why it was refused.</summary>
+    /// <summary>The last controller button change's swap, or why it was refused (stays on the tab: a <see cref="Said"/>).</summary>
     [ObservableProperty]
-    public partial string? PadMessage { get; set; }
+    public partial Said? PadMessage { get; set; }
 
     private ResetPadItem? resetPad;
 
-    partial void OnPadMessageChanged(string? value)
+    partial void OnPadMessageChanged(Said? value)
     {
         if (resetPad is not null)
         {
-            resetPad.Message = value;
+            resetPad.MessageSaid = value;
         }
     }
 
@@ -393,10 +433,10 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
     public bool IsPadCapturing => PadCapturing is not null;
 
     public string PadCaptureTitle =>
-        PadCapturing is { } k ? $"{k.Label} ({(ModernScheme ? "Modern" : "Classic")})" : "";
+        PadCapturing is not { } k ? "" : ModernScheme ? T("{0} (Modern)", k.Label) : T("{0} (Classic)", k.Label);
 
     public string PadNowText =>
-        PadCapturing is { } k ? $"Button now: {(k.PadValue == "none" ? "none" : PadButtonLabel(k.PadValue))}" : "";
+        PadCapturing is { } k ? T("Button now: {0}", k.PadValue == "none" ? T("none") : PadButtonLabel(k.PadValue)) : "";
 
     public bool PadNoneAllowed => PadCapturing?.PadAction is { } a && PadActionOf(a) is { Required: false };
 
@@ -420,7 +460,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             }
             else
             {
-                PadCaptureMessage = PadMessage;
+                PadCaptureMessage = PadMessage?.ToString();
                 // Refused: the list shows the button it has again.
                 Dispatcher.UIThread.Post(() =>
                 {
@@ -444,7 +484,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         foreach (PadChoice b in padBinds?.Buttons ?? [])
         {
             List<string> c = PadClashes(k.PadAction!, modern, b.Name);
-            PadOptions.Add(new PadOption(b.Name, b.Label, c.Count > 0 ? PadActionLabel(c[0], modern) : null));
+            PadOptions.Add(new PadOption(b.Name, Lang.Button(b.Label), c.Count > 0 ? PadActionLabel(c[0], modern) : null));
         }
 
         PadSelected = PadOptions.FirstOrDefault(o => o.Name.Equals(k.PadValue, StringComparison.OrdinalIgnoreCase));
@@ -465,7 +505,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             }
             else
             {
-                PadCaptureMessage = PadMessage;
+                PadCaptureMessage = PadMessage?.ToString();
             }
         }
     }
@@ -494,7 +534,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
         else if (button is PadButton.Up or PadButton.Down or PadButton.Left or PadButton.Right)
         {
-            PadCaptureMessage = "The D-pad can't be bound: pick another button (Back cancels)";
+            PadCaptureMessage = T("The D-pad can't be bound: pick another button (Back cancels)");
         }
         else if (PadNames.TryGetValue(button, out string? name))
         {
@@ -504,7 +544,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             }
             else
             {
-                PadCaptureMessage = PadMessage;
+                PadCaptureMessage = PadMessage?.ToString();
             }
         }
     }
@@ -533,7 +573,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
 
         if (button == "none" && PadActionOf(action)?.Required == true)
         {
-            PadMessage = $"{PadActionLabel(action, modern)} needs a button";
+            PadMessage = S("{0} needs a button", PadActionLabel(action, modern));
             return false;
         }
 
@@ -544,24 +584,24 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             if (!clean && PadActionOf(c)?.Required == true)
             {
                 string l = PadActionLabel(c, modern);
-                PadMessage = $"{PadButtonLabel(button)} is {l}'s, and {l} needs a button: give {l} another first";
+                PadMessage = S("{0} is {1}'s, and {1} needs a button: give {1} another first", PadButtonLabel(button), l);
                 return false;
             }
 
             to.Add((c, clean ? old : "none"));
         }
 
-        var what = new List<string>();
+        var what = new List<Said>();
         foreach ((string c, string v) in to)
         {
             Changed(PadKey(c, modern)!, v);
             what.Add(v == "none"
-                ? $"{PadActionLabel(c, modern)} has no button now: pick one"
-                : $"{PadActionLabel(c, modern)} takes {PadButtonLabel(v)}");
+                ? S("{0} has no button now: pick one", PadActionLabel(c, modern))
+                : S("{0} takes {1}", PadActionLabel(c, modern), PadButtonLabel(v)));
         }
 
         Changed(key, button);
-        PadMessage = what.Count > 0 ? string.Join("; ", what) : null;
+        PadMessage = what.Count > 0 ? new Said(() => string.Join("; ", what)) : null;
         return true;
     }
 
@@ -592,7 +632,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
     {
         if (loaded is null)
         {
-            ErrorText = $"The controls couldn't be read from conker.exe: {error}";
+            ErrorSaid = S("The controls couldn't be read from conker.exe: {0}", error);
             return;
         }
 
@@ -648,7 +688,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
 
             if (item.Key is { } key && schema.ByKey.TryGetValue(key, out SettingOption? option) && item is not KeyItem)
             {
-                item.Tip ??= option.Help;
+                item.SetHelp(option.Help);
             }
 
             items.Add(item);
@@ -706,7 +746,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
                                        or System.Text.Json.JsonException or OperationCanceledException
                                        or KeyNotFoundException or InvalidOperationException)
         {
-            ErrorText = $"The controllers couldn't be listed: {e.Message}";
+            ErrorSaid = S("The controllers couldn't be listed: {0}", Why(e));
             return;
         }
 
@@ -729,7 +769,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
         catch (IOException e)
         {
-            ErrorText = $"settings.ini couldn't be read: {e.Message}";
+            ErrorSaid = S("settings.ini couldn't be read: {0}", e.Message);
             return;
         }
 
@@ -768,11 +808,11 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         try
         {
             SettingsFile.Write(SaveFolder.SettingsIni, schema, pending);
-            ErrorText = null;
+            ErrorSaid = null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            ErrorText = $"settings.ini couldn't be saved: {e.Message}";
+            ErrorSaid = S("settings.ini couldn't be saved: {0}", e.Message);
         }
 
         pending.Clear();
@@ -830,7 +870,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             l = $"{Name(hold)} + {l}";
         }
 
-        return keep ? l + " (keep)" : l;
+        return keep ? T("{0} (keep)", l) : l;
     }
 
     private string Name(string key) => schema?.KeyLabels.GetValueOrDefault(key) ?? key;
@@ -867,7 +907,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
     [NotifyPropertyChangedFor(nameof(HoldingText))]
     public partial string? Holding { get; set; }
 
-    public string? HoldingText => Holding is null ? null : $"Holding {Name(Holding)}: press another key for a combo, or let go";
+    public string? HoldingText => Holding is null ? null : T("Holding {0}: press another key for a combo, or let go", Name(Holding));
 
     /// <summary>A key pressed while asking (the window sends every key): F3's rules for which are taken.</summary>
     public void TakeKey(Key key)
@@ -880,7 +920,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
         else if (KeyInput.IsGameOwn(key))
         {
-            CaptureMessage = "F1-F3, F9 and F11 are the game's own keys";
+            CaptureMessage = T("F1-F3, F9 and F11 are the game's own keys");
         }
         else if (KeyInput.Name(key) is { } name)
         {
@@ -888,7 +928,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
         else
         {
-            CaptureMessage = $"That key can't be used ({key})";
+            CaptureMessage = T("That key can't be used ({0})", key);
         }
     }
 
@@ -947,7 +987,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
             Holding = null;
             if (schema?.NormalizeBind(combo) is null)
             {
-                CaptureMessage = "Alt+Tab and Alt+F4 are Windows' own";
+                CaptureMessage = T("Alt+Tab and Alt+F4 are Windows' own");
                 return;
             }
 
@@ -1000,7 +1040,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
         }
         else if (keys.Count >= SettingsSchema.MaxKeys)
         {
-            CaptureMessage = "Already 3 keys: press one to remove it first";
+            CaptureMessage = T("Already 3 keys: press one to remove it first");
             return;
         }
         else
@@ -1048,7 +1088,7 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
                         List<string> other = SettingsSchema.SplitKeys(j.Value);
                         if (mine.Any(a => other.Any(b => SettingsSchema.SameBind(a, b))))
                         {
-                            notes.Add($"Also used for: {j.Label}");
+                            notes.Add(T("Also used for: {0}", j.Label));
                         }
 
                         ComboNotes(notes, mine, other, j.Label);
@@ -1075,22 +1115,22 @@ public sealed partial class ControlsViewModel : ObservableObject, ISettingsOwner
                 var (bh, bi, _) = SettingsSchema.BindParts(b);
                 if (ah is not null && bh is null && bi == ah)
                 {
-                    notes.Add($"{Name(ah)} is also {otherLabel}: that happens too");
+                    notes.Add(T("{0} is also {1}: that happens too", Name(ah), otherLabel));
                 }
 
                 if (ah is not null && bh is null && bi == ai)
                 {
-                    notes.Add($"While {Name(ah)} is held, {Name(ai)} is this, not {otherLabel}");
+                    notes.Add(T("While {0} is held, {1} is this, not {2}", Name(ah), Name(ai), otherLabel));
                 }
 
                 if (ah is null && bh is not null && bh == ai)
                 {
-                    notes.Add($"{Name(ai)} also starts {otherLabel} ({BindLabel(b)}): this happens too");
+                    notes.Add(T("{0} also starts {1} ({2}): this happens too", Name(ai), otherLabel, BindLabel(b)));
                 }
 
                 if (ah is null && bh is not null && bi == ai)
                 {
-                    notes.Add($"While {Name(bh)} is held, {Name(ai)} is {otherLabel}, not this");
+                    notes.Add(T("While {0} is held, {1} is {2}, not this", Name(bh), Name(ai), otherLabel));
                 }
             }
         }

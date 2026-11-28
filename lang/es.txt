@@ -1,6 +1,7 @@
-# Spanish (Español): the menus of this port (to-do 229). "en:" is the English in the code (the key, never change it), "es:" the translation
-# (empty = English). \n = a line break. Keep every %s, %d, %.0f etc. in the same order. scripts/check_lang.py checks it.
+# Spanish (Español): the menus of this port and its launcher (to-dos 229, 289). "en:" is the English in the code (the key, never change it), "es:" the translation
+# (empty = English). \n = a line break. Keep every %s, %d, %.0f etc. in the same order, and every {0}, {1:N0} etc. (any order). scripts/check_lang.py checks it.
 # Draft 2026-11-18: machine translation, using the game's own words where it has them. Corrections by native speakers are welcome (GitHub).
+# Launcher lines (the sections "## launcher/..."): draft 2026-11-26, the same way; a line the game also uses is shared.
 
 ## chords.c
 en: D-pad Up
@@ -403,6 +404,10 @@ es: Ajustes de foto
 en: Cutscene blur on / off
 es: Desenfoque de escenas sí / no
 
+## draw_back
+en: Back
+es: Atrás
+
 ## lim_window
 en: a lower frame rate helps most; a lower resolution a little
 es: una tasa de fotogramas menor ayuda más; una resolución menor, un poco
@@ -528,6 +533,45 @@ es: Desactivado = original (va rápido cuando bajan los fotogramas)
 en: VSync
 es: VSync
 
+en: Off
+es: Desactivado
+
+en: On (HDR10)
+es: Activado (HDR10)
+
+en: HDR
+es: HDR
+
+en: HDR10: the brightest parts of the 3D picture (sun, lamps, gunfire, glints) shine brighter than white, while the HUD, text and menus stay at the paper white. Needs Windows HDR on for the monitor
+es: HDR10: las partes más brillantes de la imagen 3D (sol, lámparas, disparos, destellos) brillan más que el blanco, mientras el HUD, los textos y los menús se quedan en el blanco de referencia. Necesita el HDR de Windows activado para el monitor
+
+en: Windows HDR is off for this screen: turn on "Use HDR" in Windows' display settings to use it
+es: El HDR de Windows está desactivado para esta pantalla: activa «Usar HDR» en la configuración de pantalla de Windows para usarlo
+
+en: Paper White
+es: Blanco de referencia
+
+en: Back to the default (the same as Windows' SDR content brightness)
+es: Volver al valor predeterminado (igual que el brillo del contenido SDR de Windows)
+
+en: %.0f nits (Windows)
+es: %.0f nits (Windows)
+
+en: Peak Brightness
+es: Brillo máximo
+
+en: Back to the default (what the monitor says it can show)
+es: Volver al valor predeterminado (lo que el monitor dice que puede mostrar)
+
+en: %.0f nits (monitor)
+es: %.0f nits (monitor)
+
+en: Highlight Stretch
+es: Realce de luces
+
+en: Back to the default (50 %)
+es: Volver al valor predeterminado (50 %)
+
 en: Text language
 es: Idioma del texto
 
@@ -557,6 +601,60 @@ es: Ocultar bocadillos
 
 en: Speech bubbles hidden, in cutscenes and in play (photo mode's HUD key hides them anyway)
 es: Bocadillos ocultos, en escenas y en juego (la tecla de HUD del modo foto los oculta igualmente)
+
+en: Auto (wider than 4:3)
+es: Auto (más ancha que 4:3)
+
+en: On
+es: Activado
+
+en: Off (original)
+es: Desactivado (original)
+
+en: Wide Speech Bubbles
+es: Bocadillos anchos
+
+en: Speech bubbles up to 27 letters wide and 6 lines tall, so a long line shows at once instead of scrolling (the original: 20 letters, 4 lines). Auto: while the picture is wider than 4:3. From the next bubble
+es: Bocadillos de hasta 27 letras de ancho y 6 líneas de alto, para que una frase larga se vea de una vez en lugar de desplazarse (el original: 20 letras, 4 líneas). Auto: mientras la imagen sea más ancha que 4:3. Desde el siguiente bocadillo
+
+en: Correct
+es: Correcto
+
+en: Stretched
+es: Estirado
+
+en: Widescreen
+es: Pantalla ancha
+
+en: HUD Shape
+es: Forma del HUD
+
+en: On a picture wider than 4:3: the HUD and on-screen texts in their original shape instead of stretched to the picture's width
+es: En una imagen más ancha que 4:3: el HUD y los textos en pantalla con su forma original en lugar de estirados al ancho de la imagen
+
+en: HUD Placement
+es: Posición del HUD
+
+en: Back to the default (100 %: the screen's edges; 0 %: the 4:3 area in the middle)
+es: Volver al valor predeterminado (100 %: los bordes de la pantalla; 0 %: el área 4:3 del centro)
+
+en: Bubble Shape
+es: Forma de los bocadillos
+
+en: On a picture wider than 4:3: speech bubbles in their original shape instead of stretched to the picture's width
+es: En una imagen más ancha que 4:3: los bocadillos con su forma original en lugar de estirados al ancho de la imagen
+
+en: Pause Screen
+es: Pantalla de pausa
+
+en: On a picture wider than 4:3: Widescreen fills the screen (with HUD Shape Correct its pictures and words keep their own shape); 4:3 keeps its original shape, with black bars at the sides
+es: En una imagen más ancha que 4:3: Pantalla ancha llena la pantalla (con la forma del HUD en Correcto, sus imágenes y palabras mantienen su propia forma); 4:3 mantiene su forma original, con barras negras a los lados
+
+en: Sharper Text and Buttons
+es: Texto y botones más nítidos
+
+en: The game's letters and button pictures made sharper on this PC from your own game files. Texture packs you turn on still win
+es: Las letras y las imágenes de botones del juego, más nítidas, hechas en este PC a partir de tus propios archivos del juego. Los paquetes de texturas que actives siguen teniendo prioridad
 
 en: Speedrun Timer
 es: Cronómetro de speedrun
@@ -659,9 +757,6 @@ es: Bilineal (simple, suave)
 en: AMD FSR 1 (sharper edges)
 es: AMD FSR 1 (bordes más nítidos)
 
-en: Off (original)
-es: Desactivado (original)
-
 en: FXAA (quick, slightly soft)
 es: FXAA (rápido, algo suave)
 
@@ -740,6 +835,27 @@ es: Sombras de mundo suaves
 en: The shadows baked into the levels (fences, plants, buildings) read smoothly instead of as blocky steps. Off = as the original
 es: Las sombras integradas en los niveles (vallas, plantas, edificios) se ven suaves en vez de a escalones. Desactivado = como el original
 
+en: Ambient occlusion
+es: Oclusión ambiental (AO)
+
+en: Darkens creases and corners where light can't reach: under fences, between rocks, at the foot of walls. Characters, grass and water are not darkened. Costs some GPU time. Off = as the original
+es: Oscurece los huecos y rincones adonde no llega la luz: bajo las vallas, entre las rocas, al pie de los muros. Los personajes, la hierba y el agua no se oscurecen. Cuesta algo de tiempo de GPU. Desactivado = como el original
+
+en: AO strength
+es: Intensidad de AO
+
+en: AO radius
+es: Radio de AO
+
+en: Back to the default (50)
+es: Volver al valor predeterminado (50)
+
+en: Per-pixel character lighting
+es: Iluminación de personajes por píxel
+
+en: Light and shadow on characters worked out per pixel: no light edges crawling along tails and arms; soft edges on the shadows characters cast on each other. Off = as the original
+es: Luz y sombra de los personajes calculadas por píxel: sin bordes de luz que se deslizan por colas y brazos; bordes suaves en las sombras que los personajes proyectan unos sobre otros. Desactivado = como el original
+
 en: Back to the original (1.00)
 es: Volver al original (1.00)
 
@@ -751,6 +867,12 @@ es: Contraste
 
 en: Saturation
 es: Saturación
+
+en: Black level
+es: Nivel de negro
+
+en: Back to the original (0 %)
+es: Volver al original (0 %)
 
 en: Sharpening
 es: Nitidez
@@ -800,6 +922,15 @@ es: Estirar vídeos
 en: The movies (boot intro, idle demo, multiplayer briefings) stretched to the window. Off = their own 4:3 shape with black bars at the sides. Story cutscenes: Cutscenes in 4:3
 es: Los vídeos (intro, demo en reposo, presentaciones multijugador) estirados a la ventana. Desactivado = su forma 4:3 con barras negras a los lados. Escenas de la historia: Escenas en 4:3
 
+en: Original (plain stretch, soft)
+es: Original (estirado simple, suave)
+
+en: Movie upscaling
+es: Reescalado de vídeos
+
+en: How the movies (boot intro, idle demo, multiplayer briefings) are enlarged to the window. AMD FSR 1: sharper edges and smooth colour edges. Original: the original's plain stretch, softer. Story cutscenes are drawn by the game and stay as they are
+es: Cómo se amplían los vídeos (intro, demo en reposo, presentaciones multijugador) a la ventana. AMD FSR 1: bordes más nítidos y transiciones de color suaves. Original: el estirado simple del original, más suave. Las escenas de la historia las dibuja el juego y quedan como están
+
 en: Cutscenes in 4:3
 es: Escenas en 4:3
 
@@ -815,14 +946,20 @@ es: La bruma centelleante alrededor de Conker bajo el agua, que se ve como una b
 en: Cutscene blur
 es: Desenfoque de escenas
 
+en: Camera motion blur
+es: Desenfoque de movimiento
+
+en: Blurs the picture during quick camera turns, as a film camera would; slow turns and the middle of the screen stay sharp. Not in the main menu, photo mode or split screen. Costs some GPU time while turning. Off = as the original
+es: Desenfoca la imagen durante los giros rápidos de la cámara, como lo haría una cámara de cine; los giros lentos y el centro de la pantalla siguen nítidos. No en el menú principal, el modo foto ni con la pantalla dividida. Cuesta algo de tiempo de GPU al girar. Desactivado = como el original
+
+en: Motion blur strength
+es: Intensidad del desenfoque
+
 en: CRT / scanlines
 es: CRT / líneas de exploración
 
 en: CRT strength
 es: Intensidad CRT
-
-en: Back to the default (50 %)
-es: Volver al valor predeterminado (50 %)
 
 ## sound_tab
 en: xemu (default)
@@ -1057,15 +1194,34 @@ es: Bajo el cieno tras el combate del Toro, la neblina es marrón a juego en vez
 en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
 es: A más de 30 fps las colas, ragdolls y telas se mueven a la velocidad original (desactivado: más rápido, 4 veces más a 120)
 
+## packs_window
+en: Texture Packs
+es: Paquetes de texturas
+
+en: Packs are folders of textures in the textures\\packs folder next to conker.exe. Ticked packs are on; the top one wins where two packs change the same texture. Changes apply at once
+es: Los paquetes son carpetas de texturas en la carpeta textures\\packs junto a conker.exe. Los paquetes marcados están activados; el de arriba gana cuando dos paquetes cambian la misma textura. Los cambios se aplican al instante
+
+en: To move a pack, drag it, or hold A (Space) and press up or down
+es: Para mover un paquete, arrástralo, o mantén A (Espacio) y pulsa arriba o abajo
+
+en: The textures folder is off (RECOMP_TEX_REPLACE): no packs
+es: La carpeta de texturas está desactivada (RECOMP_TEX_REPLACE): no hay paquetes
+
+en: No packs yet: put a pack's folder in textures\\packs next to conker.exe
+es: Aún no hay paquetes: pon la carpeta de un paquete en textures\\packs junto a conker.exe
+
+en: Could not save the texture packs (see the log)
+es: No se pudieron guardar los paquetes de texturas (ver el registro)
+
+en: Close
+es: Cerrar
+
 ## addons_tab
 en: Bat
 es: Bate
 
 en: Frying Pan
 es: Sartén
-
-en: Off
-es: Desactivado
 
 en: Normal
 es: Normal
@@ -1148,6 +1304,15 @@ es: Golpe libre
 en: The controller's Reload button (X) or the keyboard's Attack key (Mouse 1) takes the bat or frying pan out and swings at once; it goes away as soon as the swinging is over. The camera stays free
 es: El botón Recargar del controlador (X) o la tecla Atacar del teclado (Mouse 1) saca el bate o la sartén y golpea al instante; el arma se guarda en cuanto terminan los golpes. La cámara sigue libre
 
+en: Which texture packs are on, and their order
+es: Qué paquetes de texturas están activados, y su orden
+
+en: On: %s
+es: Activados: %s
+
+en: No packs on
+es: Ningún paquete activado
+
 en: Display
 es: Pantalla
 
@@ -1174,6 +1339,9 @@ en: off
 es: desactivado
 
 ## presets_choice
+en: Sets render scale, texture filtering, anti-aliasing, shadows, smooth world shadows, cutscene blur, frame rate, character & foliage detail and 3D sound at once. High is the default; Low suits a weak PC.
+es: Ajusta a la vez la escala de render, el filtrado de texturas, el antialiasing, las sombras, las sombras de mundo suaves, el desenfoque de escenas, la tasa de fotogramas, el detalle de personajes y vegetación y el sonido 3D. Alto es el predeterminado; Bajo es para un PC poco potente.
+
 en: Quality preset
 es: Ajuste de calidad
 
@@ -1528,9 +1696,6 @@ es: arriba
 ## slot_options_window
 en: Slot %d controller
 es: Controlador del puesto %d
-
-en: Close
-es: Cerrar
 
 ## ask_chord
 en: Set a chord
@@ -1912,6 +2077,147 @@ en: Launch
 es: Despegar
 
 ## settings.c
+en: How the game is shown: windowed (a window), borderless (default; a\nwindow without a frame covering the monitor: instant Alt+Tab) or\nfullscreen (exclusive full screen: the game takes the monitor at its\nown resolution and refresh rate; Alt+Tab takes a moment). F11 or\nAlt+Enter switches between it and a window in the game. Applies at\nonce.
+es: Cómo se muestra el juego: windowed (una ventana), borderless (predeterminado; una ventana sin marco que cubre el monitor: Alt+Tab instantáneo) o fullscreen (pantalla completa exclusiva: el juego toma el monitor con su propia resolución y frecuencia; Alt+Tab tarda un momento). F11 o Alt+Intro cambia entre este modo y una ventana dentro del juego. Se aplica al momento.
+
+en: Size the game is drawn at; the picture takes its shape, so a wide\nsize is widescreen (HUD, menus and movies are then stretched).\nauto (default) = your main monitor's shape and size, but at most\n1440 pixels tall (4K would drop below 30 fps); auto-4:3 = the same\nheight at 4:3, the original shape; native = exactly your monitor's\nsize; 640x480 = the original Xbox size; or any WxH such as 1920x1080.
+es: Tamaño al que se dibuja el juego; la imagen toma su forma, así que un tamaño ancho es panorámico (el HUD, los menús y los vídeos se estiran). auto (predeterminado) = la forma y el tamaño de tu monitor principal, pero como mucho 1440 píxeles de alto (4K bajaría de 30 fps); auto-4:3 = la misma altura en 4:3, la forma original; native = exactamente el tamaño de tu monitor; 640x480 = el tamaño original de Xbox; o cualquier tamaño AxA como 1920x1080.
+
+en: Draw the game bigger or smaller than the render resolution, in\npercent (F2 shows it as a multiple: 200 = 2x): 100 = the same\n(default), up to 400 (500-1000 are debug choices). Above 100 the game\nis drawn bigger and shrunk to fit (supersampling): smoother edges and\nfiner detail, but slower. Below 100 it is drawn smaller and stretched\nby the upscaler: faster, but softer. Sizes too big for the graphics\ncard's memory (or above 10240x7680) are capped.
+es: Dibujar el juego más grande o más pequeño que la resolución de render, en porcentaje (F2 lo muestra como múltiplo: 200 = 2x): 100 = igual (predeterminado), hasta 400 (500-1000 son valores de depuración). Por encima de 100 el juego se dibuja más grande y se reduce para encajar (supermuestreo): bordes más suaves y más detalle, pero más lento. Por debajo de 100 se dibuja más pequeño y lo estira el escalador: más rápido, pero más suave. Los tamaños demasiado grandes para la memoria de la tarjeta gráfica (o por encima de 10240x7680) se limitan.
+
+en: How a render scale below 100 is stretched to fit: bilinear\n(plain, soft) or fsr (default; AMD FidelityFX Super Resolution 1:\nkeeps edges sharp; the sharpen setting then sets FSR's own\nsharpening).
+es: Cómo se estira una escala de render por debajo de 100: bilinear (simple, suave) o fsr (predeterminado; AMD FidelityFX Super Resolution 1: mantiene los bordes nítidos; el ajuste de nitidez fija entonces la nitidez propia de FSR).
+
+en: How textures far away or at an angle are drawn: original (smaller\ncopies of each texture far away, as on the Xbox: steady, slightly\nsoft in the distance), off (always the full-size texture: sharpest,\nbut shimmers when moving), aniso2/aniso4/aniso8/aniso16 (original\nplus anisotropic filtering: also sharp at a low angle; aniso8 is\nthe default).
+es: Cómo se dibujan las texturas lejanas o en ángulo: original (copias más pequeñas de cada textura a lo lejos, como en Xbox: estable, algo suave en la distancia), off (siempre la textura a tamaño completo: la más nítida, pero parpadea al moverse), aniso2/aniso4/aniso8/aniso16 (original más filtrado anisótropo: nítido también en ángulos bajos; aniso8 es el predeterminado).
+
+en: How many ambient particles popin_particles adds beyond the game's\nown box round the camera, 0 to 100 percent (default 15; fewer the\nfurther away; 0 = only the game's own).
+es: Cuántas partículas de ambiente añade popin_particles más allá de la zona propia del juego alrededor de la cámara, de 0 a 100 % (15 por defecto; menos cuanto más lejos; 0 = solo las del juego).
+
+en: Frames per second the game runs at: 30 (the original), 60 (default;\nsmoother), 90 or 120 (for fast monitors; best when the PC holds the\nrate steadily: some animations step unevenly when it dips). With\nVSync on no rate goes above the monitor's refresh, with vrr 3 under\nit. The game keeps its speed at every rate. Applies at once. 240 and\nuncapped are for testing (the F2 menu shows them with --debug; some\nthings still run too fast there).
+es: Fotogramas por segundo a los que va el juego: 30 (el original), 60 (predeterminado; más fluido), 90 o 120 (para monitores rápidos; mejor si el PC mantiene la tasa estable: algunas animaciones van a saltos cuando baja). Con VSync activado ninguna tasa supera la frecuencia del monitor, con vrr 3 por debajo. El juego mantiene su velocidad a cualquier tasa. Se aplica al momento. 240 y uncapped son para pruebas (el menú F2 los muestra con --debug; algunas cosas aún van demasiado rápido ahí).
+
+en: VSync: on (default; no tearing, every frame waits for the monitor's\nrefresh, and on a 60, 120, 180 or 240 Hz monitor the game's clock\nfollows it, so no frame is shown twice or skipped), off (each frame\nshows the moment it is ready: the lowest delay, but the picture can\ntear) or vrr (G-Sync / FreeSync: for a monitor with it turned on, in\nfull screen; the monitor waits for the game's frames). Applies at\nonce.
+es: VSync: on (predeterminado; sin tearing, cada fotograma espera al refresco del monitor, y en un monitor de 60, 120, 180 o 240 Hz el reloj del juego lo sigue, así que ningún fotograma se muestra dos veces ni se salta), off (cada fotograma se muestra en cuanto está listo: el menor retraso, pero la imagen puede cortarse) o vrr (G-Sync / FreeSync: para un monitor que lo tenga activado, en pantalla completa; el monitor espera a los fotogramas del juego). Se aplica al momento.
+
+en: Field of view: how much of the world the camera shows, in degrees\nfrom the top of the picture to the bottom, 40 to 75: 50 = the\noriginal (default), higher = wider. Weapon views and their zoom\nwiden with it and keep their zoom; story cutscenes keep their own\nview. Applies at once.
+es: Campo de visión: cuánto del mundo muestra la cámara, en grados de arriba abajo de la imagen, de 40 a 75: 50 = el original (predeterminado), más alto = más amplio. Las vistas de armas y su zoom se amplían con él y conservan su zoom; las escenas de la historia conservan su propia vista. Se aplica al momento.
+
+en: With hud_shape = 4:3: where the pieces at the sides of the HUD go,\n0 to 100 percent: 100 (default) = at the screen's edges, 0 = inside\nthe 4:3 area in the middle, as on a 4:3 screen. Applies at once.
+es: Con hud_shape = 4:3: dónde van las piezas del HUD que están a los lados, de 0 a 100 %: 100 (predeterminado) = en los bordes de la pantalla, 0 = dentro del área 4:3 del centro, como en una pantalla 4:3. Se aplica al momento.
+
+en: Picture brightness curve, 0.5 to 1.5: 1 = original (default); higher\nlifts the dark and middle tones, lower darkens them.
+es: Curva de brillo de la imagen, de 0,5 a 1,5: 1 = original (predeterminado); más alto aclara los tonos oscuros y medios, más bajo los oscurece.
+
+en: Picture contrast, 0.5 to 1.5: 1 = original (default).
+es: Contraste de la imagen, de 0,5 a 1,5: 1 = original (predeterminado).
+
+en: Colour strength, 0 to 2: 1 = original (default), 0 = black and\nwhite, 2 = twice as colourful.
+es: Intensidad del color, de 0 a 2: 1 = original (predeterminado), 0 = blanco y negro, 2 = el doble de colorido.
+
+en: Black level in percent, -20 to +20: 0 = original (default); higher\nlifts the blacks towards grey (more detail in the shadows), lower\nmakes them deeper (the darkest tones turn black).
+es: Nivel de negro en porcentaje, de -20 a +20: 0 = original (predeterminado); más alto aclara los negros hacia el gris (más detalle en las sombras), más bajo los hace más profundos (los tonos más oscuros se vuelven negros).
+
+en: Smoothing of jagged edges: off (the original), fxaa (NVIDIA FXAA:\nquick, slightly softens the whole picture) or smaa (default; SMAA:\nsmooths edges more cleanly and keeps text and textures sharper).
+es: Suavizado de bordes dentados: off (el original), fxaa (NVIDIA FXAA: rápido, suaviza un poco toda la imagen) o smaa (predeterminado; SMAA: suaviza los bordes con más limpieza y mantiene el texto y las texturas más nítidos).
+
+en: How sharp the characters' shadows are: original (the game's 128 x\n128 picture per shadow: soft and blocky), 2x, 4x (default), 8x or\n16x (the sharpest; more video memory and GPU time). Applies at\nonce.
+es: Nitidez de las sombras de los personajes: original (la imagen de 128 x 128 del juego por sombra: suave y pixelada), 2x, 4x (predeterminado), 8x o 16x (la más nítida; más memoria de vídeo y tiempo de GPU). Se aplica al momento.
+
+en: How soft the characters' shadow edges are, 0 to 100 percent: 0 =\nas sharp as shadow_resolution draws them, 50 = soft (default),\n100 = softest. The same softness at every size; no effect at\noriginal. Applies at once.
+es: Suavidad de los bordes de las sombras de los personajes, de 0 a 100 %: 0 = tan nítidos como los dibuja shadow_resolution, 50 = suave (predeterminado), 100 = lo más suave. La misma suavidad a cualquier tamaño; sin efecto en original. Se aplica al momento.
+
+en: How dark ambient_occlusion makes creases and corners, 0 to 100\npercent (default 50).
+es: Cuánto oscurece ambient_occlusion los pliegues y las esquinas, de 0 a 100 % (50 por defecto).
+
+en: How far round a corner ambient_occlusion reaches, 10 to 100 world\nunits (default 50; Conker is about 90 tall).
+es: Hasta dónde llega ambient_occlusion alrededor de una esquina, de 10 a 100 unidades del mundo (50 por defecto; Conker mide unas 90).
+
+en: Sharpening (AMD FidelityFX CAS), 0 to 100 percent: 0 = off,\n100 = strongest (default).
+es: Nitidez (AMD FidelityFX CAS), de 0 a 100 %: 0 = desactivada, 100 = la más fuerte (predeterminado).
+
+en: Old TV look: off (default), scanlines (dark lines between the\ngame's 480 lines) or crt (scanlines plus a slightly curved screen\nand a soft glow). Scanlines need a picture at least 960 pixels\ntall to show fully; they fade out below that.
+es: Aspecto de televisor antiguo: off (predeterminado), scanlines (líneas oscuras entre las 480 líneas del juego) o crt (scanlines más una pantalla algo curva y un brillo suave). Las scanlines necesitan una imagen de al menos 960 píxeles de alto para verse del todo; por debajo se desvanecen.
+
+en: How strong the crt setting is, 0 to 100 percent (default 50).
+es: Intensidad del ajuste crt, de 0 a 100 % (50 por defecto).
+
+en: The game's own glow (halos round lamps, glowing text, the soft\nhaze in some levels), 0 to 100 percent: 100 = original (default),\n0 = off.
+es: El brillo propio del juego (halos alrededor de las lámparas, texto que brilla, la neblina suave de algunos niveles), de 0 a 100 %: 100 = original (predeterminado), 0 = desactivado.
+
+en: HDR output (HDR10): on = the brightest parts of the 3D picture (sun,\nlamps, gunfire, glints) shine brighter than white, while the HUD, text\nand menus stay at the paper white; off (default) = SDR as before. Works\nonly where Windows HDR is on for the monitor ("Use HDR" in Windows'\ndisplay settings); elsewhere the game stays SDR. Applies at once.
+es: Salida HDR (HDR10): on = las partes más brillantes de la imagen 3D (sol,\nlámparas, disparos, destellos) brillan más que el blanco, mientras el HUD,\nlos textos y los menús se quedan en el blanco de referencia; off\n(predeterminado) = SDR como antes. Solo funciona donde el HDR de Windows\nestá activado para el monitor («Usar HDR» en la configuración de pantalla\nde Windows); en otro caso el juego sigue en SDR. Se aplica al momento.
+
+en: With HDR on: how bright white is (the HUD, text, menus and the\npicture's ordinary parts), 80 to 500 nits; 0 = the same as Windows'\nSDR content brightness for that monitor (default).
+es: Con HDR: lo brillante que es el blanco (el HUD, los textos, los menús\ny las partes normales de la imagen), de 80 a 500 nits; 0 = igual que el\nbrillo del contenido SDR de Windows para ese monitor (predeterminado).
+
+en: With HDR on: the most the highlights may reach, in nits; 0 = what\nthe monitor says it can show (default).
+es: Con HDR: lo máximo que pueden alcanzar las luces, en nits; 0 = lo que\nel monitor dice que puede mostrar (predeterminado).
+
+en: With HDR on: how far the brightest parts of the 3D picture are\npushed above white towards the peak, 0 to 100 percent: 0 = as in SDR,\nat the paper white; 50 = default.
+es: Con HDR: cuánto se empujan las partes más brillantes de la imagen 3D\npor encima del blanco hacia el máximo, de 0 a 100 por ciento: 0 = como\nen SDR, en el blanco de referencia; 50 = predeterminado.
+
+en: Depth of field in cutscenes (the background or foreground out of\nfocus): updated (default; the game's own, drawn smooth at any\nresolution), cinematic (stronger, like a film camera, with soft\nround highlights), original (the game's own as it was: blocky at\nhigh resolutions) or off.
+es: Profundidad de campo en las escenas (el fondo o el primer plano desenfocado): updated (predeterminado; la del juego, dibujada suave a cualquier resolución), cinematic (más fuerte, como una cámara de cine, con brillos redondos y suaves), original (la del juego tal cual: pixelada a altas resoluciones) u off.
+
+en: How long motion_blur's smear is, 0 to 100 percent: 50 (default) =\nthe camera's motion over 1/60 s, 100 = over 1/30 s, the same at\nany frame rate.
+es: Lo largo que es el rastro de motion_blur, de 0 a 100 %: 50 (predeterminado) = el movimiento de la cámara en 1/60 s, 100 = en 1/30 s, igual a cualquier tasa de fotogramas.
+
+en: Volume of everything, movies included, 0 to 100 percent (default\n100). 50 is about half as loud (-12 dB); 0 is silent.
+es: Volumen de todo, vídeos incluidos, de 0 a 100 % (100 por defecto). 50 suena más o menos la mitad (-12 dB); 0 es silencio.
+
+en: Volume of the music, 0 to 100 percent (default 100). The same for\neffects (sound effects), dialogue (cutscene and in-game speech) and\nother (ambience: wind, birds, water; and the menu sounds).
+es: Volumen de la música, de 0 a 100 % (100 por defecto). Igual para effects (efectos de sonido), dialogue (voces de las escenas y del juego) y other (ambiente: viento, pájaros, agua; y los sonidos de los menús).
+
+en: 1 = the music muted, 0 = heard (default); the same for each channel.
+es: 1 = música silenciada, 0 = se oye (predeterminado); igual para cada canal.
+
+en: Volume of everything heard while a cutscene plays (speech, music,\neffects), 0 to 200 percent: 100 = as the original (default), below\nquieter (0 = silent), above louder (200 = four times, +12 dB; very\nloud moments are turned down briefly instead of distorting).
+es: Volumen de todo lo que se oye en una escena (voces, música, efectos), de 0 a 200 %: 100 = como el original (predeterminado), por debajo más bajo (0 = silencio), por encima más alto (200 = cuatro veces, +12 dB; los momentos muy fuertes se bajan un instante en vez de distorsionar).
+
+en: How strong the room reverb is, 0 to 100 percent (100 = the presets\nas the game has them, default).
+es: Intensidad de la reverberación de sala, de 0 a 100 % (100 = los ajustes tal como los tiene el juego, predeterminado).
+
+en: While the game is paused with P or in photo mode, the sound stops\ntoo and carries on where it stopped: 1 = on (default), 0 = the sound\nkeeps playing.
+es: Mientras el juego está en pausa con P o en el modo foto, el sonido también se detiene y sigue donde se paró: 1 = activado (predeterminado), 0 = el sonido sigue sonando.
+
+en: Language of the game's text, menus and subtitles: english (default),\nfrench, german, italian, spanish or japanese. Voices are English in\nevery language. Applies when the game is started again. Saves made in\none language load in all the others.
+es: Idioma de los textos, menús y subtítulos del juego: english (predeterminado), french, german, italian, spanish o japanese. Las voces están en inglés en todos los idiomas. Se aplica al volver a iniciar el juego. Las partidas guardadas en un idioma se cargan en todos los demás.
+
+en: Keyboard and mouse as a player's controller (beside a real one;\nkeyboard_slot says which player):\n1 = on (default), 0 = off. F3 in the game changes the keys; the\nmouse looks around. In a window, click the picture to use the mouse\n(Alt+Tab, F2 or F3 let it go again).
+es: Teclado y ratón como controlador de un jugador (junto a uno real; keyboard_slot dice qué jugador): 1 = activado (predeterminado), 0 = desactivado. F3 en el juego cambia las teclas; el ratón mira alrededor. En una ventana, haz clic en la imagen para usar el ratón (Alt+Tab, F2 o F3 lo sueltan).
+
+en: Per slot (controller port) 1-4, F3 > Slots:\nrumbleN: the controller rumbles, 1 = on (default; when the game's own\nVibration option is on too), 0 = off.\nrumble_strengthN: how strong, 0 to 200 percent of what the game asks\nfor (default 100; above 100 is stronger, up to the motors' full speed).\nstick_dead_zoneN: how far a stick must tilt before it moves anything,\n0 to 40 percent of full tilt (default 10; 14 = the game's own: about\n14 on the left stick, 15 on the right); lower = quicker to respond,\nhigher = for a worn stick that drifts. Controllers only (not the\nkeyboard).
+es: Por puesto (puerto de controlador) 1-4, F3 > Puestos: rumbleN: el controlador vibra, 1 = activado (predeterminado; si la opción Vibración del juego también está activada), 0 = desactivado. rumble_strengthN: la intensidad, de 0 a 200 % de lo que pide el juego (100 por defecto; por encima de 100 es más fuerte, hasta la velocidad máxima de los motores). stick_dead_zoneN: cuánto debe inclinarse un stick antes de mover algo, de 0 a 40 % de la inclinación completa (10 por defecto; 14 = la del juego: unos 14 en el stick izquierdo y 15 en el derecho); más bajo = responde antes, más alto = para un stick gastado que se desvía. Solo controladores (no el teclado).
+
+en: Gyro aiming, per slot 1-4 (controllers with a gyro: PlayStation and\nSwitch controllers), F3 > Slots > Options:\ngyro_storyN: single player, 1 = on (default): turning the controller\naims while a weapon is out and the left trigger is held; 0 = off.\ngyro_mpN: multiplayer, 1 = the gyro aims all match long, 0 = off\n(default).\ngyro_speed_xN / gyro_speed_yN: how far the aim turns left / right and\nup / down, percent of the controller's own turn (25 to 1000, default\n200: twice as far).\ngyro_invert_yN: 1 = tilting the controller up aims down (default 0).
+es: Apuntado con giroscopio, por puesto 1-4 (controladores con giroscopio: PlayStation y Switch), F3 > Puestos > Opciones: gyro_storyN: un jugador, 1 = activado (predeterminado): girar el controlador apunta mientras hay un arma fuera y se mantiene el gatillo izquierdo; 0 = desactivado. gyro_mpN: multijugador, 1 = el giroscopio apunta toda la partida, 0 = desactivado (predeterminado). gyro_speed_xN / gyro_speed_yN: cuánto gira el apuntado a izquierda / derecha y arriba / abajo, en porcentaje del giro del propio controlador (de 25 a 1000, 200 por defecto: el doble). gyro_invert_yN: 1 = inclinar el controlador hacia arriba apunta hacia abajo (0 por defecto).
+
+en: Camera speed, how fast the right stick turns the camera and aims, 25 to\n300 percent (default 100), F3 > Slots > Options:\nstory_camera_speed1: single player (slot 1's controller; the camera and\naiming with a weapon).\nmp_camera_speedN: multiplayer, per slot 1-4 (that player's aim).
+es: Velocidad de la cámara, lo rápido que el stick derecho gira la cámara y apunta, de 25 a 300 % (100 por defecto), F3 > Puestos > Opciones: story_camera_speed1: un jugador (el controlador del puesto 1; la cámara y el apuntado con un arma). mp_camera_speedN: multijugador, por puesto 1-4 (el apuntado de ese jugador).
+
+en: Keys and mouse in single player (story); F3 changes them.\nMouse sensitivity left and right, 10 to 400 percent (default 100).
+es: Teclas y ratón en un jugador (historia); F3 los cambia. Sensibilidad del ratón izquierda y derecha, de 10 a 400 % (100 por defecto).
+
+en: Mouse sensitivity up and down, 10 to 400 percent (default 100).
+es: Sensibilidad del ratón arriba y abajo, de 10 a 400 % (100 por defecto).
+
+en: 1 = moving the mouse forward looks down (default 0).
+es: 1 = mover el ratón hacia delante mira hacia abajo (0 por defecto).
+
+en: classic = the controller's layout (the weapon key takes the weapon\nout and puts it away, and is the context action); modern = hold\nstory_aim to take the weapon out, Attack fires only while aiming,\nstory_context is the context action only.
+es: classic = la distribución del controlador (la tecla de arma saca y guarda el arma, y es la acción contextual); modern = mantén story_aim para sacar el arma, Atacar solo dispara al apuntar, story_context es solo la acción contextual.
+
+en: Modern only: how a slingshot pad's slingshot aims. hold (default;\naimed while story_aim is held, as the other weapons) or toggle\n(story_context turns it on and off, as Classic's weapon key).
+es: Solo Moderno: cómo apunta el tirachinas de una plataforma de tirachinas. hold (predeterminado; apunta mientras se mantiene story_aim, como las otras armas) o toggle (story_context lo activa y desactiva, como la tecla de arma de Clásico).
+
+en: Keys and mouse in multiplayer (the game's Emily layout); F3 changes them.\nMouse sensitivity left and right, 10 to 400 percent (default 100).
+es: Teclas y ratón en multijugador (la distribución Emily del juego); F3 los cambia. Sensibilidad del ratón izquierda y derecha, de 10 a 400 % (100 por defecto).
+
+en: How the zoom key zooms on foot: toggle (default; press to zoom in,\npress again to zoom out, as the controller) or hold (zoomed in while\nthe key is held). In a vehicle it is always as the controller.
+es: Cómo hace zoom la tecla de zoom a pie: toggle (predeterminado; pulsa para acercar, vuelve a pulsar para alejar, como con el controlador) o hold (con zoom mientras se mantiene la tecla). En un vehículo siempre es como con el controlador.
+
 en: Medium
 es: Medio
 
@@ -1920,3 +2226,1078 @@ es: Alto
 
 en: Ultra
 es: Ultra
+
+## launcher/Views/FileBrowserView.axaml
+en: Up one folder
+es: Subir una carpeta
+
+en: Up one folder (Backspace)
+es: Subir una carpeta (Retroceso)
+
+en: Address
+es: Dirección
+
+en: Type or paste a folder or a file, then press Enter
+es: Escribe o pega una carpeta o un archivo y pulsa Intro
+
+en: Windows dialog...
+es: Diálogo de Windows...
+
+en: Choose the file with the Windows Open dialog instead
+es: Elegir el archivo con el diálogo Abrir de Windows
+
+en: Show all files
+es: Mostrar todos los archivos
+
+en: List every file, not only the ones this choice takes
+es: Mostrar todos los archivos, no solo los que acepta esta elección
+
+en: Reading...
+es: Leyendo...
+
+en: Places
+es: Lugares
+
+en: Name
+es: Nombre
+
+en: Size
+es: Tamaño
+
+en: Modified
+es: Modificado
+
+en: Files
+es: Archivos
+
+## launcher/Views/MainWindow.axaml
+en: Click, then press a button on a controller (or pick one)
+es: Haz clic y pulsa un botón del controlador (o elige uno)
+
+en: Rumble, sticks and gyro aiming for this slot's controller
+es: Vibración, sticks y apuntado con giroscopio para el controlador de este puesto
+
+en: Look for controllers again
+es: Buscar controladores de nuevo
+
+en: Version History
+es: Historial de versiones
+
+en: Auto Update
+es: Actualización automática
+
+en: Install a new version by itself whenever the launcher starts
+es: Instalar una nueva versión automáticamente cada vez que se inicie el lanzador
+
+en: PLAY
+es: JUGAR
+
+en: FILES
+es: ARCHIVOS
+
+en: Game files
+es: Archivos del juego
+
+en: Import Xbox Store version
+es: Importar la versión de Xbox Store
+
+en: Decensor patch
+es: Parche Decensor
+
+en: The decensor patch is made by nastys, Vaani and Theconker64 and is downloaded from their GitHub releases. It is not part of this launcher.
+es: El parche Decensor es obra de nastys, Vaani y Theconker64 y se descarga de sus versiones en GitHub. No forma parte de este lanzador.
+
+en: Shaders
+es: Shaders
+
+en: Delete Shaders
+es: Borrar shaders
+
+en: Delete every compiled shader? The game compiles them again as you play (or precompile again).
+es: ¿Borrar todos los shaders compilados? El juego los vuelve a compilar mientras juegas (o vuelve a precompilarlos).
+
+en: Game assets
+es: Recursos del juego
+
+en: Delete Assets
+es: Borrar recursos
+
+en: Delete the prepared game assets? The launcher prepares them again the next time it starts.
+es: ¿Borrar los recursos del juego preparados? El lanzador los vuelve a preparar la próxima vez que se inicie.
+
+en: Texture packs
+es: Paquetes de texturas
+
+en: Saves the textures of your game files as PNGs to make a texture pack from
+es: Guarda las texturas de tus archivos del juego como PNG para hacer con ellas un paquete de texturas
+
+en: Dump Folder
+es: Carpeta dump
+
+en: Opens textures\\dump, where Export Textures saves the PNGs
+es: Abre textures\\dump, donde «Exportar texturas» guarda los PNG
+
+en: Packs Folder
+es: Carpeta de paquetes
+
+en: Opens textures\\packs, where each texture pack is a folder of its own
+es: Abre textures\\packs, donde cada paquete de texturas es una carpeta propia
+
+en: Ticked: the game uses this pack. Drag a pack to move it; with a controller, hold A on it and press up or down
+es: Marcado: el juego usa este paquete. Arrastra un paquete para moverlo; con un controlador, mantén A sobre él y pulsa arriba o abajo
+
+en: User files
+es: Archivos de usuario
+
+en: Saves, settings, photos and logs are kept in:
+es: Las partidas guardadas, los ajustes, las fotos y los registros se guardan en:
+
+en: The game folder (userdata)
+es: La carpeta del juego (userdata)
+
+en: Logs
+es: Registros
+
+en: Saves
+es: Partidas
+
+en: Photos
+es: Fotos
+
+en: Makes a .zip to attach to a GitHub issue, for a crash noticed later
+es: Crea un .zip para adjuntar a una incidencia de GitHub, para un cierre inesperado que notes más tarde
+
+en: Add to Steam
+es: Añadir a Steam
+
+en: Adds the launcher to your Steam library with its artwork; Steam closes for a moment and starts again
+es: Añade el lanzador a tu biblioteca de Steam con sus imágenes; Steam se cierra un momento y vuelve a iniciarse
+
+en: Steam is open: it closes while the game is added, then starts again. Go ahead?
+es: Steam está abierto: se cierra mientras se añade el juego y luego vuelve a iniciarse. ¿Continuar?
+
+en: The artwork is made by PopASquatt, Jiquita and EVE Online and is downloaded from SteamGridDB when you click. It is not part of this launcher.
+es: Las imágenes son obra de PopASquatt, Jiquita y EVE Online y se descargan de SteamGridDB al hacer clic. No forman parte de este lanzador.
+
+en: SETTINGS
+es: AJUSTES
+
+en: The game is running: change settings in its F2 menu. This tab unlocks when the game closes.
+es: El juego está abierto: cambia los ajustes en su menú F2. Esta pestaña se desbloquea al cerrar el juego.
+
+en: Reset to defaults
+es: Restablecer valores predeterminados
+
+en: Set every setting (all four tabs, not the controls) back to the default?
+es: ¿Restablecer todos los ajustes (las cuatro pestañas, no los controles) a su valor predeterminado?
+
+en: Reset
+es: Restablecer
+
+en: CONTROLS
+es: CONTROLES
+
+en: The game is running: change controls in its F3 menu. This tab unlocks when the game closes.
+es: El juego está abierto: cambia los controles en su menú F3. Esta pestaña se desbloquea al cerrar el juego.
+
+en: Welcome
+es: Bienvenido
+
+en: To play, the launcher needs the game files from your own copy of Conker: Live & Reloaded: a disc image (.iso, PAL or USA), an archive holding it (.zip, .7z, .rar), a copied game folder, or the Xbox Store version.
+es: Para jugar, el lanzador necesita los archivos del juego de tu propia copia de Conker: Live & Reloaded: una imagen de disco (.iso, PAL o EE. UU.), un archivo comprimido que la contenga (.zip, .7z, .rar), una carpeta del juego copiada o la versión de Xbox Store.
+
+en: Xbox Store version found on this PC.
+es: Se encontró la versión de Xbox Store en este PC.
+
+en: or drag your disc image here
+es: o arrastra tu imagen de disco aquí
+
+en: Not now
+es: Ahora no
+
+en: Import Files
+es: Importar archivos
+
+en: Update available
+es: Actualización disponible
+
+en: Don't remind me
+es: No recordármelo
+
+en: No window at start for this version; it shows again when a newer one is out
+es: Sin ventana al iniciar para esta versión; vuelve a aparecer cuando salga una más nueva
+
+en: Update Later
+es: Más tarde
+
+en: Update Now
+es: Actualizar ahora
+
+en: Version history
+es: Historial de versiones
+
+en: Open on GitHub
+es: Abrir en GitHub
+
+en: Moving user files
+es: Moviendo los archivos de usuario
+
+en: Backup and Transfer
+es: Respaldar y transferir
+
+en: Backup and Delete
+es: Respaldar y borrar
+
+en: Delete
+es: Borrar
+
+en: Close slot options
+es: Cerrar las opciones del puesto
+
+en: Controller chords
+es: Atajos del controlador
+
+en: Close chords
+es: Cerrar los atajos
+
+en: Set it by holding the chord on a controller
+es: Configúralo manteniendo el atajo en un controlador
+
+en: On a controller, hold two buttons together for:
+es: En un controlador, mantén dos botones a la vez para:
+
+en: On a controller, press the button for:
+es: En un controlador, pulsa el botón para:
+
+en: A button another action uses at the same moment swaps with this one. Back, Esc or Cancel: no change. Back and the D-pad can't be bound. Button names are an Xbox controller's (PlayStation: A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options).
+es: Un botón que otra acción usa en el mismo momento se intercambia con este. Atrás, Esc o Cancelar: sin cambios. Atrás y la cruceta no se pueden asignar. Los nombres de botones son los de un controlador Xbox (PlayStation: A / B / X / Y = Cruz / Círculo / Cuadrado / Triángulo, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options).
+
+en: Controller button
+es: Botón del controlador
+
+en: No button
+es: Sin botón
+
+## launcher/Views/PadNavigator.cs
+en: Up
+es: Subir
+
+en: Open
+es: Abrir
+
+en: Select
+es: Seleccionar
+
+en: Import the game files first: Import Files, then pick your disc image.
+es: Importa primero los archivos del juego: «Importar archivos» y luego elige tu imagen de disco.
+
+en: An import or download is running: press Back again to close the launcher anyway.
+es: Hay una importación o descarga en curso: pulsa Atrás otra vez para cerrar el lanzador de todos modos.
+
+en: The update is running: press Back again to close the launcher anyway.
+es: La actualización está en curso: pulsa Atrás otra vez para cerrar el lanzador de todos modos.
+
+en: User files are being moved: press Back again to close the launcher anyway.
+es: Se están moviendo los archivos de usuario: pulsa Atrás otra vez para cerrar el lanzador de todos modos.
+
+## launcher/Views/ReleaseNotesView.cs
+en: No notes for this release.
+es: No hay notas para esta versión.
+
+## launcher/ViewModels/ControlItems.cs
+en: {0} key
+es: Tecla de {0}
+
+en: Keys now: {0}
+es: Teclas ahora: {0}
+
+en: Back to the default ({0})
+es: Volver al valor predeterminado ({0})
+
+en: {0} controller button
+es: Botón del controlador de {0}
+
+en: {0}  ({1}'s)
+es: {0}  (de {1})
+
+en: Put everything back to the defaults?
+es: ¿Restablecer todo a los valores predeterminados?
+
+en: Slot {0}
+es: Puesto {0}
+
+en: Slot {0} controller
+es: Controlador del puesto {0}
+
+en: Options for slot {0}
+es: Opciones del puesto {0}
+
+en: Keyboard and mouse for slot {0}
+es: Teclado y ratón para el puesto {0}
+
+en: PlayStation / Switch controller {0}
+es: Controlador PlayStation / Switch {0}
+
+en: Controller {0}
+es: Controlador {0}
+
+en: {0} chord
+es: Atajo de {0}
+
+en: Press the chord for {0}
+es: Pulsar el atajo de {0}
+
+en: {0}: back to the default
+es: {0}: volver al valor predeterminado
+
+en: Chord now: {0}
+es: Atajo ahora: {0}
+
+## launcher/ViewModels/ControlsViewModel.cs
+en: {0} is {1}'s: change that one first
+es: {0} es de {1}: cambia ese primero
+
+en: {0} is {1}'s: pick another
+es: {0} es de {1}: elige otro
+
+en: {0} is not one of the chords
+es: {0} no es uno de los atajos
+
+en: {0} alone: hold it and press a second button
+es: {0} solo: mantenlo y pulsa un segundo botón
+
+en: Put every Modern controller button back to its default?
+es: ¿Restablecer todos los botones del controlador de Moderno a su valor predeterminado?
+
+en: Put every Classic controller button back to its default?
+es: ¿Restablecer todos los botones del controlador de Clásico a su valor predeterminado?
+
+en: {0} (Modern)
+es: {0} (Moderno)
+
+en: {0} (Classic)
+es: {0} (Clásico)
+
+en: Button now: {0}
+es: Botón ahora: {0}
+
+en: The D-pad can't be bound: pick another button (Back cancels)
+es: La cruceta no se puede asignar: elige otro botón (Atrás cancela)
+
+en: {0} needs a button
+es: {0} necesita un botón
+
+en: {0} is {1}'s, and {1} needs a button: give {1} another first
+es: {0} es de {1}, y {1} necesita un botón: dale primero otro a {1}
+
+en: {0} has no button now: pick one
+es: {0} ya no tiene botón: elige uno
+
+en: {0} takes {1}
+es: {0} pasa a {1}
+
+en: The controls couldn't be read from conker.exe: {0}
+es: No se pudieron leer los controles de conker.exe: {0}
+
+en: The controllers couldn't be listed: {0}
+es: No se pudieron listar los controladores: {0}
+
+en: settings.ini couldn't be read: {0}
+es: No se pudo leer settings.ini: {0}
+
+en: settings.ini couldn't be saved: {0}
+es: No se pudo guardar settings.ini: {0}
+
+en: {0} (keep)
+es: {0} (mantener)
+
+en: Holding {0}: press another key for a combo, or let go
+es: Manteniendo {0}: pulsa otra tecla para una combinación o suéltala
+
+en: F1-F3, F9 and F11 are the game's own keys
+es: F1-F3, F9 y F11 son teclas propias del juego
+
+en: That key can't be used ({0})
+es: Esa tecla no se puede usar ({0})
+
+en: Alt+Tab and Alt+F4 are Windows' own
+es: Alt+Tab y Alt+F4 son de Windows
+
+en: Also used for: {0}
+es: También se usa para: {0}
+
+en: {0} is also {1}: that happens too
+es: {0} también es {1}: eso también ocurre
+
+en: While {0} is held, {1} is this, not {2}
+es: Mientras se mantiene {0}, {1} hace esto, no {2}
+
+en: {0} also starts {1} ({2}): this happens too
+es: {0} también inicia {1} ({2}): esto también ocurre
+
+en: While {0} is held, {1} is {2}, not this
+es: Mientras se mantiene {0}, {1} hace {2}, no esto
+
+## launcher/ViewModels/FileBrowserViewModel.cs
+en: Can't open {0}: {1}
+es: No se puede abrir {0}: {1}
+
+en: {0} isn't one of these: {1}.
+es: {0} no es ninguno de estos: {1}.
+
+en: Select a file first: {0}.
+es: Selecciona primero un archivo: {0}.
+
+en: Only files can be dropped here.
+es: Aquí solo se pueden soltar archivos.
+
+en: None of the {0} items is one of these: {1}.
+es: Ninguno de los {0} elementos es uno de estos: {1}.
+
+en: or drag a file here
+es: o arrastra un archivo aquí
+
+en: Type or paste a folder or a file, then press Enter.
+es: Escribe o pega una carpeta o un archivo y pulsa Intro.
+
+en: "{0}" isn't a folder or file path.
+es: «{0}» no es una ruta de carpeta o archivo.
+
+en: Can't find {0}.
+es: No se encuentra {0}.
+
+en: {0} bytes
+es: {0} bytes
+
+en: {0:0} KB
+es: {0:0} KB
+
+en: {0:0.0} MB
+es: {0:0.0} MB
+
+en: {0:0.0} GB
+es: {0:0.0} GB
+
+en: {0:0.0} TB
+es: {0:0.0} TB
+
+en: Launcher folder
+es: Carpeta del lanzador
+
+en: Desktop
+es: Escritorio
+
+en: Downloads
+es: Descargas
+
+en: Documents
+es: Documentos
+
+en: Local Disk
+es: Disco local
+
+en: USB Drive
+es: Unidad USB
+
+en: Network Drive
+es: Unidad de red
+
+en: Disc Drive
+es: Unidad de disco
+
+en: Drive
+es: Unidad
+
+en: {0} free of {1}
+es: {0} libres de {1}
+
+en: This folder holds none of these: {0}.
+es: Esta carpeta no contiene nada de esto: {0}.
+
+en: This folder is empty.
+es: Esta carpeta está vacía.
+
+en: Windows doesn't allow reading it.
+es: Windows no permite leerla.
+
+en: it isn't there (any more).
+es: no existe (o ya no existe).
+
+## launcher/ViewModels/FilesViewModel.cs
+en: Game files have been imported
+es: Se han importado los archivos del juego
+
+en: Conker Live & Reloaded files have not been imported yet. Import them to play
+es: Aún no se han importado los archivos de Conker: Live & Reloaded. Impórtalos para jugar
+
+en: Re-import
+es: Reimportar
+
+en: Decensor patch not found
+es: No se encontró el parche Decensor
+
+en: Decensor Patch found (version {0})
+es: Parche Decensor encontrado (versión {0})
+
+en: Decensor Patch found
+es: Parche Decensor encontrado
+
+en: Add patch
+es: Añadir parche
+
+en: Download patch
+es: Descargar parche
+
+en: Update to {0}
+es: Actualizar a {0}
+
+en: Re-download
+es: Volver a descargar
+
+en: Precompiling shaders. The game's window shows how far it is; Esc or B on a controller there stops it.
+es: Precompilando shaders. La ventana del juego muestra el progreso; Esc o B en un controlador lo detiene allí.
+
+en: The game compiles each shader the first time it is needed, which can cause short slowdowns the first time you play an area. Precompile them all now: the game runs every level behind a progress screen with the sound off, then closes (about 10 minutes, longer on a slower PC).
+es: El juego compila cada shader la primera vez que lo necesita, lo que puede causar breves tirones la primera vez que juegas una zona. Precompílalos todos ahora: el juego carga cada nivel tras una pantalla de progreso sin sonido y luego se cierra (unos 10 minutos, más en un PC más lento).
+
+en: Shaders were precompiled with v{0}. Updates can change the game's shaders: precompile again to have them all.
+es: Los shaders se precompilaron con la v{0}. Las actualizaciones pueden cambiar los shaders del juego: vuelve a precompilar para tenerlos todos.
+
+en: Shaders precompiled on {0} (took {1}).
+es: Shaders precompilados el {0} (tardó {1}).
+
+en: Precompiling was stopped on {0} at {1}. Continue Precompiling picks up where it stopped; the shaders compiled until then are kept.
+es: La precompilación se detuvo el {0} en {1}. «Continuar precompilación» sigue desde ahí; los shaders compilados hasta entonces se conservan.
+
+en: Precompiling was stopped on {0}. The shaders compiled until then are kept; precompile again to finish.
+es: La precompilación se detuvo el {0}. Los shaders compilados hasta entonces se conservan; vuelve a precompilar para terminar.
+
+en: Precompile Shaders
+es: Precompilar shaders
+
+en: Continue Precompiling
+es: Continuar precompilación
+
+en: Precompile Again
+es: Precompilar de nuevo
+
+en: {0} seconds
+es: {0} segundos
+
+en: {0} minutes
+es: {0} minutos
+
+en: GitHub couldn't be reached, so the launcher can't tell whether a newer patch is out.
+es: No se pudo conectar con GitHub, así que el lanzador no puede saber si hay un parche más reciente.
+
+en: Conker disc (.iso, .xiso, .zip, .7z, .rar, default.xbe) or Xbox Store version (DefaultPackage)
+es: Disco de Conker (.iso, .xiso, .zip, .7z, .rar, default.xbe) o versión de Xbox Store (DefaultPackage)
+
+en: Choose your Conker disc image, an archive holding it, the default.xbe of a game folder, or the Xbox Store version's DefaultPackage
+es: Elige tu imagen de disco de Conker, un archivo comprimido que la contenga, el default.xbe de una carpeta del juego o el DefaultPackage de la versión de Xbox Store
+
+en: Game files imported ({0}).
+es: Archivos del juego importados ({0}).
+
+en: Preparing the game assets was cancelled: the launcher does it the next time it starts.
+es: Se canceló la preparación de los recursos del juego: el lanzador lo hará la próxima vez que se inicie.
+
+en: The game assets couldn't be prepared ({0}); the game plays without them.
+es: No se pudieron preparar los recursos del juego ({0}); el juego funciona sin ellos.
+
+en: Game assets prepared from your game files.
+es: Recursos del juego preparados a partir de tus archivos del juego.
+
+en: Some features need parts of the game prepared from your game files. The launcher prepares them after an import, or the next time it starts.
+es: Algunas funciones necesitan partes del juego preparadas a partir de tus archivos del juego. El lanzador las prepara tras una importación o la próxima vez que se inicie.
+
+en: Prepared from your game files ({0}, {1}). The launcher prepares them again after an import or when your game files change.
+es: Preparados a partir de tus archivos del juego ({0}, {1}). El lanzador los vuelve a preparar tras una importación o cuando cambian tus archivos del juego.
+
+en: 1 file
+es: 1 archivo
+
+en: {0:N0} files
+es: {0:N0} archivos
+
+en: {0} KB
+es: {0} KB
+
+en: {0:0.#} MB
+es: {0:0.#} MB
+
+en: The game assets couldn't all be deleted: {0}
+es: No se pudieron borrar todos los recursos del juego: {0}
+
+en: A texture pack swaps the game's textures for new art: PNGs in a folder of its own in textures\\packs, named and laid out like the exported textures. Export Textures saves every texture of your game files that a pack can change as a PNG (about 9,600 files and 600 MB, a minute or so) into textures\\dump, to edit. The game doesn't read the dump folder itself.
+es: Un paquete de texturas cambia las texturas del juego por gráficos nuevos: PNG en una carpeta propia dentro de textures\\packs, con los nombres y la estructura de las texturas exportadas. «Exportar texturas» guarda como PNG cada textura de tus archivos del juego que un paquete puede cambiar (unos 9.600 archivos y 600 MB, alrededor de un minuto) en textures\\dump, para editarlas. El juego no lee la carpeta dump por sí mismo.
+
+en: {0:N0} textures exported ({1}) into textures\\dump. To make a pack, put the ones you edit in a folder of its own in textures\\packs, keeping their names and folders. Export Again adds any that are missing.
+es: {0:N0} texturas exportadas ({1}) en textures\\dump. Para hacer un paquete, pon las que edites en una carpeta propia dentro de textures\\packs, con sus nombres y carpetas. «Exportar de nuevo» añade las que falten.
+
+en: Export Again
+es: Exportar de nuevo
+
+en: Export Textures
+es: Exportar texturas
+
+en: Stopped. The textures saved so far are kept; Export Again goes on from there.
+es: Detenido. Las texturas guardadas hasta ahora se conservan; «Exportar de nuevo» sigue desde ahí.
+
+en: All {0:N0} textures were exported already.
+es: Las {0:N0} texturas ya estaban exportadas.
+
+en: Exported {0:N0} textures ({1:0} MB); {2:N0} were there already.
+es: {0:N0} texturas exportadas ({1:0} MB); {2:N0} ya estaban.
+
+en: Exported {0:N0} textures ({1:0} MB).
+es: {0:N0} texturas exportadas ({1:0} MB).
+
+en: {0:N0} couldn't be saved.
+es: {0:N0} no se pudieron guardar.
+
+en: Choose the decensor patch (.7z or .zip)
+es: Elige el parche Decensor (.7z o .zip)
+
+en: Decensor patch (.7z, .zip)
+es: Parche Decensor (.7z, .zip)
+
+en: Decensor patch added. Switch it on in the game's F2 menu (Uncensored).
+es: Parche Decensor añadido. Actívalo en el menú F2 del juego (Sin censura).
+
+en: Looking for the latest release
+es: Buscando la última versión
+
+en: Decensor patch {0} installed. Switch it on in the game's F2 menu (Uncensored).
+es: Parche Decensor {0} instalado. Actívalo en el menú F2 del juego (Sin censura).
+
+en: conker.exe is missing from the launcher's folder.
+es: Falta conker.exe en la carpeta del lanzador.
+
+en: The game didn't start: {0}
+es: El juego no se inició: {0}
+
+en: Some shaders couldn't be deleted: {0}
+es: No se pudieron borrar algunos shaders: {0}
+
+en: Starting
+es: Iniciando
+
+en: Cancelled. Nothing was changed.
+es: Cancelado. No se ha cambiado nada.
+
+en: The download failed: {0}
+es: La descarga falló: {0}
+
+en: Something went wrong: {0}
+es: Algo salió mal: {0}
+
+## launcher/ViewModels/MainWindowViewModel.cs
+en: v{0} is out (you have {1})
+es: Ha salido la v{0} (tienes la {1})
+
+en: Update to v{0}
+es: Actualizar a v{0}
+
+en: Update
+es: Actualizar
+
+en: Loading the version history ...
+es: Cargando el historial de versiones...
+
+en: No releases found.
+es: No se encontraron versiones.
+
+en: Couldn't load the version history: {0}
+es: No se pudo cargar el historial de versiones: {0}
+
+en: Updated
+es: Actualizado
+
+en: v{0} is out
+es: Ha salido la v{0}
+
+en: Couldn't check for updates
+es: No se pudieron buscar actualizaciones
+
+en: Close the game first: the update replaces conker.exe.
+es: Cierra primero el juego: la actualización reemplaza conker.exe.
+
+en: Downloading v{0}: {1:P0}
+es: Descargando v{0}: {1:P0}
+
+en: The update download failed: {0}
+es: Falló la descarga de la actualización: {0}
+
+en: The update failed: {0}
+es: La actualización falló: {0}
+
+en: installed
+es: instalada
+
+## launcher/ViewModels/PadHints.cs
+en: Change
+es: Cambiar
+
+en: Done
+es: Hecho
+
+en: Tabs
+es: Pestañas
+
+en: Sections
+es: Secciones
+
+en: Play
+es: Jugar
+
+en: Page
+es: Página
+
+en: Fewer files
+es: Menos archivos
+
+en: All files
+es: Todos los archivos
+
+## launcher/ViewModels/SettingItems.cs
+en: Mute {0}
+es: Silenciar {0}
+
+## launcher/ViewModels/SettingsViewModel.cs
+en: The settings couldn't be read from conker.exe: {0}
+es: No se pudieron leer los ajustes de conker.exe: {0}
+
+## launcher/ViewModels/SteamViewModel.cs
+en: Steam wasn't found on this PC.
+es: No se encontró Steam en este PC.
+
+en: Adds the launcher to your Steam library as a non-Steam game, with artwork from SteamGridDB. Clicking it again updates it.
+es: Añade el lanzador a tu biblioteca de Steam como juego ajeno a Steam, con imágenes de SteamGridDB. Al volver a hacer clic se actualiza.
+
+en: with its artwork
+es: con sus imágenes
+
+en: without artwork (SteamGridDB couldn't be reached)
+es: sin imágenes (no se pudo conectar con SteamGridDB)
+
+en: with {0} of {1} pictures (SteamGridDB couldn't send the rest)
+es: con {0} de {1} imágenes (SteamGridDB no pudo enviar el resto)
+
+en: Updated in Steam for {0}, {1}. Steam is starting.
+es: Actualizado en Steam para {0}, {1}. Steam se está iniciando.
+
+en: Added to Steam for {0}, {1}. Steam is starting.
+es: Añadido a Steam para {0}, {1}. Steam se está iniciando.
+
+en: Adding it to Steam failed: {0}
+es: No se pudo añadir a Steam: {0}
+
+## launcher/ViewModels/TexturePacksViewModel.cs
+en: The game is running: change the packs in its F2 menu (Extras > Texture Packs).
+es: El juego está abierto: cambia los paquetes en su menú F2 (Extras > Paquetes de texturas).
+
+en: No packs yet: put a pack's folder in textures\\packs (Packs Folder opens it).
+es: Aún no hay paquetes: pon la carpeta de un paquete en textures\\packs («Carpeta de paquetes» la abre).
+
+en: Ticked packs are on; the top one wins where two packs change the same texture. Drag a pack to move it, or with a controller hold A and press up or down. Saved at once; the game reads them when it starts (in the game: F2 > Extras > Texture Packs).
+es: Los paquetes marcados están activados; si dos paquetes cambian la misma textura, gana el de arriba. Arrastra un paquete para moverlo o, con un controlador, mantén A y pulsa arriba o abajo. Se guarda al momento; el juego los lee al iniciarse (en el juego: F2 > Extras > Paquetes de texturas).
+
+en: The packs couldn't be saved: settings.ini isn't there yet. Start the game once, then choose them.
+es: No se pudieron guardar los paquetes: aún no existe settings.ini. Inicia el juego una vez y luego elígelos.
+
+## launcher/ViewModels/UserFilesViewModel.cs
+en: The game folder can't be written to, so they are kept in AppData.
+es: No se puede escribir en la carpeta del juego, así que se guardan en AppData.
+
+en: Save Data from the game folder is also located in AppData, what would you like to do?
+es: Hay datos guardados de la carpeta del juego también en AppData. ¿Qué quieres hacer?
+
+en: Save Data from older version located in AppData, what would you like to do?
+es: Hay datos guardados de una versión anterior en AppData. ¿Qué quieres hacer?
+
+en: {0}: last saved {1}
+es: {0}: guardado por última vez el {1}
+
+en: Delete Game Folder Save
+es: Borrar en carpeta del juego
+
+en: Delete AppData Save
+es: Borrar en AppData
+
+en: Delete the game folder save "{0}" for good? It can't be brought back.
+es: ¿Borrar para siempre la partida «{0}» de la carpeta del juego? No se podrá recuperar.
+
+en: Delete the AppData save "{0}" for good? It can't be brought back.
+es: ¿Borrar para siempre la partida «{0}» de AppData? No se podrá recuperar.
+
+en: Copies AppData's save to the backups folder, then moves the game folder save in its place
+es: Copia la partida de AppData a la carpeta de copias de seguridad y luego pone en su lugar la partida de la carpeta del juego
+
+en: Copies the game folder's save to the backups folder, then moves the AppData save in its place
+es: Copia la partida de la carpeta del juego a la carpeta de copias de seguridad y luego pone en su lugar la partida de AppData
+
+en: Moves the game folder save to the backups folder; AppData's save stays
+es: Mueve la partida de la carpeta del juego a la carpeta de copias de seguridad; la de AppData se queda
+
+en: Moves the AppData save to the backups folder; the game folder's save stays
+es: Mueve la partida de AppData a la carpeta de copias de seguridad; la de la carpeta del juego se queda
+
+en: The save folders couldn't be renamed: {0}. The game renames them at its start.
+es: No se pudieron renombrar las carpetas de partidas: {0}. El juego las renombra al iniciarse.
+
+en: Close the game first: it is using the user files.
+es: Cierra primero el juego: está usando los archivos de usuario.
+
+en: The choice couldn't be saved: {0}
+es: No se pudo guardar la elección: {0}
+
+en: Looking at the user files
+es: Revisando los archivos de usuario
+
+en: {0} file(s) couldn't be moved from the game folder (in use?). The launcher tries again at its next start.
+es: No se pudieron mover {0} archivo(s) de la carpeta del juego (¿en uso?). El lanzador lo vuelve a intentar la próxima vez que se inicie.
+
+en: {0} file(s) couldn't be moved from AppData (in use?). The launcher tries again at its next start.
+es: No se pudieron mover {0} archivo(s) de AppData (¿en uso?). El lanzador lo vuelve a intentar la próxima vez que se inicie.
+
+en: User files moved from the game folder to AppData.
+es: Archivos de usuario movidos de la carpeta del juego a AppData.
+
+en: User files moved from AppData to the game folder.
+es: Archivos de usuario movidos de AppData a la carpeta del juego.
+
+en: Moving the user files stopped: {0}. What is left is moved at the next start.
+es: El traslado de los archivos de usuario se detuvo: {0}. Lo que falta se moverá en el próximo inicio.
+
+en: Game folder
+es: Carpeta del juego
+
+## launcher/Services/AssetCache.cs
+en: Preparing game assets
+es: Preparando los recursos del juego
+
+en: conker.exe didn't start: {0}
+es: conker.exe no se inició: {0}
+
+en: conker.exe ended with {0}.
+es: conker.exe terminó con {0}.
+
+en: Preparing game assets ({0} of {1}: {2})
+es: Preparando los recursos del juego ({0} de {1}: {2})
+
+en: conker.exe didn't start.
+es: conker.exe no se inició.
+
+## launcher/Services/DecensorPatch.cs
+en: Opening the patch
+es: Abriendo el parche
+
+en: {0} isn't the decensor patch (it has no dvddata folder).
+es: {0} no es el parche Decensor (no tiene carpeta dvddata).
+
+en: Unpacking the decensor patch
+es: Descomprimiendo el parche Decensor
+
+en: Finishing
+es: Terminando
+
+en: The latest decensor release ({0}) has no .7z or .zip to download.
+es: La última versión del parche Decensor ({0}) no tiene un .7z ni un .zip para descargar.
+
+en: Downloading the decensor patch {0}
+es: Descargando el parche Decensor {0}
+
+## launcher/Services/GameImporter.cs
+en: USA disc
+es: disco de EE. UU.
+
+en: PAL disc
+es: disco PAL
+
+en: Reading the disc image
+es: Leyendo la imagen de disco
+
+en: {0} isn't an Xbox disc image.
+es: {0} no es una imagen de disco de Xbox.
+
+en: The disc image has no default.xbe: it isn't an Xbox game disc.
+es: La imagen de disco no tiene default.xbe: no es un disco de juego de Xbox.
+
+en: Reading the Xbox Store version
+es: Leyendo la versión de Xbox Store
+
+en: Xbox Store version
+es: versión de Xbox Store
+
+en: Copying the game files
+es: Copiando los archivos del juego
+
+en: The package has a bad file name ({0}).
+es: El paquete tiene un nombre de archivo no válido ({0}).
+
+en: The disc image has a bad file name ({0}).
+es: La imagen de disco tiene un nombre de archivo no válido ({0}).
+
+en: These are the imported files already. Pick the disc image or the folder you imported from.
+es: Estos ya son los archivos importados. Elige la imagen de disco o la carpeta desde la que importaste.
+
+en: Opening the archive
+es: Abriendo el archivo comprimido
+
+en: Unpacking the disc image
+es: Descomprimiendo la imagen de disco
+
+en: {0} holds no disc image (.iso) and no default.xbe.
+es: {0} no contiene ninguna imagen de disco (.iso) ni default.xbe.
+
+en: Unpacking the game files
+es: Descomprimiendo los archivos del juego
+
+## launcher/Services/GodPackageStream.cs
+en: These files don't read as a complete Xbox Store version of the game. In the Xbox app, choose Manage > Files > Verify and repair (or reinstall it), then try again.
+es: Estos archivos no forman una versión de Xbox Store completa del juego. En la aplicación Xbox, elige Administrar > Archivos > Comprobar y reparar (o reinstálalo) y vuelve a intentarlo.
+
+en: This folder holds only part of the Xbox Store version. In the Xbox app, use Verify and repair, then try again.
+es: Esta carpeta solo contiene parte de la versión de Xbox Store. En la aplicación Xbox, usa Comprobar y reparar y vuelve a intentarlo.
+
+en: {0} isn't an Xbox Store version package.
+es: {0} no es un paquete de la versión de Xbox Store.
+
+## launcher/Services/ImportTools.cs
+en: {0}: {1:0.00} of {2:0.00} GB ({3:0} MB/s)
+es: {0}: {1:0.00} de {2:0.00} GB ({3:0} MB/s)
+
+en: Not enough free space on {0}: this needs {1:0.00} GB, {2:0.00} GB is free.
+es: No hay suficiente espacio libre en {0}: se necesitan {1:0.00} GB y hay {2:0.00} GB libres.
+
+en: {0} couldn't be opened as an archive: {1}
+es: No se pudo abrir {0} como archivo comprimido: {1}
+
+en: The archive couldn't be unpacked: {0}
+es: No se pudo descomprimir el archivo: {0}
+
+en: The archive holds a file outside its folder ({0}).
+es: El archivo comprimido contiene un archivo fuera de su carpeta ({0}).
+
+## launcher/Services/PadList.cs
+en: conker.exe --list-pads ended with {0}.
+es: conker.exe --list-pads terminó con {0}.
+
+## launcher/Services/SettingsSchema.cs
+en: conker.exe --dump-settings ended with {0}.
+es: conker.exe --dump-settings terminó con {0}.
+
+## launcher/Services/ShaderCache.cs
+en: level {0} of 47
+es: nivel {0} de 47
+
+en: the very end
+es: el final
+
+en: chapter {0} of 9
+es: capítulo {0} de 9
+
+## launcher/Services/SteamShortcut.cs
+en: Downloading the artwork from SteamGridDB ...
+es: Descargando las imágenes de SteamGridDB...
+
+en: Closing Steam ...
+es: Cerrando Steam...
+
+en: Adding the shortcut ...
+es: Añadiendo el acceso directo...
+
+en: No Steam account has signed in on this PC yet: start Steam, sign in, then try again.
+es: Todavía no se ha iniciado sesión con ninguna cuenta de Steam en este PC: abre Steam, inicia sesión y vuelve a intentarlo.
+
+en: Steam couldn't be closed ({0}): close it yourself, then try again.
+es: No se pudo cerrar Steam ({0}): ciérralo tú y vuelve a intentarlo.
+
+en: Steam didn't close, so nothing was changed: close it yourself (Steam menu > Exit), then try again.
+es: Steam no se cerró, así que no se ha cambiado nada: ciérralo tú (menú Steam > Salir) y vuelve a intentarlo.
+
+en: Steam's list of non-Steam games has a form the launcher doesn't know ({0}), so nothing was changed.
+es: La lista de juegos ajenos a Steam tiene un formato que el lanzador no conoce ({0}), así que no se ha cambiado nada.
+
+## launcher/Services/TextureExport.cs
+en: Exporting textures
+es: Exportando texturas
+
+en: Exporting textures ({0} of {1}: {2})
+es: Exportando texturas ({0} de {1}: {2})
+
+## launcher/Services/Updater.cs
+en: Release {0} has no zip to download.
+es: La versión {0} no tiene un zip para descargar.
+
+en: Downloading {0}
+es: Descargando {0}
+
+en: Unpacking the update
+es: Descomprimiendo la actualización
+
+en: Replacing the program files
+es: Reemplazando los archivos del programa
+
+en: The update holds {0}, which an update never replaces.
+es: La actualización contiene {0}, que una actualización nunca reemplaza.
+
+en: The update holds a file outside its folder ({0}).
+es: La actualización contiene un archivo fuera de su carpeta ({0}).
+
+en: The update couldn't be unpacked, nothing was changed: {0}
+es: No se pudo descomprimir la actualización, no se ha cambiado nada: {0}
+
+en: The update has no {0}.
+es: La actualización no tiene {0}.
+
+en: The program files couldn't be replaced, nothing was changed: {0}
+es: No se pudieron reemplazar los archivos del programa, no se ha cambiado nada: {0}
+
+## launcher/Services/UserFiles.cs
+en: Moving user files from the game folder
+es: Moviendo los archivos de usuario desde la carpeta del juego
+
+en: Moving user files from AppData
+es: Moviendo los archivos de usuario desde AppData
+
+## launcher/Services/XbeCheck.cs
+en: This default.xbe isn't an Xbox program; the files may be damaged.
+es: Este default.xbe no es un programa de Xbox; puede que los archivos estén dañados.
+
+en: {0} ({1}, version {2:X8})
+es: {0} ({1}, versión {2:X8})
+
+en: This is {0}, a version of Conker: Live & Reloaded that isn't supported. Only the PAL and USA retail discs work.
+es: Esto es {0}, una versión de Conker: Live & Reloaded que no es compatible. Solo funcionan los discos comerciales PAL y de EE. UU.
+
+en: This is {0}, not Conker: Live & Reloaded.
+es: Esto es {0}, no Conker: Live & Reloaded.
+
+en: North America
+es: Norteamérica
+
+en: Japan
+es: Japón
+
+en: rest of the world
+es: resto del mundo
+
+en: an unnamed Xbox game
+es: un juego de Xbox sin nombre
+
+en: no region
+es: sin región
+
+## launcher/Services/XdvdfsImage.cs
+en: The disc image is damaged: a folder lies outside it.
+es: La imagen de disco está dañada: una carpeta queda fuera de ella.
+
+en: The disc image ends early; it may be damaged or incomplete.
+es: La imagen de disco termina antes de tiempo; puede que esté dañada o incompleta.
+
+
+## no longer in the code (kept for their translations)
+en: On a picture wider than 4:3: the HUD, speech bubbles and on-screen texts in their original shape instead of stretched to the picture's width
+es: En una imagen más ancha que 4:3: el HUD, los bocadillos y los textos en pantalla con su forma original en lugar de estirados al ancho de la imagen

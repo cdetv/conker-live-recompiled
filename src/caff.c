@@ -974,6 +974,21 @@ int caff_read_file(const char *path, uint8_t **data, size_t *n)
     return CAFF_OK;
 }
 
+int caff_file_exists(const char *path)
+{
+    FILE *f;
+
+#ifdef _WIN32
+    f = open_utf8(path, L"rb");
+#else
+    f = open_utf8(path, "rb");
+#endif
+    if (!f)
+        return 0;
+    fclose(f);
+    return 1;
+}
+
 int caff_make_parent_dirs(const char *path)
 {
     char buf[1024];

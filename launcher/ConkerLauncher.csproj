@@ -31,6 +31,11 @@
     <ApplicationIcon>$(ArtDir)launcher.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- T("...") and S("...") everywhere: the launcher's text in the game's languages (to-do 289, Services/Lang.cs). -->
+  <ItemGroup>
+    <Using Include="ConkerLauncher.Services.Lang" Static="true" />
+  </ItemGroup>
+
   <ItemGroup>
     <AvaloniaResource Include="$(ArtDir)launcher.ico" Link="Assets\launcher.ico" />
     <AvaloniaResource Include="$(ArtDir)logo.png" Link="Assets\logo.png" />

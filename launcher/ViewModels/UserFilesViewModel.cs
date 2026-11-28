@@ -28,6 +28,8 @@ public sealed partial class UserFilesViewModel : ObservableObject
         }
 
         Sync();
+        // A language switch (to-do 289): every text here said again.
+        Lang.Changed += (_, _) => OnPropertyChanged(string.Empty);
     }
 
     /// <summary>Raised when a move starts or ends (Play, Settings and Controls wait for it).</summary>
@@ -51,18 +53,27 @@ public sealed partial class UserFilesViewModel : ObservableObject
     /// <summary>Settable from the launcher: the game folder can be written and no development override is on.</summary>
     public bool CanChoose => SaveFolder.Override is null && files.GameFolderWritable && !IsBusy;
 
-    public static string AppDataText => $"AppData ({UserFiles.AppDataPath})";
+    // A radio button's text takes "_" as its access key mark (it vanished: "_work" showed as "work", and so would a
+    // user name like "john_doe"); "__" shows one.
+    public static string AppDataText => $"AppData ({UserFiles.AppDataPath.Replace("_", "__", StringComparison.Ordinal)})";
 
+    // The development override stays English (CONKER_LAUNCHER_SAVE_DIR; no player sees it).
     public string? Note => SaveFolder.Override is { } dir ? $"Development override: {dir}"
-        : !files.GameFolderWritable ? "The game folder can't be written to, so they are kept in AppData."
+        : !files.GameFolderWritable ? T("The game folder can't be written to, so they are kept in AppData.")
         : null;
 
     [ObservableProperty]
-    public partial string? ProgressText { get; set; }
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
+    public partial Said? ProgressSaid { get; set; }
+
+    public string? ProgressText => ProgressSaid?.ToString();
 
     /// <summary>The last move's result.</summary>
     [ObservableProperty]
-    public partial string? StatusText { get; set; }
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    public partial Said? StatusSaid { get; set; }
+
+    public string? StatusText => StatusSaid?.ToString();
 
     [ObservableProperty]
     public partial bool StatusIsError { get; set; }
@@ -76,23 +87,30 @@ public sealed partial class UserFilesViewModel : ObservableObject
     public partial bool ConfirmDelete { get; set; }
 
     public string Question => Conflict?.From == UserFilesPlace.GameFolder
-        ? "Save Data from the game folder is also located in AppData, what would you like to do?"
-        : "Save Data from older version located in AppData, what would you like to do?";
+        ? T("Save Data from the game folder is also located in AppData, what would you like to do?")
+        : T("Save Data from older version located in AppData, what would you like to do?");
 
     public string SaveLine => Conflict is not { } c ? ""
-        : $"\"{c.Name}\"\n{Label(c.From)}: last saved {When(c.SourceTime)}\n" +
-          $"{Label(Other(c.From))}: last saved {When(c.TargetTime)}";
+        : $"\"{c.Name}\"\n{T("{0}: last saved {1}", Label(c.From), Lang.Date(c.SourceTime))}\n"
+          + T("{0}: last saved {1}", Label(Other(c.From)), Lang.Date(c.TargetTime));
 
-    public string DeleteText => Conflict?.From == UserFilesPlace.GameFolder ? "Delete Game Folder Save" : "Delete AppData Save";
+    public string DeleteText => Conflict?.From == UserFilesPlace.GameFolder ? T("Delete Game Folder Save") : T("Delete AppData Save");
 
+    // Whole sentences for each place (a place's name can't be dropped into another language's sentence).
     public string DeleteQuestion => Conflict is not { } c ? ""
-        : $"Delete the {UserFiles.NameOf(c.From)} save \"{c.Name}\" for good? It can't be brought back.";
+        : c.From == UserFilesPlace.GameFolder
+            ? T("Delete the game folder save \"{0}\" for good? It can't be brought back.", c.Name)
+            : T("Delete the AppData save \"{0}\" for good? It can't be brought back.", c.Name);
 
     public string TransferTip => Conflict is not { } c ? ""
-        : $"Copies {UserFiles.NameOf(Other(c.From))}'s save to the backups folder, then moves the {UserFiles.NameOf(c.From)} save in its place";
+        : c.From == UserFilesPlace.GameFolder
+            ? T("Copies AppData's save to the backups folder, then moves the game folder save in its place")
+            : T("Copies the game folder's save to the backups folder, then moves the AppData save in its place");
 
     public string BackupTip => Conflict is not { } c ? ""
-        : $"Moves the {UserFiles.NameOf(c.From)} save to the backups folder; {UserFiles.NameOf(Other(c.From))}'s save stays";
+        : c.From == UserFilesPlace.GameFolder
+            ? T("Moves the game folder save to the backups folder; AppData's save stays")
+            : T("Moves the AppData save to the backups folder; the game folder's save stays");
 
     /// <summary>
     /// Names the save folders (an old layout is converted) and moves in what the place not in
@@ -117,7 +135,7 @@ public sealed partial class UserFilesViewModel : ObservableObject
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            StatusText = $"The save folders couldn't be renamed: {e.Message}. The game renames them at its start.";
+            StatusSaid = S("The save folders couldn't be renamed: {0}. The game renames them at its start.", e.Message);
             StatusIsError = true;
         }
     }
@@ -135,7 +153,7 @@ public sealed partial class UserFilesViewModel : ObservableObject
     {
         if (gameRunning())
         {
-            StatusText = "Close the game first: it is using the user files.";
+            StatusSaid = S("Close the game first: it is using the user files.");
             StatusIsError = true;
             Sync();
             return;
@@ -147,7 +165,7 @@ public sealed partial class UserFilesViewModel : ObservableObject
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            StatusText = $"The choice couldn't be saved: {e.Message}";
+            StatusSaid = S("The choice couldn't be saved: {0}", e.Message);
             StatusIsError = true;
             Sync();
             return;
@@ -159,39 +177,44 @@ public sealed partial class UserFilesViewModel : ObservableObject
     private async Task RunMoveAsync()
     {
         IsBusy = true;
-        StatusText = null;
-        ProgressText = "Looking at the user files";
+        StatusSaid = null;
+        ProgressSaid = S("Looking at the user files");
         StateChanged?.Invoke(this, EventArgs.Empty);
         UserFilesPlace from = Other(files.Place);
         int failed = 0, moved = 0;
         try
         {
-            var progress = new Progress<JobProgress>(p => ProgressText = p.Text);
+            var progress = new Progress<JobProgress>(p => ProgressSaid = p.Text);
             MoveResult result = await Task.Run(() => files.MoveIn(progress, CancellationToken.None));
             moved = result.Moved;
             failed = result.Failed;
-            ProgressText = null;
+            ProgressSaid = null;
             foreach (SaveConflict conflict in result.Conflicts)
             {
                 ConflictChoice choice = await AskAsync(conflict);
                 await Task.Run(() => UserFiles.Resolve(conflict, choice));
             }
 
-            StatusText = failed > 0
-                ? $"{failed} file(s) couldn't be moved from {UserFiles.NameOf(from)} (in use?). The launcher tries again at its next start."
-                : moved > 0 || result.Conflicts.Count > 0 ? $"User files moved from {UserFiles.NameOf(from)} to {UserFiles.NameOf(files.Place)}." : null;
+            bool fromGame = from == UserFilesPlace.GameFolder;
+            StatusSaid = failed > 0
+                ? fromGame
+                    ? S("{0} file(s) couldn't be moved from the game folder (in use?). The launcher tries again at its next start.", failed)
+                    : S("{0} file(s) couldn't be moved from AppData (in use?). The launcher tries again at its next start.", failed)
+                : moved > 0 || result.Conflicts.Count > 0
+                    ? fromGame ? S("User files moved from the game folder to AppData.") : S("User files moved from AppData to the game folder.")
+                : null;
             StatusIsError = failed > 0;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            StatusText = $"Moving the user files stopped: {e.Message}. What is left is moved at the next start.";
+            StatusSaid = S("Moving the user files stopped: {0}. What is left is moved at the next start.", e.Message);
             StatusIsError = true;
         }
         finally
         {
             Conflict = null;
             ConfirmDelete = false;
-            ProgressText = null;
+            ProgressSaid = null;
             IsBusy = false;
             Sync();
             StateChanged?.Invoke(this, EventArgs.Empty);
@@ -240,7 +263,5 @@ public sealed partial class UserFilesViewModel : ObservableObject
     private static UserFilesPlace Other(UserFilesPlace place) =>
         place == UserFilesPlace.GameFolder ? UserFilesPlace.AppData : UserFilesPlace.GameFolder;
 
-    private static string Label(UserFilesPlace place) => place == UserFilesPlace.GameFolder ? "Game folder" : "AppData";
-
-    private static string When(DateTime t) => t.ToString("d MMM yyyy, HH:mm", CultureInfo.CurrentCulture);
+    private static string Label(UserFilesPlace place) => place == UserFilesPlace.GameFolder ? T("Game folder") : "AppData";
 }

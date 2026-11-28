@@ -1,6 +1,7 @@
-# Japanese (日本語): the menus of this port (to-do 229). "en:" is the English in the code (the key, never change it), "ja:" the translation
-# (empty = English). \n = a line break. Keep every %s, %d, %.0f etc. in the same order. scripts/check_lang.py checks it.
+# Japanese (日本語): the menus of this port and its launcher (to-dos 229, 289). "en:" is the English in the code (the key, never change it), "ja:" the translation
+# (empty = English). \n = a line break. Keep every %s, %d, %.0f etc. in the same order, and every {0}, {1:N0} etc. (any order). scripts/check_lang.py checks it.
 # Draft 2026-11-18: machine translation, using the game's own words where it has them. Corrections by native speakers are welcome (GitHub).
+# Launcher lines (the sections "## launcher/..."): draft 2026-11-26, the same way; a line the game also uses is shared.
 
 ## chords.c
 en: D-pad Up
@@ -403,6 +404,10 @@ ja: 写真の設定
 en: Cutscene blur on / off
 ja: カットシーンのぼかし 入 / 切
 
+## draw_back
+en: Back
+ja: 戻る
+
 ## lim_window
 en: a lower frame rate helps most; a lower resolution a little
 ja: フレームレートを下げるのが最も効果的です。解像度を下げると少し効果があります
@@ -528,6 +533,45 @@ ja: 切 = オリジナル(フレームレートが落ちると速くなる)
 en: VSync
 ja: VSync
 
+en: Off
+ja: 切
+
+en: On (HDR10)
+ja: 入(HDR10)
+
+en: HDR
+ja: HDR
+
+en: HDR10: the brightest parts of the 3D picture (sun, lamps, gunfire, glints) shine brighter than white, while the HUD, text and menus stay at the paper white. Needs Windows HDR on for the monitor
+ja: HDR10:3D画面のいちばん明るい部分(太陽・ランプ・銃火・きらめき)が白より明るく光り、HUD・文字・メニューはペーパーホワイトのまま。モニターでWindowsのHDRがオンになっている必要があります
+
+en: Windows HDR is off for this screen: turn on "Use HDR" in Windows' display settings to use it
+ja: この画面ではWindowsのHDRがオフです。使うにはWindowsのディスプレイ設定で「HDRを使用する」をオンにしてください
+
+en: Paper White
+ja: ペーパーホワイト
+
+en: Back to the default (the same as Windows' SDR content brightness)
+ja: デフォルトに戻す(WindowsのSDRコンテンツの明るさと同じ)
+
+en: %.0f nits (Windows)
+ja: %.0f nit(Windows)
+
+en: Peak Brightness
+ja: 最大輝度
+
+en: Back to the default (what the monitor says it can show)
+ja: デフォルトに戻す(モニターが表示できると申告している値)
+
+en: %.0f nits (monitor)
+ja: %.0f nit(モニター)
+
+en: Highlight Stretch
+ja: ハイライトの伸張
+
+en: Back to the default (50 %)
+ja: デフォルトに戻す(50 %)
+
 en: Text language
 ja: テキスト言語
 
@@ -557,6 +601,60 @@ ja: 吹き出しを隠す
 
 en: Speech bubbles hidden, in cutscenes and in play (photo mode's HUD key hides them anyway)
 ja: カットシーンでもプレイ中でも吹き出しを隠します(フォトモードのHUDキーでも隠れます)
+
+en: Auto (wider than 4:3)
+ja: 自動(4:3より横長)
+
+en: On
+ja: 入
+
+en: Off (original)
+ja: 切(オリジナル)
+
+en: Wide Speech Bubbles
+ja: 横長の吹き出し
+
+en: Speech bubbles up to 27 letters wide and 6 lines tall, so a long line shows at once instead of scrolling (the original: 20 letters, 4 lines). Auto: while the picture is wider than 4:3. From the next bubble
+ja: 吹き出しを最大6行(日本語以外のテキストは1行27文字まで)にし、長いセリフをスクロールせずに一度に表示します(オリジナル:4行、20文字)。自動:画面が4:3より横長のとき。次の吹き出しから
+
+en: Correct
+ja: 正しい形
+
+en: Stretched
+ja: 引き伸ばし
+
+en: Widescreen
+ja: ワイド画面
+
+en: HUD Shape
+ja: HUDの形
+
+en: On a picture wider than 4:3: the HUD and on-screen texts in their original shape instead of stretched to the picture's width
+ja: 4:3より横長の画面で、HUD・画面上の文字を画面の幅に引き伸ばさず、元の形で表示します
+
+en: HUD Placement
+ja: HUDの配置
+
+en: Back to the default (100 %: the screen's edges; 0 %: the 4:3 area in the middle)
+ja: デフォルトに戻す(100 %:画面の端、0 %:中央の4:3の範囲)
+
+en: Bubble Shape
+ja: 吹き出しの形
+
+en: On a picture wider than 4:3: speech bubbles in their original shape instead of stretched to the picture's width
+ja: 4:3より横長の画面で、吹き出しを画面の幅に引き伸ばさず、元の形で表示します
+
+en: Pause Screen
+ja: ポーズ画面
+
+en: On a picture wider than 4:3: Widescreen fills the screen (with HUD Shape Correct its pictures and words keep their own shape); 4:3 keeps its original shape, with black bars at the sides
+ja: 4:3より横長の画面で、「ワイド画面」は画面いっぱいに表示します(HUDの形が「正しい形」なら、絵と文字は元の形のまま)。「4:3」は元の形で、左右に黒い帯が入ります
+
+en: Sharper Text and Buttons
+ja: 文字とボタンをくっきり表示
+
+en: The game's letters and button pictures made sharper on this PC from your own game files. Texture packs you turn on still win
+ja: ゲームの文字とボタンの画像を、このPCでお手持ちのゲームファイルからくっきりと作り直します。有効にしたテクスチャパックが引き続き優先されます
 
 en: Speedrun Timer
 ja: スピードランタイマー
@@ -659,9 +757,6 @@ ja: バイリニア(シンプル、ソフト)
 en: AMD FSR 1 (sharper edges)
 ja: AMD FSR 1(エッジがシャープ)
 
-en: Off (original)
-ja: 切(オリジナル)
-
 en: FXAA (quick, slightly soft)
 ja: FXAA(高速、ややソフト)
 
@@ -740,6 +835,27 @@ ja: なめらかなワールドの影
 en: The shadows baked into the levels (fences, plants, buildings) read smoothly instead of as blocky steps. Off = as the original
 ja: レベルに焼き込まれた影(フェンス、植物、建物)が、ブロック状の段差ではなくなめらかに見えます。切 = オリジナルのまま
 
+en: Ambient occlusion
+ja: アンビエントオクルージョン(AO)
+
+en: Darkens creases and corners where light can't reach: under fences, between rocks, at the foot of walls. Characters, grass and water are not darkened. Costs some GPU time. Off = as the original
+ja: 光が届かない溝や隅を暗くします(フェンスの下、岩の間、壁の根元など)。キャラクター、草、水は暗くなりません。GPU負荷が少し増えます。切 = オリジナルのまま
+
+en: AO strength
+ja: AOの強さ
+
+en: AO radius
+ja: AOの半径
+
+en: Back to the default (50)
+ja: デフォルトに戻す(50)
+
+en: Per-pixel character lighting
+ja: キャラクターのピクセル単位ライティング
+
+en: Light and shadow on characters worked out per pixel: no light edges crawling along tails and arms; soft edges on the shadows characters cast on each other. Off = as the original
+ja: キャラクターの光と影をピクセル単位で計算します。しっぽや腕を光の境目が這うように動くことがなくなり、キャラクター同士が落とす影の縁がやわらかくなります。切 = オリジナルのまま
+
 en: Back to the original (1.00)
 ja: オリジナルに戻す(1.00)
 
@@ -751,6 +867,12 @@ ja: コントラスト
 
 en: Saturation
 ja: 彩度
+
+en: Black level
+ja: 黒レベル
+
+en: Back to the original (0 %)
+ja: オリジナルに戻す(0 %)
 
 en: Sharpening
 ja: シャープネス
@@ -800,6 +922,15 @@ ja: FMVを引き伸ばす
 en: The movies (boot intro, idle demo, multiplayer briefings) stretched to the window. Off = their own 4:3 shape with black bars at the sides. Story cutscenes: Cutscenes in 4:3
 ja: ムービー(起動イントロ、アイドルデモ、マルチプレイヤーのブリーフィング)をウィンドウに合わせて引き伸ばします。切 = 本来の4:3で、左右に黒帯が入ります。ストーリーのカットシーン:4:3カットシーン
 
+en: Original (plain stretch, soft)
+ja: オリジナル(シンプルな引き伸ばし、ソフト)
+
+en: Movie upscaling
+ja: ムービーのアップスケール
+
+en: How the movies (boot intro, idle demo, multiplayer briefings) are enlarged to the window. AMD FSR 1: sharper edges and smooth colour edges. Original: the original's plain stretch, softer. Story cutscenes are drawn by the game and stay as they are
+ja: ムービー(起動イントロ、アイドルデモ、マルチプレイヤーのブリーフィング)をウィンドウに拡大する方法。AMD FSR 1:輪郭がよりシャープになり、色の境目もなめらかになります。オリジナル:本来のシンプルな引き伸ばしで、よりソフト。ストーリーのカットシーンはゲームが描画するため、そのままです
+
 en: Cutscenes in 4:3
 ja: 4:3カットシーン
 
@@ -815,14 +946,20 @@ ja: 水中のConker周りのゆらめくもや。目の高さに帯として見�
 en: Cutscene blur
 ja: カットシーンのぼかし
 
+en: Camera motion blur
+ja: カメラのモーションブラー
+
+en: Blurs the picture during quick camera turns, as a film camera would; slow turns and the middle of the screen stay sharp. Not in the main menu, photo mode or split screen. Costs some GPU time while turning. Off = as the original
+ja: カメラをすばやく回したときに、映画用カメラのように画面をぼかします。ゆっくりした回転と画面の中央はくっきりしたままです。メインメニュー、フォトモード、画面分割では使われません。回転中はGPU負荷が少し増えます。切 = オリジナルのまま
+
+en: Motion blur strength
+ja: モーションブラーの強さ
+
 en: CRT / scanlines
 ja: CRT / スキャンライン
 
 en: CRT strength
 ja: CRTの強さ
-
-en: Back to the default (50 %)
-ja: デフォルトに戻す(50 %)
 
 ## sound_tab
 en: xemu (default)
@@ -1057,15 +1194,34 @@ ja: Bull戦のあと、ウンチの中では青い帯ではなく、茶色のも
 en: Above 30 fps tails, ragdolls and cloth move at the original speed (off: faster, 4x as fast at 120)
 ja: 30 fps超でも、しっぽ、ラグドール、布がオリジナルの速度で動きます(切:速くなり、120では4倍)
 
+## packs_window
+en: Texture Packs
+ja: テクスチャパック
+
+en: Packs are folders of textures in the textures\\packs folder next to conker.exe. Ticked packs are on; the top one wins where two packs change the same texture. Changes apply at once
+ja: パックは、conker.exeの隣の\ntextures\\packsフォルダにあるテクスチャのフォルダです。\nチェックしたパックがオンになり、2つのパックが同じテクスチャを変える場合は上のパックが優先されます。\n変更はすぐに反映されます
+
+en: To move a pack, drag it, or hold A (Space) and press up or down
+ja: パックを動かすには、ドラッグするか、A（スペース）を押したまま上か下を押します
+
+en: The textures folder is off (RECOMP_TEX_REPLACE): no packs
+ja: テクスチャフォルダがオフです（RECOMP_TEX_REPLACE）：パックは使えません
+
+en: No packs yet: put a pack's folder in textures\\packs next to conker.exe
+ja: パックはまだありません：パックのフォルダをconker.exeの隣のtextures\\packsに入れてください
+
+en: Could not save the texture packs (see the log)
+ja: テクスチャパックを保存できませんでした（ログを参照）
+
+en: Close
+ja: 閉じる
+
 ## addons_tab
 en: Bat
 ja: バット
 
 en: Frying Pan
 ja: フライパン
-
-en: Off
-ja: 切
 
 en: Normal
 ja: ノーマル
@@ -1148,6 +1304,15 @@ ja: フリースイング
 en: The controller's Reload button (X) or the keyboard's Attack key (Mouse 1) takes the bat or frying pan out and swings at once; it goes away as soon as the swinging is over. The camera stays free
 ja: コントローラのリロードボタン(X)またはキーボードの攻撃キー(Mouse 1)で、バットかフライパンを出してすぐに振ります。振り終わるとすぐにしまいます。カメラは自由なままです
 
+en: Which texture packs are on, and their order
+ja: どのテクスチャパックをオンにするかと、その順番
+
+en: On: %s
+ja: 使用中：%s
+
+en: No packs on
+ja: 使用中のパックはありません
+
 en: Display
 ja: ディスプレイ
 
@@ -1174,6 +1339,9 @@ en: off
 ja: 切
 
 ## presets_choice
+en: Sets render scale, texture filtering, anti-aliasing, shadows, smooth world shadows, cutscene blur, frame rate, character & foliage detail and 3D sound at once. High is the default; Low suits a weak PC.
+ja: レンダースケール、テクスチャフィルタリング、アンチエイリアス、影、なめらかなワールドの影、カットシーンのぼかし、フレームレート、キャラクターと植物の描画距離、3Dサウンドをまとめて設定します。デフォルトは「高」で、性能の低いPCには「低」が向いています。
+
 en: Quality preset
 ja: クオリティプリセット
 
@@ -1528,9 +1696,6 @@ ja: 上
 ## slot_options_window
 en: Slot %d controller
 ja: スロット%dのコントローラ
-
-en: Close
-ja: 閉じる
 
 ## ask_chord
 en: Set a chord
@@ -1912,6 +2077,147 @@ en: Launch
 ja: 飛び立つ
 
 ## settings.c
+en: How the game is shown: windowed (a window), borderless (default; a\nwindow without a frame covering the monitor: instant Alt+Tab) or\nfullscreen (exclusive full screen: the game takes the monitor at its\nown resolution and refresh rate; Alt+Tab takes a moment). F11 or\nAlt+Enter switches between it and a window in the game. Applies at\nonce.
+ja: ゲームの表示方法：windowed（ウィンドウ）、borderless（デフォルト。モニターを覆う枠なしウィンドウ：Alt+Tabがすぐ効きます）、fullscreen（排他的フルスクリーン：モニター本来の解像度とリフレッシュレートで表示します。Alt+Tabに少し時間がかかります）。ゲーム中はF11かAlt+Enterでこれとウィンドウを切り替えられます。すぐに反映されます。
+
+en: Size the game is drawn at; the picture takes its shape, so a wide\nsize is widescreen (HUD, menus and movies are then stretched).\nauto (default) = your main monitor's shape and size, but at most\n1440 pixels tall (4K would drop below 30 fps); auto-4:3 = the same\nheight at 4:3, the original shape; native = exactly your monitor's\nsize; 640x480 = the original Xbox size; or any WxH such as 1920x1080.
+ja: ゲームを描画するサイズ。画像はその形になるので、横長のサイズはワイド画面になります（HUD、メニュー、ムービーは引き伸ばされます）。auto（デフォルト）= メインモニターの形とサイズ。ただし高さは最大1440ピクセル（4Kでは30 fpsを下回るため）。auto-4:3 = 同じ高さで4:3、元の形。native = モニターのサイズそのまま。640x480 = Xbox本来のサイズ。または1920x1080のような任意の幅x高さ。
+
+en: Draw the game bigger or smaller than the render resolution, in\npercent (F2 shows it as a multiple: 200 = 2x): 100 = the same\n(default), up to 400 (500-1000 are debug choices). Above 100 the game\nis drawn bigger and shrunk to fit (supersampling): smoother edges and\nfiner detail, but slower. Below 100 it is drawn smaller and stretched\nby the upscaler: faster, but softer. Sizes too big for the graphics\ncard's memory (or above 10240x7680) are capped.
+ja: レンダー解像度より大きく、または小さく描画します（パーセント。F2では倍率で表示：200 = 2x）：100 = 同じ（デフォルト）、最大400（500-1000はデバッグ用）。100を超えると大きく描いて縮小します（スーパーサンプリング）：エッジがなめらかで細部も細かくなりますが、重くなります。100未満では小さく描いてアップスケーラーで引き伸ばします：速くなりますが、やわらかくなります。グラフィックカードのメモリに対して大きすぎるサイズ（または10240x7680超）は制限されます。
+
+en: How a render scale below 100 is stretched to fit: bilinear\n(plain, soft) or fsr (default; AMD FidelityFX Super Resolution 1:\nkeeps edges sharp; the sharpen setting then sets FSR's own\nsharpening).
+ja: レンダースケールが100未満のときの引き伸ばし方：bilinear（シンプル、やわらかい）またはfsr（デフォルト。AMD FidelityFX Super Resolution 1：エッジをシャープに保ちます。その場合、シャープ設定がFSR自身のシャープ化を決めます）。
+
+en: How textures far away or at an angle are drawn: original (smaller\ncopies of each texture far away, as on the Xbox: steady, slightly\nsoft in the distance), off (always the full-size texture: sharpest,\nbut shimmers when moving), aniso2/aniso4/aniso8/aniso16 (original\nplus anisotropic filtering: also sharp at a low angle; aniso8 is\nthe default).
+ja: 遠くや斜めのテクスチャの描き方：original（遠くでは各テクスチャの縮小版を使う、Xboxと同じ：安定、遠くは少しやわらかい）、off（常に元サイズのテクスチャ：最もシャープですが、動くとちらつきます）、aniso2/aniso4/aniso8/aniso16（original＋異方性フィルタリング：浅い角度でもシャープ。aniso8がデフォルト）。
+
+en: How many ambient particles popin_particles adds beyond the game's\nown box round the camera, 0 to 100 percent (default 15; fewer the\nfurther away; 0 = only the game's own).
+ja: popin_particlesが、カメラ周りのゲーム本来の範囲の外にどれだけ環境パーティクルを足すか、0～100パーセント（デフォルト15。遠いほど少なく、0 = ゲーム本来の分のみ）。
+
+en: Frames per second the game runs at: 30 (the original), 60 (default;\nsmoother), 90 or 120 (for fast monitors; best when the PC holds the\nrate steadily: some animations step unevenly when it dips). With\nVSync on no rate goes above the monitor's refresh, with vrr 3 under\nit. The game keeps its speed at every rate. Applies at once. 240 and\nuncapped are for testing (the F2 menu shows them with --debug; some\nthings still run too fast there).
+ja: ゲームの1秒あたりのフレーム数：30（オリジナル）、60（デフォルト。なめらか）、90または120（高速なモニター向け。PCがそのレートを安定して保てるときに最適です。下がると一部のアニメーションがぎこちなくなります）。VSyncオンではどのレートもモニターのリフレッシュレートを超えず、vrrではそれより3低く抑えます。どのレートでもゲームの速さは変わりません。すぐに反映されます。240とuncappedはテスト用です（F2メニューでは--debugのときに表示。一部はまだ速すぎます）。
+
+en: VSync: on (default; no tearing, every frame waits for the monitor's\nrefresh, and on a 60, 120, 180 or 240 Hz monitor the game's clock\nfollows it, so no frame is shown twice or skipped), off (each frame\nshows the moment it is ready: the lowest delay, but the picture can\ntear) or vrr (G-Sync / FreeSync: for a monitor with it turned on, in\nfull screen; the monitor waits for the game's frames). Applies at\nonce.
+ja: VSync：on（デフォルト。ティアリングなし。各フレームがモニターのリフレッシュを待ち、60・120・180・240 Hzのモニターではゲームの時計がそれに合わせるので、フレームが二重に表示されたり飛んだりしません）、off（各フレームを準備でき次第表示：遅延は最小ですが、画面が裂けることがあります）、vrr（G-Sync / FreeSync：それを有効にしたモニターでフルスクリーンのとき。モニターがゲームのフレームを待ちます）。すぐに反映されます。
+
+en: Field of view: how much of the world the camera shows, in degrees\nfrom the top of the picture to the bottom, 40 to 75: 50 = the\noriginal (default), higher = wider. Weapon views and their zoom\nwiden with it and keep their zoom; story cutscenes keep their own\nview. Applies at once.
+ja: 視野角：カメラが映す世界の広さ（画像の上端から下端までの角度）、40～75：50 = オリジナル（デフォルト）、高いほど広くなります。武器の視点とそのズームも一緒に広がり、ズーム倍率は変わりません。ストーリーのカットシーンは本来の視点のままです。すぐに反映されます。
+
+en: With hud_shape = 4:3: where the pieces at the sides of the HUD go,\n0 to 100 percent: 100 (default) = at the screen's edges, 0 = inside\nthe 4:3 area in the middle, as on a 4:3 screen. Applies at once.
+ja: hud_shape = 4:3のとき、HUDの左右の部品を置く位置、0～100パーセント：100（デフォルト）= 画面の端、0 = 中央の4:3の範囲の中（4:3の画面と同じ）。すぐに反映されます。
+
+en: Picture brightness curve, 0.5 to 1.5: 1 = original (default); higher\nlifts the dark and middle tones, lower darkens them.
+ja: 画面の明るさカーブ、0.5～1.5：1 = オリジナル（デフォルト）。高いと暗い色と中間の色が明るくなり、低いと暗くなります。
+
+en: Picture contrast, 0.5 to 1.5: 1 = original (default).
+ja: 画面のコントラスト、0.5～1.5：1 = オリジナル（デフォルト）。
+
+en: Colour strength, 0 to 2: 1 = original (default), 0 = black and\nwhite, 2 = twice as colourful.
+ja: 色の強さ、0～2：1 = オリジナル（デフォルト）、0 = 白黒、2 = 2倍鮮やか。
+
+en: Black level in percent, -20 to +20: 0 = original (default); higher\nlifts the blacks towards grey (more detail in the shadows), lower\nmakes them deeper (the darkest tones turn black).
+ja: 黒レベル（パーセント）、-20～+20：0 = オリジナル（デフォルト）。高いと黒が灰色寄りに明るくなり（影の中の細部が見えやすく）、低いと深くなります（最も暗い色は黒になります）。
+
+en: Smoothing of jagged edges: off (the original), fxaa (NVIDIA FXAA:\nquick, slightly softens the whole picture) or smaa (default; SMAA:\nsmooths edges more cleanly and keeps text and textures sharper).
+ja: ギザギザのエッジのスムージング：off（オリジナル）、fxaa（NVIDIA FXAA：速いが、画面全体が少しやわらかくなります）、smaa（デフォルト。SMAA：エッジをよりきれいにならし、文字やテクスチャをシャープに保ちます）。
+
+en: How sharp the characters' shadows are: original (the game's 128 x\n128 picture per shadow: soft and blocky), 2x, 4x (default), 8x or\n16x (the sharpest; more video memory and GPU time). Applies at\nonce.
+ja: キャラクターの影のシャープさ：original（影1つにつきゲームの128 x 128の画像：やわらかくブロック状）、2x、4x（デフォルト）、8x、16x（最もシャープ。ビデオメモリとGPU時間が増えます）。すぐに反映されます。
+
+en: How soft the characters' shadow edges are, 0 to 100 percent: 0 =\nas sharp as shadow_resolution draws them, 50 = soft (default),\n100 = softest. The same softness at every size; no effect at\noriginal. Applies at once.
+ja: キャラクターの影の縁のやわらかさ、0～100パーセント：0 = shadow_resolutionが描くままのシャープさ、50 = やわらかい（デフォルト）、100 = 最もやわらかい。どのサイズでも同じやわらかさで、originalでは効果がありません。すぐに反映されます。
+
+en: How dark ambient_occlusion makes creases and corners, 0 to 100\npercent (default 50).
+ja: ambient_occlusionがくぼみや角をどれだけ暗くするか、0～100パーセント（デフォルト50）。
+
+en: How far round a corner ambient_occlusion reaches, 10 to 100 world\nunits (default 50; Conker is about 90 tall).
+ja: ambient_occlusionが角の周りにどこまで届くか、10～100ワールド単位（デフォルト50。Conkerの身長は約90）。
+
+en: Sharpening (AMD FidelityFX CAS), 0 to 100 percent: 0 = off,\n100 = strongest (default).
+ja: シャープ化（AMD FidelityFX CAS）、0～100パーセント：0 = オフ、100 = 最も強い（デフォルト）。
+
+en: Old TV look: off (default), scanlines (dark lines between the\ngame's 480 lines) or crt (scanlines plus a slightly curved screen\nand a soft glow). Scanlines need a picture at least 960 pixels\ntall to show fully; they fade out below that.
+ja: 古いテレビ風の見た目：off（デフォルト）、scanlines（ゲームの480本のラインの間に暗い線）、crt（スキャンライン＋少し湾曲した画面とやわらかな光）。スキャンラインがはっきり見えるには高さ960ピクセル以上の画像が必要で、それより低いと薄くなります。
+
+en: How strong the crt setting is, 0 to 100 percent (default 50).
+ja: crt設定の強さ、0～100パーセント（デフォルト50）。
+
+en: The game's own glow (halos round lamps, glowing text, the soft\nhaze in some levels), 0 to 100 percent: 100 = original (default),\n0 = off.
+ja: ゲーム本来の光の効果（ランプの周りの光の輪、光る文字、一部のレベルのやわらかいもや）、0～100パーセント：100 = オリジナル（デフォルト）、0 = オフ。
+
+en: HDR output (HDR10): on = the brightest parts of the 3D picture (sun,\nlamps, gunfire, glints) shine brighter than white, while the HUD, text\nand menus stay at the paper white; off (default) = SDR as before. Works\nonly where Windows HDR is on for the monitor ("Use HDR" in Windows'\ndisplay settings); elsewhere the game stays SDR. Applies at once.
+ja: HDR出力(HDR10):on = 3D画面のいちばん明るい部分(太陽・ランプ・銃火・\nきらめき)が白より明るく光り、HUD・文字・メニューはペーパーホワイトのまま。\noff(デフォルト)= これまでどおりSDR。モニターでWindowsのHDRがオンの\nときだけ働きます(Windowsのディスプレイ設定の「HDRを使用する」)。それ以外では\nSDRのままです。すぐに反映されます。
+
+en: With HDR on: how bright white is (the HUD, text, menus and the\npicture's ordinary parts), 80 to 500 nits; 0 = the same as Windows'\nSDR content brightness for that monitor (default).
+ja: HDRオン時:白の明るさ(HUD・文字・メニューと画面のふつうの部分)、\n80~500 nit。0 = そのモニターのWindowsのSDRコンテンツの明るさと同じ\n(デフォルト)。
+
+en: With HDR on: the most the highlights may reach, in nits; 0 = what\nthe monitor says it can show (default).
+ja: HDRオン時:ハイライトの最大の明るさ(nit)。0 = モニターが表示できると\n申告している値(デフォルト)。
+
+en: With HDR on: how far the brightest parts of the 3D picture are\npushed above white towards the peak, 0 to 100 percent: 0 = as in SDR,\nat the paper white; 50 = default.
+ja: HDRオン時:3D画面のいちばん明るい部分を白より上、最大輝度のほうへ\nどこまで押し上げるか、0~100%。0 = SDRと同じくペーパーホワイトのまま、\n50 = デフォルト。
+
+en: Depth of field in cutscenes (the background or foreground out of\nfocus): updated (default; the game's own, drawn smooth at any\nresolution), cinematic (stronger, like a film camera, with soft\nround highlights), original (the game's own as it was: blocky at\nhigh resolutions) or off.
+ja: カットシーンの被写界深度（背景または前景のぼかし）：updated（デフォルト。ゲーム本来のものを、どの解像度でもなめらかに描きます）、cinematic（映画用カメラのように強め、丸くやわらかい光）、original（ゲーム本来のまま：高解像度ではブロック状）、off。
+
+en: How long motion_blur's smear is, 0 to 100 percent: 50 (default) =\nthe camera's motion over 1/60 s, 100 = over 1/30 s, the same at\nany frame rate.
+ja: motion_blurのブレの長さ、0～100パーセント：50（デフォルト）= 1/60秒間のカメラの動き、100 = 1/30秒間。どのフレームレートでも同じです。
+
+en: Volume of everything, movies included, 0 to 100 percent (default\n100). 50 is about half as loud (-12 dB); 0 is silent.
+ja: すべての音量（ムービーを含む）、0～100パーセント（デフォルト100）。50で約半分の大きさ（-12 dB）、0で無音です。
+
+en: Volume of the music, 0 to 100 percent (default 100). The same for\neffects (sound effects), dialogue (cutscene and in-game speech) and\nother (ambience: wind, birds, water; and the menu sounds).
+ja: 音楽の音量、0～100パーセント（デフォルト100）。effects（効果音）、dialogue（カットシーンとゲーム中の台詞）、other（環境音：風、鳥、水。メニューの音も）も同じです。
+
+en: 1 = the music muted, 0 = heard (default); the same for each channel.
+ja: 1 = 音楽をミュート、0 = 聞こえる（デフォルト）。各チャンネルも同じです。
+
+en: Volume of everything heard while a cutscene plays (speech, music,\neffects), 0 to 200 percent: 100 = as the original (default), below\nquieter (0 = silent), above louder (200 = four times, +12 dB; very\nloud moments are turned down briefly instead of distorting).
+ja: カットシーン中に聞こえるすべての音量（台詞、音楽、効果音）、0～200パーセント：100 = オリジナルと同じ（デフォルト）、それより下は小さく（0 = 無音）、上は大きく（200 = 4倍、+12 dB。非常に大きな瞬間は音割れせずに一時的に下げます）。
+
+en: How strong the room reverb is, 0 to 100 percent (100 = the presets\nas the game has them, default).
+ja: 部屋の残響の強さ、0～100パーセント（100 = ゲームが持つプリセットのまま、デフォルト）。
+
+en: While the game is paused with P or in photo mode, the sound stops\ntoo and carries on where it stopped: 1 = on (default), 0 = the sound\nkeeps playing.
+ja: Pキーやフォトモードでゲームを一時停止している間、音も止まり、止まったところから再開します：1 = オン（デフォルト）、0 = 音は鳴り続けます。
+
+en: Language of the game's text, menus and subtitles: english (default),\nfrench, german, italian, spanish or japanese. Voices are English in\nevery language. Applies when the game is started again. Saves made in\none language load in all the others.
+ja: ゲームのテキスト、メニュー、字幕の言語：english（デフォルト）、french、german、italian、spanish、japanese。音声はどの言語でも英語です。ゲームを再起動すると反映されます。ある言語で作ったセーブは、ほかのどの言語でも読み込めます。
+
+en: Keyboard and mouse as a player's controller (beside a real one;\nkeyboard_slot says which player):\n1 = on (default), 0 = off. F3 in the game changes the keys; the\nmouse looks around. In a window, click the picture to use the mouse\n(Alt+Tab, F2 or F3 let it go again).
+ja: キーボードとマウスをプレイヤーのコントローラとして使います（本物のコントローラと併用可。どのプレイヤーかはkeyboard_slotで決まります）：1 = オン（デフォルト）、0 = オフ。キーはゲーム内のF3で変更でき、マウスで周りを見回します。ウィンドウ表示では画面をクリックするとマウスが使えます（Alt+Tab、F2、F3で解放されます）。
+
+en: Per slot (controller port) 1-4, F3 > Slots:\nrumbleN: the controller rumbles, 1 = on (default; when the game's own\nVibration option is on too), 0 = off.\nrumble_strengthN: how strong, 0 to 200 percent of what the game asks\nfor (default 100; above 100 is stronger, up to the motors' full speed).\nstick_dead_zoneN: how far a stick must tilt before it moves anything,\n0 to 40 percent of full tilt (default 10; 14 = the game's own: about\n14 on the left stick, 15 on the right); lower = quicker to respond,\nhigher = for a worn stick that drifts. Controllers only (not the\nkeyboard).
+ja: スロット（コントローラポート）1-4ごと、F3 > スロット：rumbleN：コントローラが振動します。1 = オン（デフォルト。ゲームの振動オプションもオンのとき）、0 = オフ。rumble_strengthN：強さ、ゲームが求める強さの0～200パーセント（デフォルト100。100を超えると強くなり、モーターの最大速度まで）。stick_dead_zoneN：スティックをどれだけ倒すと反応するか、最大の傾きの0～40パーセント（デフォルト10。14 = ゲーム本来の値：左スティック約14、右15）。低いほど反応が速く、高いほどドリフトする古いスティック向けです。コントローラのみ（キーボードは対象外）。
+
+en: Gyro aiming, per slot 1-4 (controllers with a gyro: PlayStation and\nSwitch controllers), F3 > Slots > Options:\ngyro_storyN: single player, 1 = on (default): turning the controller\naims while a weapon is out and the left trigger is held; 0 = off.\ngyro_mpN: multiplayer, 1 = the gyro aims all match long, 0 = off\n(default).\ngyro_speed_xN / gyro_speed_yN: how far the aim turns left / right and\nup / down, percent of the controller's own turn (25 to 1000, default\n200: twice as far).\ngyro_invert_yN: 1 = tilting the controller up aims down (default 0).
+ja: ジャイロ照準、スロット1-4ごと（ジャイロ付きコントローラ：PlayStationとSwitchのコントローラ）、F3 > スロット > オプション：gyro_storyN：シングルプレイヤー、1 = オン（デフォルト）：武器を出して左トリガーを押している間、コントローラを回すと狙えます。0 = オフ。gyro_mpN：マルチプレイヤー、1 = 試合中ずっとジャイロで狙う、0 = オフ（デフォルト）。gyro_speed_xN / gyro_speed_yN：照準が左右・上下にどれだけ回るか、コントローラ自体の回転に対するパーセント（25～1000、デフォルト200：2倍）。gyro_invert_yN：1 = コントローラを上に傾けると下を狙います（デフォルト0）。
+
+en: Camera speed, how fast the right stick turns the camera and aims, 25 to\n300 percent (default 100), F3 > Slots > Options:\nstory_camera_speed1: single player (slot 1's controller; the camera and\naiming with a weapon).\nmp_camera_speedN: multiplayer, per slot 1-4 (that player's aim).
+ja: カメラ速度：右スティックでカメラを回したり狙ったりする速さ、25～300パーセント（デフォルト100）、F3 > スロット > オプション：story_camera_speed1：シングルプレイヤー（スロット1のコントローラ。カメラと武器での照準）。mp_camera_speedN：マルチプレイヤー、スロット1-4ごと（そのプレイヤーの照準）。
+
+en: Keys and mouse in single player (story); F3 changes them.\nMouse sensitivity left and right, 10 to 400 percent (default 100).
+ja: シングルプレイヤー（ストーリー）のキーとマウス。F3で変更できます。マウスの左右の感度、10～400パーセント（デフォルト100）。
+
+en: Mouse sensitivity up and down, 10 to 400 percent (default 100).
+ja: マウスの上下の感度、10～400パーセント（デフォルト100）。
+
+en: 1 = moving the mouse forward looks down (default 0).
+ja: 1 = マウスを前に動かすと下を向きます（デフォルト0）。
+
+en: classic = the controller's layout (the weapon key takes the weapon\nout and puts it away, and is the context action); modern = hold\nstory_aim to take the weapon out, Attack fires only while aiming,\nstory_context is the context action only.
+ja: classic = コントローラと同じ配置（武器キーで武器を出し入れし、コンテキストアクションも兼ねます）。modern = story_aimを押している間武器を出し、攻撃は構えている間だけ撃ち、story_contextはコンテキストアクション専用です。
+
+en: Modern only: how a slingshot pad's slingshot aims. hold (default;\naimed while story_aim is held, as the other weapons) or toggle\n(story_context turns it on and off, as Classic's weapon key).
+ja: モダンのみ：パチンコパッドのパチンコの狙い方。hold（デフォルト。ほかの武器と同じく、story_aimを押している間だけ狙います）またはtoggle（クラシックの武器キーのように、story_contextでオン/オフします）。
+
+en: Keys and mouse in multiplayer (the game's Emily layout); F3 changes them.\nMouse sensitivity left and right, 10 to 400 percent (default 100).
+ja: マルチプレイヤーのキーとマウス（ゲームのEmily配置）。F3で変更できます。マウスの左右の感度、10～400パーセント（デフォルト100）。
+
+en: How the zoom key zooms on foot: toggle (default; press to zoom in,\npress again to zoom out, as the controller) or hold (zoomed in while\nthe key is held). In a vehicle it is always as the controller.
+ja: 徒歩でのズームキーの動き：toggle（デフォルト。押すとズームイン、もう一度押すとズームアウト。コントローラと同じ）またはhold（キーを押している間ズーム）。乗り物の中では常にコントローラと同じです。
+
 en: Medium
 ja: 中
 
@@ -1920,3 +2226,1078 @@ ja: 高
 
 en: Ultra
 ja: 最高
+
+## launcher/Views/FileBrowserView.axaml
+en: Up one folder
+ja: 1つ上のフォルダへ
+
+en: Up one folder (Backspace)
+ja: 1つ上のフォルダへ（Backspace）
+
+en: Address
+ja: アドレス
+
+en: Type or paste a folder or a file, then press Enter
+ja: フォルダかファイルを入力または貼り付けて、Enterを押してください
+
+en: Windows dialog...
+ja: Windowsのダイアログ...
+
+en: Choose the file with the Windows Open dialog instead
+ja: 代わりにWindowsの「開く」ダイアログでファイルを選びます
+
+en: Show all files
+ja: すべてのファイルを表示
+
+en: List every file, not only the ones this choice takes
+ja: この選択で使えるものだけでなく、すべてのファイルを表示します
+
+en: Reading...
+ja: 読み込み中...
+
+en: Places
+ja: 場所
+
+en: Name
+ja: 名前
+
+en: Size
+ja: サイズ
+
+en: Modified
+ja: 更新日時
+
+en: Files
+ja: ファイル
+
+## launcher/Views/MainWindow.axaml
+en: Click, then press a button on a controller (or pick one)
+ja: クリックしてから、コントローラのボタンを押してください（または選んでください）
+
+en: Rumble, sticks and gyro aiming for this slot's controller
+ja: このスロットのコントローラの振動、スティック、ジャイロ照準
+
+en: Look for controllers again
+ja: コントローラを再検索
+
+en: Version History
+ja: バージョン履歴
+
+en: Auto Update
+ja: 自動アップデート
+
+en: Install a new version by itself whenever the launcher starts
+ja: ランチャーの起動時に新しいバージョンを自動でインストールします
+
+en: PLAY
+ja: プレイ
+
+en: FILES
+ja: ファイル
+
+en: Game files
+ja: ゲームファイル
+
+en: Import Xbox Store version
+ja: Xbox Store版をインポート
+
+en: Decensor patch
+ja: Decensorパッチ
+
+en: The decensor patch is made by nastys, Vaani and Theconker64 and is downloaded from their GitHub releases. It is not part of this launcher.
+ja: Decensorパッチはnastys、Vaani、Theconker64が作ったもので、彼らのGitHubリリースからダウンロードされます。このランチャーには含まれていません。
+
+en: Shaders
+ja: シェーダー
+
+en: Delete Shaders
+ja: シェーダーを削除
+
+en: Delete every compiled shader? The game compiles them again as you play (or precompile again).
+ja: コンパイル済みのシェーダーをすべて削除しますか？ゲームはプレイ中にまたコンパイルします（もう一度プリコンパイルすることもできます）。
+
+en: Game assets
+ja: ゲームアセット
+
+en: Delete Assets
+ja: アセットを削除
+
+en: Delete the prepared game assets? The launcher prepares them again the next time it starts.
+ja: 準備済みのゲームアセットを削除しますか？ランチャーは次回の起動時にまた準備します。
+
+en: Texture packs
+ja: テクスチャパック
+
+en: Saves the textures of your game files as PNGs to make a texture pack from
+ja: ゲームファイルのテクスチャをPNGとして保存し、テクスチャパック作りに使えるようにします
+
+en: Dump Folder
+ja: dumpフォルダ
+
+en: Opens textures\\dump, where Export Textures saves the PNGs
+ja: textures\\dumpを開きます。「テクスチャをエクスポート」がPNGを保存する場所です
+
+en: Packs Folder
+ja: パックフォルダ
+
+en: Opens textures\\packs, where each texture pack is a folder of its own
+ja: textures\\packsを開きます。テクスチャパックはそれぞれ専用のフォルダです
+
+en: Ticked: the game uses this pack. Drag a pack to move it; with a controller, hold A on it and press up or down
+ja: チェック：ゲームがこのパックを使います。ドラッグでパックを動かせます。コントローラではパックの上でAを押したまま上か下を押します
+
+en: User files
+ja: ユーザーファイル
+
+en: Saves, settings, photos and logs are kept in:
+ja: セーブ、設定、写真、ログの保存場所：
+
+en: The game folder (userdata)
+ja: ゲームフォルダ（userdata）
+
+en: Logs
+ja: ログ
+
+en: Saves
+ja: セーブ
+
+en: Photos
+ja: 写真
+
+en: Makes a .zip to attach to a GitHub issue, for a crash noticed later
+ja: GitHubのissueに添付する.zipを作ります（後で気づいたクラッシュ用）
+
+en: Add to Steam
+ja: Steamに追加
+
+en: Adds the launcher to your Steam library with its artwork; Steam closes for a moment and starts again
+ja: ランチャーをアートワーク付きでSteamライブラリに追加します。Steamは一度閉じてからまた起動します
+
+en: Steam is open: it closes while the game is added, then starts again. Go ahead?
+ja: Steamが開いています。ゲームを追加する間は閉じ、その後また起動します。続けますか？
+
+en: The artwork is made by PopASquatt, Jiquita and EVE Online and is downloaded from SteamGridDB when you click. It is not part of this launcher.
+ja: アートワークはPopASquatt、Jiquita、EVE Onlineが作ったもので、クリックしたときにSteamGridDBからダウンロードされます。このランチャーには含まれていません。
+
+en: SETTINGS
+ja: 設定
+
+en: The game is running: change settings in its F2 menu. This tab unlocks when the game closes.
+ja: ゲームが起動中です。設定はゲームのF2メニューで変更してください。このタブはゲームを閉じると使えるようになります。
+
+en: Reset to defaults
+ja: デフォルトに戻す
+
+en: Set every setting (all four tabs, not the controls) back to the default?
+ja: すべての設定（4つのタブすべて。操作設定は除く）をデフォルトに戻しますか？
+
+en: Reset
+ja: リセット
+
+en: CONTROLS
+ja: 操作
+
+en: The game is running: change controls in its F3 menu. This tab unlocks when the game closes.
+ja: ゲームが起動中です。操作はゲームのF3メニューで変更してください。このタブはゲームを閉じると使えるようになります。
+
+en: Welcome
+ja: ようこそ
+
+en: To play, the launcher needs the game files from your own copy of Conker: Live & Reloaded: a disc image (.iso, PAL or USA), an archive holding it (.zip, .7z, .rar), a copied game folder, or the Xbox Store version.
+ja: プレイするには、お持ちのConker: Live & Reloadedのゲームファイルが必要です：ディスクイメージ（.iso、PAL版またはUSA版）、それを含むアーカイブ（.zip、.7z、.rar）、コピーしたゲームフォルダ、またはXbox Store版。
+
+en: Xbox Store version found on this PC.
+ja: このPCでXbox Store版が見つかりました。
+
+en: or drag your disc image here
+ja: またはディスクイメージをここにドラッグ
+
+en: Not now
+ja: 後で
+
+en: Import Files
+ja: ファイルをインポート
+
+en: Update available
+ja: アップデートがあります
+
+en: Don't remind me
+ja: 今後通知しない
+
+en: No window at start for this version; it shows again when a newer one is out
+ja: このバージョンでは起動時に表示しません。新しいバージョンが出るとまた表示されます
+
+en: Update Later
+ja: 後でアップデート
+
+en: Update Now
+ja: 今すぐアップデート
+
+en: Version history
+ja: バージョン履歴
+
+en: Open on GitHub
+ja: GitHubで開く
+
+en: Moving user files
+ja: ユーザーファイルを移動中
+
+en: Backup and Transfer
+ja: バックアップして移動
+
+en: Backup and Delete
+ja: バックアップして削除
+
+en: Delete
+ja: 削除
+
+en: Close slot options
+ja: スロットのオプションを閉じる
+
+en: Controller chords
+ja: コントローラの同時押し
+
+en: Close chords
+ja: 同時押しを閉じる
+
+en: Set it by holding the chord on a controller
+ja: コントローラで同時押しを押し続けて設定します
+
+en: On a controller, hold two buttons together for:
+ja: コントローラで2つのボタンを同時に押し続けてください：
+
+en: On a controller, press the button for:
+ja: コントローラでボタンを押してください：
+
+en: A button another action uses at the same moment swaps with this one. Back, Esc or Cancel: no change. Back and the D-pad can't be bound. Button names are an Xbox controller's (PlayStation: A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options).
+ja: 同じタイミングで別のアクションが使っているボタンは、このボタンと入れ替わります。Back、Esc、キャンセル：変更なし。Backと方向パッドは割り当てられません。ボタン名はXboxコントローラのものです（PlayStation：A / B / X / Y = ×/○/□/△、LB / RB / LT / RT = L1 / R1 / L2 / R2、Start = Options）。
+
+en: Controller button
+ja: コントローラのボタン
+
+en: No button
+ja: ボタンなし
+
+## launcher/Views/PadNavigator.cs
+en: Up
+ja: 上へ
+
+en: Open
+ja: 開く
+
+en: Select
+ja: 選択
+
+en: Import the game files first: Import Files, then pick your disc image.
+ja: 先にゲームファイルをインポートしてください：「ファイルをインポート」を選び、ディスクイメージを選択します。
+
+en: An import or download is running: press Back again to close the launcher anyway.
+ja: インポートまたはダウンロード中です。それでもランチャーを閉じるにはもう一度Backを押してください。
+
+en: The update is running: press Back again to close the launcher anyway.
+ja: アップデート中です。それでもランチャーを閉じるにはもう一度Backを押してください。
+
+en: User files are being moved: press Back again to close the launcher anyway.
+ja: ユーザーファイルを移動中です。それでもランチャーを閉じるにはもう一度Backを押してください。
+
+## launcher/Views/ReleaseNotesView.cs
+en: No notes for this release.
+ja: このリリースのノートはありません。
+
+## launcher/ViewModels/ControlItems.cs
+en: {0} key
+ja: {0}のキー
+
+en: Keys now: {0}
+ja: 現在のキー：{0}
+
+en: Back to the default ({0})
+ja: デフォルトに戻す（{0}）
+
+en: {0} controller button
+ja: {0}のコントローラボタン
+
+en: {0}  ({1}'s)
+ja: {0}  （{1}が使用中）
+
+en: Put everything back to the defaults?
+ja: すべてデフォルトに戻しますか？
+
+en: Slot {0}
+ja: スロット{0}
+
+en: Slot {0} controller
+ja: スロット{0}のコントローラ
+
+en: Options for slot {0}
+ja: スロット{0}のオプション
+
+en: Keyboard and mouse for slot {0}
+ja: スロット{0}のキーボードとマウス
+
+en: PlayStation / Switch controller {0}
+ja: PlayStation / Switchコントローラ{0}
+
+en: Controller {0}
+ja: コントローラ{0}
+
+en: {0} chord
+ja: {0}の同時押し
+
+en: Press the chord for {0}
+ja: {0}の同時押しを押す
+
+en: {0}: back to the default
+ja: {0}：デフォルトに戻す
+
+en: Chord now: {0}
+ja: 現在の同時押し：{0}
+
+## launcher/ViewModels/ControlsViewModel.cs
+en: {0} is {1}'s: change that one first
+ja: {0}は{1}が使用中です。先にそちらを変更してください
+
+en: {0} is {1}'s: pick another
+ja: {0}は{1}が使用中です。別のものを選んでください
+
+en: {0} is not one of the chords
+ja: {0}は同時押しの一覧にありません
+
+en: {0} alone: hold it and press a second button
+ja: {0}だけです。押したまま2つ目のボタンを押してください
+
+en: Put every Modern controller button back to its default?
+ja: モダンのコントローラボタンをすべてデフォルトに戻しますか？
+
+en: Put every Classic controller button back to its default?
+ja: クラシックのコントローラボタンをすべてデフォルトに戻しますか？
+
+en: {0} (Modern)
+ja: {0}（モダン）
+
+en: {0} (Classic)
+ja: {0}（クラシック）
+
+en: Button now: {0}
+ja: 現在のボタン：{0}
+
+en: The D-pad can't be bound: pick another button (Back cancels)
+ja: 方向パッドは割り当てられません。別のボタンを選んでください（Backでキャンセル）
+
+en: {0} needs a button
+ja: {0}にはボタンが必要です
+
+en: {0} is {1}'s, and {1} needs a button: give {1} another first
+ja: {0}は{1}が使用中で、{1}にはボタンが必要です。先に{1}に別のボタンを割り当ててください
+
+en: {0} has no button now: pick one
+ja: {0}は今ボタンがありません。選んでください
+
+en: {0} takes {1}
+ja: {0}は{1}になります
+
+en: The controls couldn't be read from conker.exe: {0}
+ja: conker.exeから操作設定を読み込めませんでした：{0}
+
+en: The controllers couldn't be listed: {0}
+ja: コントローラを一覧にできませんでした：{0}
+
+en: settings.ini couldn't be read: {0}
+ja: settings.iniを読み込めませんでした：{0}
+
+en: settings.ini couldn't be saved: {0}
+ja: settings.iniを保存できませんでした：{0}
+
+en: {0} (keep)
+ja: {0}（維持）
+
+en: Holding {0}: press another key for a combo, or let go
+ja: {0}を押したままです。組み合わせにするには別のキーを押すか、離してください
+
+en: F1-F3, F9 and F11 are the game's own keys
+ja: F1-F3、F9、F11はゲーム専用のキーです
+
+en: That key can't be used ({0})
+ja: そのキーは使えません（{0}）
+
+en: Alt+Tab and Alt+F4 are Windows' own
+ja: Alt+TabとAlt+F4はWindowsのキーです
+
+en: Also used for: {0}
+ja: ほかにも使用：{0}
+
+en: {0} is also {1}: that happens too
+ja: {0}は{1}でもあります。それも実行されます
+
+en: While {0} is held, {1} is this, not {2}
+ja: {0}を押している間、{1}は{2}ではなくこちらになります
+
+en: {0} also starts {1} ({2}): this happens too
+ja: {0}は{1}（{2}）も開始します。こちらも実行されます
+
+en: While {0} is held, {1} is {2}, not this
+ja: {0}を押している間、{1}はこちらではなく{2}になります
+
+## launcher/ViewModels/FileBrowserViewModel.cs
+en: Can't open {0}: {1}
+ja: {0}を開けません：{1}
+
+en: {0} isn't one of these: {1}.
+ja: {0}は次のどれでもありません：{1}。
+
+en: Select a file first: {0}.
+ja: 先にファイルを選んでください：{0}。
+
+en: Only files can be dropped here.
+ja: ここにドロップできるのはファイルだけです。
+
+en: None of the {0} items is one of these: {1}.
+ja: {0}個の項目はどれも次に当てはまりません：{1}。
+
+en: or drag a file here
+ja: またはファイルをここにドラッグ
+
+en: Type or paste a folder or a file, then press Enter.
+ja: フォルダかファイルを入力または貼り付けて、Enterを押してください。
+
+en: "{0}" isn't a folder or file path.
+ja: 「{0}」はフォルダやファイルのパスではありません。
+
+en: Can't find {0}.
+ja: {0}が見つかりません。
+
+en: {0} bytes
+ja: {0} バイト
+
+en: {0:0} KB
+ja: {0:0} KB
+
+en: {0:0.0} MB
+ja: {0:0.0} MB
+
+en: {0:0.0} GB
+ja: {0:0.0} GB
+
+en: {0:0.0} TB
+ja: {0:0.0} TB
+
+en: Launcher folder
+ja: ランチャーのフォルダ
+
+en: Desktop
+ja: デスクトップ
+
+en: Downloads
+ja: ダウンロード
+
+en: Documents
+ja: ドキュメント
+
+en: Local Disk
+ja: ローカルディスク
+
+en: USB Drive
+ja: USBドライブ
+
+en: Network Drive
+ja: ネットワークドライブ
+
+en: Disc Drive
+ja: ディスクドライブ
+
+en: Drive
+ja: ドライブ
+
+en: {0} free of {1}
+ja: {1}中{0}空き
+
+en: This folder holds none of these: {0}.
+ja: このフォルダには次のものがありません：{0}。
+
+en: This folder is empty.
+ja: このフォルダは空です。
+
+en: Windows doesn't allow reading it.
+ja: Windowsが読み取りを許可していません。
+
+en: it isn't there (any more).
+ja: （もう）存在しません。
+
+## launcher/ViewModels/FilesViewModel.cs
+en: Game files have been imported
+ja: ゲームファイルはインポート済みです
+
+en: Conker Live & Reloaded files have not been imported yet. Import them to play
+ja: Conker: Live & Reloadedのファイルはまだインポートされていません。プレイするにはインポートしてください
+
+en: Re-import
+ja: 再インポート
+
+en: Decensor patch not found
+ja: Decensorパッチが見つかりません
+
+en: Decensor Patch found (version {0})
+ja: Decensorパッチがあります（バージョン{0}）
+
+en: Decensor Patch found
+ja: Decensorパッチがあります
+
+en: Add patch
+ja: パッチを追加
+
+en: Download patch
+ja: パッチをダウンロード
+
+en: Update to {0}
+ja: {0}に更新
+
+en: Re-download
+ja: 再ダウンロード
+
+en: Precompiling shaders. The game's window shows how far it is; Esc or B on a controller there stops it.
+ja: シェーダーをプリコンパイル中です。進み具合はゲームのウィンドウに表示されます。そこでEscかコントローラのBを押すと止まります。
+
+en: The game compiles each shader the first time it is needed, which can cause short slowdowns the first time you play an area. Precompile them all now: the game runs every level behind a progress screen with the sound off, then closes (about 10 minutes, longer on a slower PC).
+ja: ゲームは各シェーダーを初めて必要になったときにコンパイルするため、エリアを初めて遊ぶときに短いカクつきが出ることがあります。今すべてプリコンパイルしましょう：ゲームが音を消した進行画面の裏ですべてのレベルを読み込み、その後閉じます（約10分、遅いPCではもっとかかります）。
+
+en: Shaders were precompiled with v{0}. Updates can change the game's shaders: precompile again to have them all.
+ja: シェーダーはv{0}でプリコンパイルされました。アップデートでゲームのシェーダーが変わることがあります。すべてそろえるにはもう一度プリコンパイルしてください。
+
+en: Shaders precompiled on {0} (took {1}).
+ja: シェーダーは{0}にプリコンパイル済みです（所要時間：{1}）。
+
+en: Precompiling was stopped on {0} at {1}. Continue Precompiling picks up where it stopped; the shaders compiled until then are kept.
+ja: プリコンパイルは{0}に{1}で止まりました。「プリコンパイルを続ける」で続きから再開できます。それまでにコンパイルしたシェーダーは残ります。
+
+en: Precompiling was stopped on {0}. The shaders compiled until then are kept; precompile again to finish.
+ja: プリコンパイルは{0}に止まりました。それまでにコンパイルしたシェーダーは残ります。仕上げるにはもう一度プリコンパイルしてください。
+
+en: Precompile Shaders
+ja: シェーダーをプリコンパイル
+
+en: Continue Precompiling
+ja: プリコンパイルを続ける
+
+en: Precompile Again
+ja: もう一度プリコンパイル
+
+en: {0} seconds
+ja: {0}秒
+
+en: {0} minutes
+ja: {0}分
+
+en: GitHub couldn't be reached, so the launcher can't tell whether a newer patch is out.
+ja: GitHubに接続できないため、新しいパッチが出ているかどうかランチャーには分かりません。
+
+en: Conker disc (.iso, .xiso, .zip, .7z, .rar, default.xbe) or Xbox Store version (DefaultPackage)
+ja: Conkerのディスク（.iso、.xiso、.zip、.7z、.rar、default.xbe）またはXbox Store版（DefaultPackage）
+
+en: Choose your Conker disc image, an archive holding it, the default.xbe of a game folder, or the Xbox Store version's DefaultPackage
+ja: Conkerのディスクイメージ、それを含むアーカイブ、ゲームフォルダのdefault.xbe、またはXbox Store版のDefaultPackageを選んでください
+
+en: Game files imported ({0}).
+ja: ゲームファイルをインポートしました（{0}）。
+
+en: Preparing the game assets was cancelled: the launcher does it the next time it starts.
+ja: ゲームアセットの準備はキャンセルされました。ランチャーが次回の起動時に行います。
+
+en: The game assets couldn't be prepared ({0}); the game plays without them.
+ja: ゲームアセットを準備できませんでした（{0}）。ゲームはアセットなしで遊べます。
+
+en: Game assets prepared from your game files.
+ja: ゲームファイルからゲームアセットを準備しました。
+
+en: Some features need parts of the game prepared from your game files. The launcher prepares them after an import, or the next time it starts.
+ja: 一部の機能には、ゲームファイルから準備したゲームの一部が必要です。ランチャーはインポートの後か、次回の起動時に準備します。
+
+en: Prepared from your game files ({0}, {1}). The launcher prepares them again after an import or when your game files change.
+ja: ゲームファイルから準備済みです（{0}、{1}）。インポートの後やゲームファイルが変わったときに、ランチャーがまた準備します。
+
+en: 1 file
+ja: 1ファイル
+
+en: {0:N0} files
+ja: {0:N0}ファイル
+
+en: {0} KB
+ja: {0} KB
+
+en: {0:0.#} MB
+ja: {0:0.#} MB
+
+en: The game assets couldn't all be deleted: {0}
+ja: ゲームアセットをすべては削除できませんでした：{0}
+
+en: A texture pack swaps the game's textures for new art: PNGs in a folder of its own in textures\\packs, named and laid out like the exported textures. Export Textures saves every texture of your game files that a pack can change as a PNG (about 9,600 files and 600 MB, a minute or so) into textures\\dump, to edit. The game doesn't read the dump folder itself.
+ja: テクスチャパックはゲームのテクスチャを新しい絵に置き換えます。textures\\packs内の専用フォルダに、エクスポートしたテクスチャと同じ名前と構成のPNGを入れたものです。「テクスチャをエクスポート」は、パックで変えられるゲームファイルのテクスチャをすべてPNGとしてtextures\\dumpに保存します（約9,600ファイル、600 MB、1分ほど）。ゲーム自体はdumpフォルダを読みません。
+
+en: {0:N0} textures exported ({1}) into textures\\dump. To make a pack, put the ones you edit in a folder of its own in textures\\packs, keeping their names and folders. Export Again adds any that are missing.
+ja: {0:N0}個のテクスチャをtextures\\dumpにエクスポートしました（{1}）。パックを作るには、編集したものを名前とフォルダはそのままでtextures\\packs内の専用フォルダに入れます。「再エクスポート」は足りないものを追加します。
+
+en: Export Again
+ja: 再エクスポート
+
+en: Export Textures
+ja: テクスチャをエクスポート
+
+en: Stopped. The textures saved so far are kept; Export Again goes on from there.
+ja: 止めました。ここまでに保存したテクスチャは残ります。「再エクスポート」で続きから再開します。
+
+en: All {0:N0} textures were exported already.
+ja: {0:N0}個のテクスチャはすべてエクスポート済みでした。
+
+en: Exported {0:N0} textures ({1:0} MB); {2:N0} were there already.
+ja: {0:N0}個のテクスチャをエクスポートしました（{1:0} MB）。{2:N0}個はすでにありました。
+
+en: Exported {0:N0} textures ({1:0} MB).
+ja: {0:N0}個のテクスチャをエクスポートしました（{1:0} MB）。
+
+en: {0:N0} couldn't be saved.
+ja: {0:N0}個は保存できませんでした。
+
+en: Choose the decensor patch (.7z or .zip)
+ja: Decensorパッチ（.7zまたは.zip）を選んでください
+
+en: Decensor patch (.7z, .zip)
+ja: Decensorパッチ（.7z、.zip）
+
+en: Decensor patch added. Switch it on in the game's F2 menu (Uncensored).
+ja: Decensorパッチを追加しました。ゲームのF2メニュー（無修正）でオンにしてください。
+
+en: Looking for the latest release
+ja: 最新リリースを確認中
+
+en: Decensor patch {0} installed. Switch it on in the game's F2 menu (Uncensored).
+ja: Decensorパッチ{0}をインストールしました。ゲームのF2メニュー（無修正）でオンにしてください。
+
+en: conker.exe is missing from the launcher's folder.
+ja: ランチャーのフォルダにconker.exeがありません。
+
+en: The game didn't start: {0}
+ja: ゲームが起動しませんでした：{0}
+
+en: Some shaders couldn't be deleted: {0}
+ja: 一部のシェーダーを削除できませんでした：{0}
+
+en: Starting
+ja: 開始中
+
+en: Cancelled. Nothing was changed.
+ja: キャンセルしました。何も変更されていません。
+
+en: The download failed: {0}
+ja: ダウンロードに失敗しました：{0}
+
+en: Something went wrong: {0}
+ja: 問題が発生しました：{0}
+
+## launcher/ViewModels/MainWindowViewModel.cs
+en: v{0} is out (you have {1})
+ja: v{0}が公開されています（お使いのバージョン：{1}）
+
+en: Update to v{0}
+ja: v{0}にアップデート
+
+en: Update
+ja: アップデート
+
+en: Loading the version history ...
+ja: バージョン履歴を読み込み中...
+
+en: No releases found.
+ja: リリースが見つかりません。
+
+en: Couldn't load the version history: {0}
+ja: バージョン履歴を読み込めませんでした：{0}
+
+en: Updated
+ja: アップデートしました
+
+en: v{0} is out
+ja: v{0}が公開されています
+
+en: Couldn't check for updates
+ja: アップデートを確認できませんでした
+
+en: Close the game first: the update replaces conker.exe.
+ja: 先にゲームを閉じてください。アップデートでconker.exeを置き換えます。
+
+en: Downloading v{0}: {1:P0}
+ja: v{0}をダウンロード中：{1:P0}
+
+en: The update download failed: {0}
+ja: アップデートのダウンロードに失敗しました：{0}
+
+en: The update failed: {0}
+ja: アップデートに失敗しました：{0}
+
+en: installed
+ja: インストール済み
+
+## launcher/ViewModels/PadHints.cs
+en: Change
+ja: 変更
+
+en: Done
+ja: 完了
+
+en: Tabs
+ja: タブ
+
+en: Sections
+ja: セクション
+
+en: Play
+ja: プレイ
+
+en: Page
+ja: ページ
+
+en: Fewer files
+ja: ファイルを絞る
+
+en: All files
+ja: すべてのファイル
+
+## launcher/ViewModels/SettingItems.cs
+en: Mute {0}
+ja: {0}をミュート
+
+## launcher/ViewModels/SettingsViewModel.cs
+en: The settings couldn't be read from conker.exe: {0}
+ja: conker.exeから設定を読み込めませんでした：{0}
+
+## launcher/ViewModels/SteamViewModel.cs
+en: Steam wasn't found on this PC.
+ja: このPCにSteamが見つかりません。
+
+en: Adds the launcher to your Steam library as a non-Steam game, with artwork from SteamGridDB. Clicking it again updates it.
+ja: ランチャーをSteam以外のゲームとして、SteamGridDBのアートワーク付きでSteamライブラリに追加します。もう一度クリックすると更新します。
+
+en: with its artwork
+ja: アートワーク付き
+
+en: without artwork (SteamGridDB couldn't be reached)
+ja: アートワークなし（SteamGridDBに接続できませんでした）
+
+en: with {0} of {1} pictures (SteamGridDB couldn't send the rest)
+ja: 画像{1}枚中{0}枚付き（残りはSteamGridDBから届きませんでした）
+
+en: Updated in Steam for {0}, {1}. Steam is starting.
+ja: {0}のSteamで更新しました（{1}）。Steamを起動しています。
+
+en: Added to Steam for {0}, {1}. Steam is starting.
+ja: {0}のSteamに追加しました（{1}）。Steamを起動しています。
+
+en: Adding it to Steam failed: {0}
+ja: Steamへの追加に失敗しました：{0}
+
+## launcher/ViewModels/TexturePacksViewModel.cs
+en: The game is running: change the packs in its F2 menu (Extras > Texture Packs).
+ja: ゲームが起動中です。パックはゲームのF2メニュー（エクストラ > テクスチャパック）で変更してください。
+
+en: No packs yet: put a pack's folder in textures\\packs (Packs Folder opens it).
+ja: パックはまだありません。パックのフォルダをtextures\\packsに入れてください（「パックフォルダ」で開けます）。
+
+en: Ticked packs are on; the top one wins where two packs change the same texture. Drag a pack to move it, or with a controller hold A and press up or down. Saved at once; the game reads them when it starts (in the game: F2 > Extras > Texture Packs).
+ja: チェックしたパックがオンになります。2つのパックが同じテクスチャを変える場合は上のパックが優先されます。ドラッグでパックを動かせます。コントローラではAを押したまま上か下を押します。すぐに保存され、ゲームは起動時に読み込みます（ゲーム内：F2 > エクストラ > テクスチャパック）。
+
+en: The packs couldn't be saved: settings.ini isn't there yet. Start the game once, then choose them.
+ja: パックを保存できませんでした。settings.iniがまだありません。一度ゲームを起動してから選んでください。
+
+## launcher/ViewModels/UserFilesViewModel.cs
+en: The game folder can't be written to, so they are kept in AppData.
+ja: ゲームフォルダに書き込めないため、AppDataに保存されます。
+
+en: Save Data from the game folder is also located in AppData, what would you like to do?
+ja: ゲームフォルダのセーブデータがAppDataにもあります。どうしますか？
+
+en: Save Data from older version located in AppData, what would you like to do?
+ja: 古いバージョンのセーブデータがAppDataにあります。どうしますか？
+
+en: {0}: last saved {1}
+ja: {0}：最終セーブ {1}
+
+en: Delete Game Folder Save
+ja: ゲームフォルダのセーブを削除
+
+en: Delete AppData Save
+ja: AppDataのセーブを削除
+
+en: Delete the game folder save "{0}" for good? It can't be brought back.
+ja: ゲームフォルダのセーブ「{0}」を完全に削除しますか？元には戻せません。
+
+en: Delete the AppData save "{0}" for good? It can't be brought back.
+ja: AppDataのセーブ「{0}」を完全に削除しますか？元には戻せません。
+
+en: Copies AppData's save to the backups folder, then moves the game folder save in its place
+ja: AppDataのセーブをバックアップフォルダにコピーしてから、ゲームフォルダのセーブをそこへ移します
+
+en: Copies the game folder's save to the backups folder, then moves the AppData save in its place
+ja: ゲームフォルダのセーブをバックアップフォルダにコピーしてから、AppDataのセーブをそこへ移します
+
+en: Moves the game folder save to the backups folder; AppData's save stays
+ja: ゲームフォルダのセーブをバックアップフォルダへ移します。AppDataのセーブは残ります
+
+en: Moves the AppData save to the backups folder; the game folder's save stays
+ja: AppDataのセーブをバックアップフォルダへ移します。ゲームフォルダのセーブは残ります
+
+en: The save folders couldn't be renamed: {0}. The game renames them at its start.
+ja: セーブフォルダの名前を変更できませんでした：{0}。ゲームが起動時に変更します。
+
+en: Close the game first: it is using the user files.
+ja: 先にゲームを閉じてください。ゲームがユーザーファイルを使用中です。
+
+en: The choice couldn't be saved: {0}
+ja: 選択を保存できませんでした：{0}
+
+en: Looking at the user files
+ja: ユーザーファイルを確認中
+
+en: {0} file(s) couldn't be moved from the game folder (in use?). The launcher tries again at its next start.
+ja: {0}個のファイルをゲームフォルダから移動できませんでした（使用中？）。ランチャーが次回の起動時にもう一度試します。
+
+en: {0} file(s) couldn't be moved from AppData (in use?). The launcher tries again at its next start.
+ja: {0}個のファイルをAppDataから移動できませんでした（使用中？）。ランチャーが次回の起動時にもう一度試します。
+
+en: User files moved from the game folder to AppData.
+ja: ユーザーファイルをゲームフォルダからAppDataへ移動しました。
+
+en: User files moved from AppData to the game folder.
+ja: ユーザーファイルをAppDataからゲームフォルダへ移動しました。
+
+en: Moving the user files stopped: {0}. What is left is moved at the next start.
+ja: ユーザーファイルの移動が止まりました：{0}。残りは次回の起動時に移動します。
+
+en: Game folder
+ja: ゲームフォルダ
+
+## launcher/Services/AssetCache.cs
+en: Preparing game assets
+ja: ゲームアセットを準備中
+
+en: conker.exe didn't start: {0}
+ja: conker.exeが起動しませんでした：{0}
+
+en: conker.exe ended with {0}.
+ja: conker.exeが{0}で終了しました。
+
+en: Preparing game assets ({0} of {1}: {2})
+ja: ゲームアセットを準備中（{0}/{1}：{2}）
+
+en: conker.exe didn't start.
+ja: conker.exeが起動しませんでした。
+
+## launcher/Services/DecensorPatch.cs
+en: Opening the patch
+ja: パッチを開いています
+
+en: {0} isn't the decensor patch (it has no dvddata folder).
+ja: {0}はDecensorパッチではありません（dvddataフォルダがありません）。
+
+en: Unpacking the decensor patch
+ja: Decensorパッチを展開中
+
+en: Finishing
+ja: 仕上げ中
+
+en: The latest decensor release ({0}) has no .7z or .zip to download.
+ja: 最新のDecensorリリース（{0}）にはダウンロードできる.7zも.zipもありません。
+
+en: Downloading the decensor patch {0}
+ja: Decensorパッチ{0}をダウンロード中
+
+## launcher/Services/GameImporter.cs
+en: USA disc
+ja: USA版ディスク
+
+en: PAL disc
+ja: PAL版ディスク
+
+en: Reading the disc image
+ja: ディスクイメージを読み込み中
+
+en: {0} isn't an Xbox disc image.
+ja: {0}はXboxのディスクイメージではありません。
+
+en: The disc image has no default.xbe: it isn't an Xbox game disc.
+ja: ディスクイメージにdefault.xbeがありません。Xboxのゲームディスクではありません。
+
+en: Reading the Xbox Store version
+ja: Xbox Store版を読み込み中
+
+en: Xbox Store version
+ja: Xbox Store版
+
+en: Copying the game files
+ja: ゲームファイルをコピー中
+
+en: The package has a bad file name ({0}).
+ja: パッケージに不正なファイル名があります（{0}）。
+
+en: The disc image has a bad file name ({0}).
+ja: ディスクイメージに不正なファイル名があります（{0}）。
+
+en: These are the imported files already. Pick the disc image or the folder you imported from.
+ja: これはすでにインポート済みのファイルです。インポート元のディスクイメージかフォルダを選んでください。
+
+en: Opening the archive
+ja: アーカイブを開いています
+
+en: Unpacking the disc image
+ja: ディスクイメージを展開中
+
+en: {0} holds no disc image (.iso) and no default.xbe.
+ja: {0}にはディスクイメージ（.iso）もdefault.xbeもありません。
+
+en: Unpacking the game files
+ja: ゲームファイルを展開中
+
+## launcher/Services/GodPackageStream.cs
+en: These files don't read as a complete Xbox Store version of the game. In the Xbox app, choose Manage > Files > Verify and repair (or reinstall it), then try again.
+ja: これらのファイルは完全なXbox Store版のゲームとして読み込めません。Xboxアプリで［管理］>［ファイル］>［確認と修復］を選び（または再インストールし）、もう一度試してください。
+
+en: This folder holds only part of the Xbox Store version. In the Xbox app, use Verify and repair, then try again.
+ja: このフォルダにはXbox Store版の一部しかありません。Xboxアプリで［確認と修復］を使ってから、もう一度試してください。
+
+en: {0} isn't an Xbox Store version package.
+ja: {0}はXbox Store版のパッケージではありません。
+
+## launcher/Services/ImportTools.cs
+en: {0}: {1:0.00} of {2:0.00} GB ({3:0} MB/s)
+ja: {0}：{1:0.00} / {2:0.00} GB（{3:0} MB/s）
+
+en: Not enough free space on {0}: this needs {1:0.00} GB, {2:0.00} GB is free.
+ja: {0}の空き容量が足りません。{1:0.00} GB必要ですが、空きは{2:0.00} GBです。
+
+en: {0} couldn't be opened as an archive: {1}
+ja: {0}をアーカイブとして開けませんでした：{1}
+
+en: The archive couldn't be unpacked: {0}
+ja: アーカイブを展開できませんでした：{0}
+
+en: The archive holds a file outside its folder ({0}).
+ja: アーカイブにフォルダ外のファイルがあります（{0}）。
+
+## launcher/Services/PadList.cs
+en: conker.exe --list-pads ended with {0}.
+ja: conker.exe --list-padsが{0}で終了しました。
+
+## launcher/Services/SettingsSchema.cs
+en: conker.exe --dump-settings ended with {0}.
+ja: conker.exe --dump-settingsが{0}で終了しました。
+
+## launcher/Services/ShaderCache.cs
+en: level {0} of 47
+ja: レベル{0}/47
+
+en: the very end
+ja: 最後
+
+en: chapter {0} of 9
+ja: チャプター{0}/9
+
+## launcher/Services/SteamShortcut.cs
+en: Downloading the artwork from SteamGridDB ...
+ja: SteamGridDBからアートワークをダウンロード中...
+
+en: Closing Steam ...
+ja: Steamを閉じています...
+
+en: Adding the shortcut ...
+ja: ショートカットを追加中...
+
+en: No Steam account has signed in on this PC yet: start Steam, sign in, then try again.
+ja: このPCではまだSteamアカウントでサインインしていません。Steamを起動してサインインしてから、もう一度試してください。
+
+en: Steam couldn't be closed ({0}): close it yourself, then try again.
+ja: Steamを閉じられませんでした（{0}）。ご自身で閉じてから、もう一度試してください。
+
+en: Steam didn't close, so nothing was changed: close it yourself (Steam menu > Exit), then try again.
+ja: Steamが閉じなかったため、何も変更していません。ご自身で閉じてから（Steamメニュー > 終了）、もう一度試してください。
+
+en: Steam's list of non-Steam games has a form the launcher doesn't know ({0}), so nothing was changed.
+ja: Steamの「Steam以外のゲーム」の一覧がランチャーの知らない形式です（{0}）。そのため何も変更していません。
+
+## launcher/Services/TextureExport.cs
+en: Exporting textures
+ja: テクスチャをエクスポート中
+
+en: Exporting textures ({0} of {1}: {2})
+ja: テクスチャをエクスポート中（{0}/{1}：{2}）
+
+## launcher/Services/Updater.cs
+en: Release {0} has no zip to download.
+ja: リリース{0}にはダウンロードできるzipがありません。
+
+en: Downloading {0}
+ja: {0}をダウンロード中
+
+en: Unpacking the update
+ja: アップデートを展開中
+
+en: Replacing the program files
+ja: プログラムファイルを置き換え中
+
+en: The update holds {0}, which an update never replaces.
+ja: アップデートに{0}が含まれていますが、これはアップデートで置き換えないファイルです。
+
+en: The update holds a file outside its folder ({0}).
+ja: アップデートにフォルダ外のファイルがあります（{0}）。
+
+en: The update couldn't be unpacked, nothing was changed: {0}
+ja: アップデートを展開できませんでした。何も変更していません：{0}
+
+en: The update has no {0}.
+ja: アップデートに{0}がありません。
+
+en: The program files couldn't be replaced, nothing was changed: {0}
+ja: プログラムファイルを置き換えられませんでした。何も変更していません：{0}
+
+## launcher/Services/UserFiles.cs
+en: Moving user files from the game folder
+ja: ユーザーファイルをゲームフォルダから移動中
+
+en: Moving user files from AppData
+ja: ユーザーファイルをAppDataから移動中
+
+## launcher/Services/XbeCheck.cs
+en: This default.xbe isn't an Xbox program; the files may be damaged.
+ja: このdefault.xbeはXboxのプログラムではありません。ファイルが壊れている可能性があります。
+
+en: {0} ({1}, version {2:X8})
+ja: {0}（{1}、バージョン{2:X8}）
+
+en: This is {0}, a version of Conker: Live & Reloaded that isn't supported. Only the PAL and USA retail discs work.
+ja: これは{0}で、対応していないConker: Live & Reloadedのバージョンです。動作するのはPAL版とUSA版の製品ディスクだけです。
+
+en: This is {0}, not Conker: Live & Reloaded.
+ja: これは{0}で、Conker: Live & Reloadedではありません。
+
+en: North America
+ja: 北米
+
+en: Japan
+ja: 日本
+
+en: rest of the world
+ja: その他の地域
+
+en: an unnamed Xbox game
+ja: 名前のないXboxゲーム
+
+en: no region
+ja: 地域なし
+
+## launcher/Services/XdvdfsImage.cs
+en: The disc image is damaged: a folder lies outside it.
+ja: ディスクイメージが壊れています。フォルダがイメージの外にあります。
+
+en: The disc image ends early; it may be damaged or incomplete.
+ja: ディスクイメージが途中で終わっています。壊れているか不完全な可能性があります。
+
+
+## no longer in the code (kept for their translations)
+en: On a picture wider than 4:3: the HUD, speech bubbles and on-screen texts in their original shape instead of stretched to the picture's width
+ja: 4:3より横長の画面で、HUD・吹き出し・画面上の文字を画面の幅に引き伸ばさず、元の形で表示します

@@ -10,7 +10,7 @@ their .nuspec.
 Covers what the zip ships: conker.exe and xemu_apu.dll (toolkit, xemu APU,
 Dear ImGui, SDL3 + HIDAPI, the picture filters, GamepadMotionHelpers, the
 package reader's extraction, the Frying Pan, the Milk Fix and Free Swing after
-Txukie's MIT code, the Full DSP sound effects
+Txukie's MIT code, the Full DSP sound effects and the ambient occlusion
 after yacineolivier-maker's MIT code) and conker-launcher.exe (the
 .NET runtime, Avalonia and what it pulls in, CommunityToolkit.Mvvm,
 SharpCompress). Build-only packages (ILLink, Avalonia.BuildServices) and tools
@@ -237,12 +237,14 @@ def main():
         'project.\n'
         'MIT licence:\n\nCopyright (c) 2026 sp00nz\n\n' + MIT))
     parts.append(section(
-        "11. yacineolivier-maker's ConkerLR-Recomp (the Full DSP sound effects)",
+        "11. yacineolivier-maker's ConkerLR-Recomp (Full DSP, ambient occlusion)",
         'https://github.com/yacineolivier-maker/ConkerLR-Recomp (commit 2013160,\n'
-        'sdk/runtime/xdk/dsp_image.cpp).\n'
+        'sdk/runtime/xdk/dsp_image.cpp, src/common/rendu_shaders.h).\n'
         'Processing "Full DSP" runs the console\'s own sound effects (gain, mixer,\n'
         'filter, speaker crosstalk, the I3DL2 reverb) natively: the toolkit\'s\n'
-        'src/apu/apu_fx.c is a C port of their dsp_image.cpp. Thank you.\n'
+        'src/apu/apu_fx.c is a C port of their dsp_image.cpp. Ambient occlusion\n'
+        '(F2 Graphics) uses their GTAO shader and its blur, taken over to D3D11\n'
+        "in the toolkit's src/kernel/ao_d3d11.c. Thank you.\n"
         'MIT licence:\n\nCopyright (c) 2026 yacineolivier-maker and the ConkerLR-Recomp '
         'contributors\n\n' + MIT))
 

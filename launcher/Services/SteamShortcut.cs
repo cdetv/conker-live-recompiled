@@ -12,8 +12,13 @@ public sealed record SteamInstall(string Root, string Exe);
 /// <summary>What Add to Steam did: a shortcut updated (or added), how many pictures, for which account.</summary>
 public sealed record SteamResult(bool Updated, int Pictures, int PicturesWanted, string Account);
 
-/// <summary>Add to Steam stopped; the message says why (for the Files tab).</summary>
-public sealed class SteamException(string message) : Exception(message);
+/// <summary>Add to Steam stopped; the message says why (for the Files tab, in the language shown).</summary>
+public sealed class SteamException(Said text) : Exception
+{
+    public Said Text { get; } = text;
+
+    public override string Message => Text.ToString();
+}
 
 /// <summary>
 /// Add to Steam on Windows (to-do 285, SPEC 9.3): the launcher as a non-Steam game in the
@@ -96,22 +101,22 @@ public static class SteamShortcut
     }
 
     /// <summary>Adds or updates the shortcut to <paramref name="launcherExe"/>; Steam is closed meanwhile and started again.</summary>
-    public static async Task<SteamResult> AddAsync(SteamInstall steam, string launcherExe, IProgress<string> progress)
+    public static async Task<SteamResult> AddAsync(SteamInstall steam, string launcherExe, IProgress<Said> progress)
     {
         (string account, string accountName) = PickAccount(steam.Root);
 
-        progress.Report("Downloading the artwork from SteamGridDB ...");
+        progress.Report(S("Downloading the artwork from SteamGridDB ..."));
         byte[]?[] pictures = await Task.WhenAll(Art.Select(a => DownloadAsync(a.Url)));
 
         if (File.Exists(steam.Exe) && IsRunning())
         {
-            progress.Report("Closing Steam ...");
+            progress.Report(S("Closing Steam ..."));
             await CloseSteamAsync(steam);
         }
 
         try
         {
-            progress.Report("Adding the shortcut ...");
+            progress.Report(S("Adding the shortcut ..."));
             bool updated = await Task.Run(() => Write(steam.Root, account, launcherExe, pictures));
             return new SteamResult(updated, pictures.Count(p => p is not null), Art.Length, accountName);
         }
@@ -137,7 +142,7 @@ public static class SteamShortcut
             : [];
         if (folders.Count == 0)
         {
-            throw new SteamException("No Steam account has signed in on this PC yet: start Steam, sign in, then try again.");
+            throw new SteamException(S("No Steam account has signed in on this PC yet: start Steam, sign in, then try again."));
         }
 
         Dictionary<string, Dictionary<string, string>> users = ReadLoginUsers(root);
@@ -196,7 +201,7 @@ public static class SteamShortcut
         }
         catch (System.ComponentModel.Win32Exception e)
         {
-            throw new SteamException($"Steam couldn't be closed ({e.Message}): close it yourself, then try again.");
+            throw new SteamException(S("Steam couldn't be closed ({0}): close it yourself, then try again.", e.Message));
         }
 
         Stopwatch waited = Stopwatch.StartNew();
@@ -204,7 +209,7 @@ public static class SteamShortcut
         {
             if (waited.Elapsed > TimeSpan.FromSeconds(90))
             {
-                throw new SteamException("Steam didn't close, so nothing was changed: close it yourself (Steam menu > Exit), then try again.");
+                throw new SteamException(S("Steam didn't close, so nothing was changed: close it yourself (Steam menu > Exit), then try again."));
             }
 
             await Task.Delay(500);
@@ -270,7 +275,7 @@ public static class SteamShortcut
         }
         catch (FormatException e)
         {
-            throw new SteamException($"Steam's list of non-Steam games has a form the launcher doesn't know ({e.Message}), so nothing was changed.");
+            throw new SteamException(S("Steam's list of non-Steam games has a form the launcher doesn't know ({0}), so nothing was changed.", e.Message));
         }
 
         BinaryVdf.Field? list = top.Find(f => f.Kind == BinaryVdf.Block && f.Key.Equals("shortcuts", StringComparison.OrdinalIgnoreCase));

@@ -8,7 +8,7 @@ namespace ConkerLauncher.Services;
 /// <param name="Finished">It ran to the end (not stopped with Esc or the window closed).</param>
 /// <param name="ResumeWhere">A stopped run: where the next one continues ("level 12 of 47", "chapter 3 of 9"); null otherwise.</param>
 public sealed record PrecompileResult(Version? Version, string Date, bool Finished, int Levels, int Chapters, int Seconds,
-                                      string? ResumeWhere);
+                                      Said? ResumeWhere);
 
 /// <summary>
 /// The game's shader cache in the user files (SPEC 9.3 Files tab, to-do 25): Precompile Shaders
@@ -49,12 +49,12 @@ public static partial class ShaderCache
             Version? version = values.TryGetValue("version", out string? v) && Version.TryParse(v, out Version? parsed)
                 ? parsed : null;
             bool finished = values.GetValueOrDefault("result", "").StartsWith("done", StringComparison.OrdinalIgnoreCase);
-            string? where = finished ? null : values.GetValueOrDefault("resume") switch
+            Said? where = finished ? null : values.GetValueOrDefault("resume") switch
             {
-                "levels" => $"level {Number(values, "resume_levels")} of 47",
+                "levels" => S("level {0} of 47", Number(values, "resume_levels")),
                 "chapters" => Number(values, "resume_chapter") >= 9
-                    ? "the very end"
-                    : $"chapter {Number(values, "resume_chapter") + 1} of 9",
+                    ? S("the very end")
+                    : S("chapter {0} of 9", Number(values, "resume_chapter") + 1),
                 _ => null,
             };
             return new PrecompileResult(

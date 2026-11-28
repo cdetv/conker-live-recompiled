@@ -66,6 +66,13 @@
  *               launcher's step after an import: the asset cache in
  *               <save>\assets (src/caff_cache.c), --check only asks.
  *
+ *   conker.exe --texture-list <out.tsv> [--game-dir <folder>]
+ *   conker.exe --texture-export <out folder> [--game-dir <folder>]
+ *
+ *               the texture pack kit (to-do 238, src/texkit.c): every
+ *               picture of the player's packages with its replacement name;
+ *               the export also writes each one as a PNG, once per hash.
+ *
  *   conker.exe --bug-report --crash | --freeze [--save-dir <folder>]
  *
  *               what the game starts when it crashed (the question, then the
@@ -188,6 +195,7 @@ static int s_own_log;
 #include "audio_fx.h"
 #include "speaker_test.h"
 #include "room_reverb.h"
+#include "tex_packs.h"
 
 /* The asset cache's features at start (caff_cache_start): "voice" = the lip
  * timelines for the Mouse / Bear voice in conversations (to-do 216), wanted
@@ -196,12 +204,13 @@ static int s_own_log;
  * can turn either on mid-session; a run that began without it kept every
  * conversation as recorded until a restart). --debug's blanket unlock alone
  * doesn't count: test runs on save copies would carve every start.
- * "pan" (Extras' Frying Pan, to-do 44) and "milk" (the Milk Fix, to-do 45):
- * always, so the options work without a restart (user 2026-11-16: made at the
- * first start whatever the options). */
+ * "pan" (Extras' Frying Pan, to-do 44), "milk" (the Milk Fix, to-do 45) and
+ * "sharp" (the sharper text and buttons, to-do 53): always, so the options
+ * work without a restart (user 2026-11-16: made at the first start whatever
+ * the options). */
 static int cache_feature_on(const char *feature)
 {
-    if (!strcmp(feature, "pan") || !strcmp(feature, "milk"))
+    if (!strcmp(feature, "pan") || !strcmp(feature, "milk") || !strcmp(feature, "sharp"))
         return 1;
     if (!strcmp(feature, "voice"))
         return cheat_unlocked_saved(CHEAT_MOUSE) || cheat_unlocked_saved(CHEAT_BEAR)
@@ -1207,7 +1216,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     if (__argc >= 2 && (strcmp(__argv[1], "--list-package") == 0
                         || strcmp(__argv[1], "--extract") == 0
                         || strcmp(__argv[1], "--unpack-all") == 0
-                        || strcmp(__argv[1], "--carve") == 0)) {
+                        || strcmp(__argv[1], "--carve") == 0
+                        || strcmp(__argv[1], "--texture-list") == 0
+                        || strcmp(__argv[1], "--texture-export") == 0)) {
         extern int caff_tool_cmd(void);
         return caff_tool_cmd();
     }
@@ -1256,6 +1267,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     {
         extern void lightmaps_init(void);
         lightmaps_init();
+    }
+    /* Per-pixel character lighting (src/char_lighting.c, to-do 51): the
+     * light registers of Conker's lit vertex programs, for the toolkit. */
+    {
+        extern void char_lighting_init(void);
+        char_lighting_init();
     }
     /* Sound channels (src/recomp_manual.c, to-do 13): the master volume
      * before the first sound. */
@@ -1322,6 +1339,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         caff_cache_start(s_game_dir, s_save_dir, cache_feature_on);
         g_esp = esp;
     }
+
+    /* Texture packs (src/tex_packs.c, to-do 288): the pack folders and the
+     * name table for the toolkit's tex_replace, which lists its folders at
+     * the first texture. */
+    tex_packs_start(s_save_dir);
 
     /* D3D's GPU-time fence (docs/conker-notes.md, D3D table).
      *

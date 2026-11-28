@@ -62,17 +62,18 @@ public static class PadHints
         PadGlyph x = ps ? PsSquare : XboxX;
         return state switch
         {
-            PadHintState.Adjusting => [new([LeftRight], "Change"), new([a, b], "Done")],
-            PadHintState.Choosing => [new([a], "Choose"), new([b], "Close")],
-            PadHintState.PopUp => [new([a], "Select"), new([b], "Back")],
-            PadHintState.KeyCapture => [new([x], "No key"), new([b], "Cancel")],
+            // The words follow the language (to-do 289); the buttons' own names (Start, Share, LB) stay.
+            PadHintState.Adjusting => [new([LeftRight], T("Change")), new([a, b], T("Done"))],
+            PadHintState.Choosing => [new([a], T("Choose")), new([b], T("Close"))],
+            PadHintState.PopUp => [new([a], T("Select")), new([b], T("Back"))],
+            PadHintState.KeyCapture => [new([x], T("No key")), new([b], T("Cancel"))],
             _ =>
             [
-                new([Key(ps ? "L2" : "LT"), Key(ps ? "R2" : "RT")], "Tabs"),
-                new([Key(ps ? "L1" : "LB"), Key(ps ? "R1" : "RB")], "Sections"),
-                new([a], "Select"),
-                new([Key(ps ? "Options" : "Start")], "Play"),
-                new([Key(ps ? "Share" : "Back")], "Quit"),
+                new([Key(ps ? "L2" : "LT"), Key(ps ? "R2" : "RT")], T("Tabs")),
+                new([Key(ps ? "L1" : "LB"), Key(ps ? "R1" : "RB")], T("Sections")),
+                new([a], T("Select")),
+                new([Key(ps ? "Options" : "Start")], T("Play")),
+                new([Key(ps ? "Share" : "Back")], T("Quit")),
             ],
         };
     }
@@ -86,12 +87,12 @@ public static class PadHints
         bool ps = kind == PadKind.PlayStation;
         return
         [
-            new([Key(ps ? "L2" : "LT"), Key(ps ? "R2" : "RT")], "Page"),
-            new([Key(ps ? "L1" : "LB"), Key(ps ? "R1" : "RB")], "Places"),
+            new([Key(ps ? "L2" : "LT"), Key(ps ? "R2" : "RT")], T("Page")),
+            new([Key(ps ? "L1" : "LB"), Key(ps ? "R1" : "RB")], T("Places")),
             new([ps ? PsCross : XboxA], aLabel),
-            new([ps ? PsCircle : XboxB], "Up"),
-            new([ps ? PsSquare : XboxX], showingAll ? "Fewer files" : "All files"),
-            new([Key(ps ? "Share" : "Back")], "Close"),
+            new([ps ? PsCircle : XboxB], T("Up")),
+            new([ps ? PsSquare : XboxX], showingAll ? T("Fewer files") : T("All files")),
+            new([Key(ps ? "Share" : "Back")], T("Close")),
         ];
     }
 

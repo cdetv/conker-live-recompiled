@@ -73,30 +73,30 @@ static const Option s_options[] = {
      * at the monitor's own resolution and refresh rate. */
     { "display", "display_mode", OPT_CHOICE, "borderless", "windowed",
       "RECOMP_DISPLAY_MODE", "windowed borderless fullscreen",
-      "How the game is shown: windowed (a window), borderless (default; a\n"
+      N_("How the game is shown: windowed (a window), borderless (default; a\n"
       "window without a frame covering the monitor: instant Alt+Tab) or\n"
       "fullscreen (exclusive full screen: the game takes the monitor at its\n"
       "own resolution and refresh rate; Alt+Tab takes a moment). F11 or\n"
       "Alt+Enter switches between it and a window in the game. Applies at\n"
-      "once." },
+      "once.") },
     { "display", "render_resolution", OPT_RES, "auto", "640x480",
       "RECOMP_RENDER_RES", NULL,
-      "Size the game is drawn at; the picture takes its shape, so a wide\n"
+      N_("Size the game is drawn at; the picture takes its shape, so a wide\n"
       "size is widescreen (HUD, menus and movies are then stretched).\n"
       "auto (default) = your main monitor's shape and size, but at most\n"
       "1440 pixels tall (4K would drop below 30 fps); auto-4:3 = the same\n"
       "height at 4:3, the original shape; native = exactly your monitor's\n"
-      "size; 640x480 = the original Xbox size; or any WxH such as 1920x1080." },
+      "size; 640x480 = the original Xbox size; or any WxH such as 1920x1080.") },
     { "display", "render_scale", OPT_CHOICE, "100", "100",
       "RECOMP_RENDER_SCALE",
       "50 67 75 100 125 150 200 250 300 400 500 600 700 800 900 1000",
-      "Draw the game bigger or smaller than the render resolution, in\n"
+      N_("Draw the game bigger or smaller than the render resolution, in\n"
       "percent (F2 shows it as a multiple: 200 = 2x): 100 = the same\n"
       "(default), up to 400 (500-1000 are debug choices). Above 100 the game\n"
       "is drawn bigger and shrunk to fit (supersampling): smoother edges and\n"
       "finer detail, but slower. Below 100 it is drawn smaller and stretched\n"
       "by the upscaler: faster, but softer. Sizes too big for the graphics\n"
-      "card's memory (or above 10240x7680) are capped." },
+      "card's memory (or above 10240x7680) are capped.") },
     /* To-do 220 (#22; user 2026-11-16: off by default, render_scale the
      * highest, 50 the lowest). Read by the overlay. */
     { "display", "auto_resolution", OPT_BOOL, "0", "0", "RECOMP_AUTO_RES",
@@ -108,19 +108,19 @@ static const Option s_options[] = {
       "(F1 pressed three times shows what does). Applies at once." },
     { "display", "upscaler", OPT_CHOICE, "fsr", "bilinear",
       "RECOMP_UPSCALER", "bilinear fsr",
-      "How a render scale below 100 is stretched to fit: bilinear\n"
+      N_("How a render scale below 100 is stretched to fit: bilinear\n"
       "(plain, soft) or fsr (default; AMD FidelityFX Super Resolution 1:\n"
       "keeps edges sharp; the sharpen setting then sets FSR's own\n"
-      "sharpening)." },
+      "sharpening).") },
     /* Default aniso8 since 0.3.1 (user 2026-11-11: the High preset's). */
     { "display", "texture_filter", OPT_CHOICE, "aniso8", "original",
       "RECOMP_TEX_FILTER", "off original aniso2 aniso4 aniso8 aniso16",
-      "How textures far away or at an angle are drawn: original (smaller\n"
+      N_("How textures far away or at an angle are drawn: original (smaller\n"
       "copies of each texture far away, as on the Xbox: steady, slightly\n"
       "soft in the distance), off (always the full-size texture: sharpest,\n"
       "but shimmers when moving), aniso2/aniso4/aniso8/aniso16 (original\n"
       "plus anisotropic filtering: also sharp at a low angle; aniso8 is\n"
-      "the default)." },
+      "the default).") },
     /* To-do 219 (#22; user 2026-11-16): replaces grass_full_detail (the
      * Pop-in Fix, 0.1.x-0.3.3); an old file's 0 is read as original, 1 as
      * extended (settings_load). */
@@ -153,9 +153,9 @@ static const Option s_options[] = {
       "RECOMP_POPIN_PARTICLES", NULL, NULL },
     { "display", "particle_density", OPT_NUM, "15", "15",
       "RECOMP_PARTICLE_DENSITY", NULL,
-      "How many ambient particles popin_particles adds beyond the game's\n"
+      N_("How many ambient particles popin_particles adds beyond the game's\n"
       "own box round the camera, 0 to 100 percent (default 15; fewer the\n"
-      "further away; 0 = only the game's own).", 0.0f, 100.0f },
+      "further away; 0 = only the game's own)."), 0.0f, 100.0f },
     { "display", "fps_counter", OPT_CHOICE, "0", "0", NULL, "0 1 2 3",
       "Frame rate in the top left corner: 0 = off (default), 1 = frames\n"
       "per second, 2 = also how long a frame takes (average and longest),\n"
@@ -168,13 +168,13 @@ static const Option s_options[] = {
      * taken for testing, F2 lists them with --debug (to-do 101). */
     { "display", "frame_rate", OPT_CHOICE, "60", "30", "RECOMP_FRAME_RATE",
       "30 60 90 120 240 uncapped",
-      "Frames per second the game runs at: 30 (the original), 60 (default;\n"
+      N_("Frames per second the game runs at: 30 (the original), 60 (default;\n"
       "smoother), 90 or 120 (for fast monitors; best when the PC holds the\n"
       "rate steadily: some animations step unevenly when it dips). With\n"
       "VSync on no rate goes above the monitor's refresh, with vrr 3 under\n"
       "it. The game keeps its speed at every rate. Applies at once. 240 and\n"
       "uncapped are for testing (the F2 menu shows them with --debug; some\n"
-      "things still run too fast there)." },
+      "things still run too fast there).") },
     /* Was dip_fix (default 0) for a day; renamed so files that F2 had
      * already written with dip_fix = 0 get the new default. */
     { "display", "slowdown_fix", OPT_BOOL, "1", "1", "RECOMP_DIP_FIX", NULL,
@@ -205,13 +205,13 @@ static const Option s_options[] = {
     /* User 2026-11-03: three modes, on by default (SPEC 10.1 item 3).
      * Always set: unset is the toolkit's old present (no wait, no tearing). */
     { "display", "vsync", OPT_CHOICE, "on", "", "RECOMP_VSYNC", "on off vrr",
-      "VSync: on (default; no tearing, every frame waits for the monitor's\n"
+      N_("VSync: on (default; no tearing, every frame waits for the monitor's\n"
       "refresh, and on a 60, 120, 180 or 240 Hz monitor the game's clock\n"
       "follows it, so no frame is shown twice or skipped), off (each frame\n"
       "shows the moment it is ready: the lowest delay, but the picture can\n"
       "tear) or vrr (G-Sync / FreeSync: for a monitor with it turned on, in\n"
       "full screen; the monitor waits for the game's frames). Applies at\n"
-      "once." },
+      "once.") },
     /* To-dos 41, 227 (user 2026-11-15): on by default, under Fixes. */
     { "display", "unlocked_camera", OPT_BOOL, "1", "1", "RECOMP_UNLOCKED_CAMERA",
       NULL,
@@ -224,11 +224,11 @@ static const Option s_options[] = {
     /* To-do 228 (user 2026-11-15): under Fixes > Camera, 40-75, 50 = the
      * original; weapon zooms keep their strength (recomp_manual.c). */
     { "display", "field_of_view", OPT_NUM, "50", "50", "RECOMP_FOV", NULL,
-      "Field of view: how much of the world the camera shows, in degrees\n"
+      N_("Field of view: how much of the world the camera shows, in degrees\n"
       "from the top of the picture to the bottom, 40 to 75: 50 = the\n"
       "original (default), higher = wider. Weapon views and their zoom\n"
       "widen with it and keep their zoom; story cutscenes keep their own\n"
-      "view. Applies at once.", 40.0f, 75.0f },
+      "view. Applies at once."), 40.0f, 75.0f },
     /* To-do 26 (2026-11-07). */
     { "display", "loading_screen", OPT_BOOL, "1", "1", "RECOMP_LOADSCREEN",
       NULL,
@@ -264,6 +264,45 @@ static const Option s_options[] = {
       "Speech bubbles hidden while playing (cutscenes and play): 1 = hidden,\n"
       "0 = shown (default). Photo mode's HUD key hides them anyway. Applies\n"
       "at once." },
+    /* To-do 53 (user 2026-11-17: on when the picture is wider than 4:3). */
+    { "display", "wide_bubbles", OPT_CHOICE, "auto", "auto", "RECOMP_WIDE_BUBBLES",
+      "auto on off",
+      "Speech bubbles up to 27 letters wide and 6 lines tall, so a long line\n"
+      "shows at once instead of scrolling: auto (default) = while the picture\n"
+      "is wider than 4:3, on, or off (the original: 20 letters, 4 lines).\n"
+      "From the next bubble." },
+    /* To-do 237 (user 2026-11-27: 4:3 and 100 % by default; bubbles and the
+     * pause screen on rows of their own). User 2026-11-28: the F2 names are
+     * Correct (4:3) / Stretched, and Widescreen (stretched) / 4:3 for the
+     * pause screen, the default on top; bubbles 4:3 by default too. */
+    { "display", "hud_shape", OPT_CHOICE, "4:3", "4:3", "RECOMP_HUD_SHAPE",
+      "4:3 stretched",
+      "The HUD and on-screen texts on a picture wider than 4:3: 4:3 (default,\n"
+      "\"Correct\" in F2: each piece in its original shape, at its side of the\n"
+      "screen: see hud_area) or stretched (stretched to the picture's width).\n"
+      "Applies at once." },
+    { "display", "hud_area", OPT_NUM, "100", "100", "RECOMP_HUD_AREA", NULL,
+      N_("With hud_shape = 4:3: where the pieces at the sides of the HUD go,\n"
+      "0 to 100 percent: 100 (default) = at the screen's edges, 0 = inside\n"
+      "the 4:3 area in the middle, as on a 4:3 screen. Applies at once."),
+      0.0f, 100.0f },
+    { "display", "bubble_shape", OPT_CHOICE, "4:3", "4:3", "RECOMP_BUBBLE_SHAPE",
+      "4:3 stretched",
+      "Speech bubbles on a picture wider than 4:3: 4:3 (default, \"Correct\" in\n"
+      "F2: their original shape) or stretched (to the picture's width).\n"
+      "Applies at once." },
+    { "display", "pause_screen", OPT_CHOICE, "stretched", "stretched", "RECOMP_PAUSE_SCREEN",
+      "stretched 4:3",
+      "The pause screen on a picture wider than 4:3: stretched (default,\n"
+      "\"Widescreen\" in F2: its frame fills the screen, and with hud_shape =\n"
+      "4:3 its pictures and words keep their own shape) or 4:3 (its original\n"
+      "shape, black bars at the sides). Applies at once." },
+    /* To-do 53 step 5 (user 2026-11-27: with a switch, on by default). */
+    { "display", "sharp_gui", OPT_BOOL, "1", "1", "RECOMP_SHARP_GUI", NULL,
+      "The game's letters and button pictures made sharper on this PC from\n"
+      "your own game files (the launcher's \"Preparing game assets\"): 1 = on\n"
+      "(default), 0 = the original. Texture packs you turn on still win.\n"
+      "Applies at once." },
     /* To-do 154 (user 2026-11-09). */
     { "display", "speedrun_timer", OPT_BOOL, "0", "0", NULL, NULL,
       "A speedrun timer in the top right corner: game time without loads from\n"
@@ -316,57 +355,110 @@ static const Option s_options[] = {
       "Debug (--debug only): the hold-to-skip ring drawn as Conker's tail,\n"
       "curled up with fur: 1 = on, 0 = off (default; the plain ring)." },
     { "picture", "gamma", OPT_NUM, "1", "1", "RECOMP_GAMMA", NULL,
-      "Picture brightness curve, 0.5 to 1.5: 1 = original (default); higher\n"
-      "lifts the dark and middle tones, lower darkens them.", 0.5f, 1.5f },
+      N_("Picture brightness curve, 0.5 to 1.5: 1 = original (default); higher\n"
+      "lifts the dark and middle tones, lower darkens them."), 0.5f, 1.5f },
     { "picture", "contrast", OPT_NUM, "1", "1", "RECOMP_CONTRAST", NULL,
-      "Picture contrast, 0.5 to 1.5: 1 = original (default).", 0.5f, 1.5f },
+      N_("Picture contrast, 0.5 to 1.5: 1 = original (default)."), 0.5f, 1.5f },
     { "picture", "saturation", OPT_NUM, "1", "1", "RECOMP_SATURATION", NULL,
-      "Colour strength, 0 to 2: 1 = original (default), 0 = black and\n"
-      "white, 2 = twice as colourful.", 0.0f, 2.0f },
+      N_("Colour strength, 0 to 2: 1 = original (default), 0 = black and\n"
+      "white, 2 = twice as colourful."), 0.0f, 2.0f },
+    /* To-do 236 (0.7.0; user 2026-11-25: + = greyer). */
+    { "picture", "black_level", OPT_NUM, "0", "0", "RECOMP_BLACK_LEVEL", NULL,
+      N_("Black level in percent, -20 to +20: 0 = original (default); higher\n"
+      "lifts the blacks towards grey (more detail in the shadows), lower\n"
+      "makes them deeper (the darkest tones turn black)."), -20.0f, 20.0f },
     { "picture", "antialiasing", OPT_CHOICE, "smaa", "off", "RECOMP_AA",
       "off fxaa smaa",
-      "Smoothing of jagged edges: off (the original), fxaa (NVIDIA FXAA:\n"
+      N_("Smoothing of jagged edges: off (the original), fxaa (NVIDIA FXAA:\n"
       "quick, slightly softens the whole picture) or smaa (default; SMAA:\n"
-      "smooths edges more cleanly and keeps text and textures sharper)." },
+      "smooths edges more cleanly and keeps text and textures sharper).") },
     /* To-do 17 (2026-11-06): the shadow pictures drawn bigger
      * (src/shadows.c); 4x unset = the runtime's own default. */
     { "picture", "shadow_resolution", OPT_CHOICE, "4x", "4x",
       "RECOMP_SHADOW_RES", "original 2x 4x 8x 16x",
-      "How sharp the characters' shadows are: original (the game's 128 x\n"
+      N_("How sharp the characters' shadows are: original (the game's 128 x\n"
       "128 picture per shadow: soft and blocky), 2x, 4x (default), 8x or\n"
       "16x (the sharpest; more video memory and GPU time). Applies at\n"
-      "once." },
+      "once.") },
     /* To-do 105 (2026-11-06): softer edges at any size (src/shadows.c);
      * default 50 (user 2026-11-06), the runtime's own unset too. */
     { "picture", "shadow_softness", OPT_NUM, "50", "50",
       "RECOMP_SHADOW_SOFTNESS", NULL,
-      "How soft the characters' shadow edges are, 0 to 100 percent: 0 =\n"
+      N_("How soft the characters' shadow edges are, 0 to 100 percent: 0 =\n"
       "as sharp as shadow_resolution draws them, 50 = soft (default),\n"
       "100 = softest. The same softness at every size; no effect at\n"
-      "original. Applies at once.", 0.0f, 100.0f },
+      "original. Applies at once."), 0.0f, 100.0f },
     /* To-do 106 (2026-11-06): light maps as a B-spline (src/lightmaps.c). */
     { "picture", "smooth_world_shadows", OPT_BOOL, "1", "1",
       "RECOMP_SMOOTH_LIGHTMAPS", NULL,
       "The shadows baked into the levels (fences, plants, buildings under\n"
       "the lamps): 1 = read smoothly, rounded edges instead of blocky steps\n"
       "(default), 0 = as the original. Applies at once." },
+    /* To-do 52 (0.7.0; user 2026-11-25: on from High, off on the Low and
+     * Medium presets; grass left out; the radius a slider; look B from the
+     * before / after shots, then strength and radius 50 by default: 100 a
+     * little too intense, kept on the sliders). */
+    { "picture", "ambient_occlusion", OPT_BOOL, "1", "1", "RECOMP_AO", NULL,
+      "Ambient occlusion: darkens creases and corners where light can't\n"
+      "reach (under fences, between rocks, at the foot of walls): 1 = on\n"
+      "(default), 0 = off (the original). Characters, grass and water are\n"
+      "not darkened. Costs some GPU time. Applies at once." },
+    { "picture", "ao_strength", OPT_NUM, "50", "50", "RECOMP_AO_STRENGTH",
+      NULL,
+      N_("How dark ambient_occlusion makes creases and corners, 0 to 100\n"
+      "percent (default 50)."), 0.0f, 100.0f },
+    { "picture", "ao_radius", OPT_NUM, "50", "50", "RECOMP_AO_RADIUS", NULL,
+      N_("How far round a corner ambient_occlusion reaches, 10 to 100 world\n"
+      "units (default 50; Conker is about 90 tall)."), 10.0f, 100.0f },
+    /* To-do 51 (0.7.0; user 2026-11-25: on by default, off only on the Low
+     * preset; every lit program, props too; the blob shadows' softness
+     * fixed, no slider). RECOMP_PERPIXEL=2 (even frames only) stays a test
+     * value of the switch. */
+    { "picture", "per_pixel_lighting", OPT_BOOL, "1", "1", "RECOMP_PERPIXEL",
+      NULL,
+      "Per-pixel character lighting: light and shadow on characters (and\n"
+      "what they hold) worked out per pixel: no light edges crawling along\n"
+      "tails and arms, soft edges on the shadows characters cast on each\n"
+      "other. 1 = on (default), 0 = per corner (the original). Applies at\n"
+      "once." },
     { "picture", "sharpen", OPT_NUM, "100", "0", "RECOMP_SHARPEN", NULL,
-      "Sharpening (AMD FidelityFX CAS), 0 to 100 percent: 0 = off,\n"
-      "100 = strongest (default).", 0.0f, 100.0f },
+      N_("Sharpening (AMD FidelityFX CAS), 0 to 100 percent: 0 = off,\n"
+      "100 = strongest (default)."), 0.0f, 100.0f },
     { "picture", "crt", OPT_CHOICE, "off", "off", "RECOMP_CRT",
       "off scanlines crt",
-      "Old TV look: off (default), scanlines (dark lines between the\n"
+      N_("Old TV look: off (default), scanlines (dark lines between the\n"
       "game's 480 lines) or crt (scanlines plus a slightly curved screen\n"
       "and a soft glow). Scanlines need a picture at least 960 pixels\n"
-      "tall to show fully; they fade out below that." },
+      "tall to show fully; they fade out below that.") },
     { "picture", "crt_strength", OPT_NUM, "50", "50", "RECOMP_CRT_STRENGTH",
       NULL,
-      "How strong the crt setting is, 0 to 100 percent (default 50).",
+      N_("How strong the crt setting is, 0 to 100 percent (default 50)."),
       0.0f, 100.0f },
     { "picture", "glow", OPT_NUM, "100", "100", "RECOMP_GLOW", NULL,
-      "The game's own glow (halos round lamps, glowing text, the soft\n"
+      N_("The game's own glow (halos round lamps, glowing text, the soft\n"
       "haze in some levels), 0 to 100 percent: 100 = original (default),\n"
-      "0 = off.", 0.0f, 100.0f },
+      "0 = off."), 0.0f, 100.0f },
+    /* To-do 239 (0.7.0): HDR10 output, in F2 Display (user 2026-11-17); the
+     * defaults confirmed by the user at their monitor 2026-11-27. mask = the
+     * debug view (--debug). */
+    { "picture", "hdr", OPT_CHOICE, "off", "off", "RECOMP_HDR", "off on mask",
+      N_("HDR output (HDR10): on = the brightest parts of the 3D picture (sun,\n"
+      "lamps, gunfire, glints) shine brighter than white, while the HUD, text\n"
+      "and menus stay at the paper white; off (default) = SDR as before. Works\n"
+      "only where Windows HDR is on for the monitor (\"Use HDR\" in Windows'\n"
+      "display settings); elsewhere the game stays SDR. Applies at once.") },
+    { "picture", "hdr_paper_white", OPT_NUM, "0", "0", "RECOMP_HDR_PAPER_WHITE",
+      NULL,
+      N_("With HDR on: how bright white is (the HUD, text, menus and the\n"
+      "picture's ordinary parts), 80 to 500 nits; 0 = the same as Windows'\n"
+      "SDR content brightness for that monitor (default)."), 0.0f, 1000.0f },
+    { "picture", "hdr_peak", OPT_NUM, "0", "0", "RECOMP_HDR_PEAK", NULL,
+      N_("With HDR on: the most the highlights may reach, in nits; 0 = what\n"
+      "the monitor says it can show (default)."), 0.0f, 10000.0f },
+    { "picture", "hdr_stretch", OPT_NUM, "50", "50", "RECOMP_HDR_STRETCH", NULL,
+      N_("With HDR on: how far the brightest parts of the 3D picture are\n"
+      "pushed above white towards the peak, 0 to 100 percent: 0 = as in SDR,\n"
+      "at the paper white; 50 = default."), 0.0f, 100.0f },
     { "picture", "fog", OPT_BOOL, "1", "1", "RECOMP_FOG", NULL,
       "The levels' distance fog (far scenery fading into the level's fog\n"
       "colour): 1 = on as the original (default), 0 = off (far scenery as\n"
@@ -397,6 +489,14 @@ static const Option s_options[] = {
       "briefings and win screens): 0 = in their own 4:3 shape with black\n"
       "bars at the sides on a wide window (default), 1 = stretched to the\n"
       "window. Story cutscenes: cutscenes_43." },
+    /* To-do 54 (0.7.0): on at every preset (it costs a fraction of a
+     * millisecond, only while a movie plays). */
+    { "picture", "movie_upscale", OPT_CHOICE, "fsr", "fsr",
+      "RECOMP_MOVIE_UPSCALE", "original fsr",
+      "How the movies (the boot intro, the idle demo, the multiplayer\n"
+      "briefings and win screens) are enlarged to the window: fsr = AMD\n"
+      "FSR 1 with smooth colour edges, sharper (default); original = the\n"
+      "original's plain stretch, softer. Applies at once." },
     { "picture", "cutscenes_43", OPT_BOOL, "0", "0", "RECOMP_CUTSCENE_43", NULL,
       "Story cutscenes (the ones the game draws, not the movies) on a wide\n"
       "window: 0 = they fill the window as gameplay does (default), 1 = in\n"
@@ -407,28 +507,43 @@ static const Option s_options[] = {
       "0 = the original. Normal water is never changed." },
     { "picture", "cutscene_blur", OPT_CHOICE, "updated", "updated",
       "RECOMP_DOF", "off original updated cinematic",
-      "Depth of field in cutscenes (the background or foreground out of\n"
+      N_("Depth of field in cutscenes (the background or foreground out of\n"
       "focus): updated (default; the game's own, drawn smooth at any\n"
       "resolution), cinematic (stronger, like a film camera, with soft\n"
       "round highlights), original (the game's own as it was: blocky at\n"
-      "high resolutions) or off." },
+      "high resolutions) or off.") },
+    /* To-do 235 (0.7.0; user 2026-11-25: off by default, not in the
+     * presets, a strength slider default 50; gameplay and cutscenes, not
+     * the main menu, photo mode or split screen). */
+    { "picture", "motion_blur", OPT_BOOL, "0", "0", "RECOMP_MOTION_BLUR",
+      NULL,
+      "Camera motion blur: blurs the picture during quick camera turns, as\n"
+      "a film camera would; slow turns and the middle of the screen stay\n"
+      "sharp. 1 = on, 0 = off (default; the original). Gameplay and\n"
+      "cutscenes, not the main menu, photo mode or split screen. Costs some\n"
+      "GPU time while turning. Applies at once." },
+    { "picture", "motion_blur_strength", OPT_NUM, "50", "50",
+      "RECOMP_MBLUR_STRENGTH", NULL,
+      N_("How long motion_blur's smear is, 0 to 100 percent: 50 (default) =\n"
+      "the camera's motion over 1/60 s, 100 = over 1/30 s, the same at\n"
+      "any frame rate."), 0.0f, 100.0f },
     /* To-do 13 (user 2026-11-07): master, four channels with a mute each,
      * a cutscene boost; the debug solo is RECOMP_AUDIO_SOLO / F2 only. */
     { "audio", "master_volume", OPT_NUM, "100", "100", "RECOMP_MASTER_VOLUME",
       NULL,
-      "Volume of everything, movies included, 0 to 100 percent (default\n"
-      "100). 50 is about half as loud (-12 dB); 0 is silent.",
+      N_("Volume of everything, movies included, 0 to 100 percent (default\n"
+      "100). 50 is about half as loud (-12 dB); 0 is silent."),
       0.0f, 100.0f },
     { "audio", "master_mute", OPT_BOOL, "0", "0", "RECOMP_MASTER_MUTE", NULL,
       "1 = all sound muted, 0 = heard (default)." },
     { "audio", "music_volume", OPT_NUM, "100", "100", "RECOMP_MUSIC_VOLUME",
       NULL,
-      "Volume of the music, 0 to 100 percent (default 100). The same for\n"
+      N_("Volume of the music, 0 to 100 percent (default 100). The same for\n"
       "effects (sound effects), dialogue (cutscene and in-game speech) and\n"
-      "other (ambience: wind, birds, water; and the menu sounds).",
+      "other (ambience: wind, birds, water; and the menu sounds)."),
       0.0f, 100.0f },
     { "audio", "music_mute", OPT_BOOL, "0", "0", "RECOMP_MUSIC_MUTE", NULL,
-      "1 = the music muted, 0 = heard (default); the same for each channel." },
+      N_("1 = the music muted, 0 = heard (default); the same for each channel.") },
     { "audio", "effects_volume", OPT_NUM, "100", "100",
       "RECOMP_EFFECTS_VOLUME", NULL, NULL, 0.0f, 100.0f },
     { "audio", "effects_mute", OPT_BOOL, "0", "0", "RECOMP_EFFECTS_MUTE",
@@ -444,10 +559,10 @@ static const Option s_options[] = {
     /* User 2026-11-07: percent, the default in the middle. */
     { "audio", "cutscene_volume", OPT_NUM, "100", "100",
       "RECOMP_CUTSCENE_VOLUME", NULL,
-      "Volume of everything heard while a cutscene plays (speech, music,\n"
+      N_("Volume of everything heard while a cutscene plays (speech, music,\n"
       "effects), 0 to 200 percent: 100 = as the original (default), below\n"
       "quieter (0 = silent), above louder (200 = four times, +12 dB; very\n"
-      "loud moments are turned down briefly instead of distorting).",
+      "loud moments are turned down briefly instead of distorting)."),
       0.0f, 200.0f },
     /* To-do 50 (0.5.0; user 2026-11-22: Full DSP the default); read by
      * audio_fx.c (RECOMP_APU_PROCESSING set before the game wins). */
@@ -478,8 +593,8 @@ static const Option s_options[] = {
       "on in story mode. Works with full_dsp and standard. 1 = on, 0 = off\n"
       "(default). Switches at once." },
     { "audio", "room_reverb_strength", OPT_NUM, "100", "100", NULL, NULL,
-      "How strong the room reverb is, 0 to 100 percent (100 = the presets\n"
-      "as the game has them, default).",
+      N_("How strong the room reverb is, 0 to 100 percent (100 = the presets\n"
+      "as the game has them, default)."),
       0.0f, 100.0f },
     /* Standard's own options: the F2 menu shows them with --debug since
      * 0.5.0 (Full DSP is the default). */
@@ -493,9 +608,9 @@ static const Option s_options[] = {
       "3D sound filtering (HRTF) for sounds placed around Conker:\n"
       "1 = on (default), 0 = off. The F2 menu shows it with --debug." },
     { "audio", "pause_silence", OPT_BOOL, "1", "1", NULL, NULL,
-      "While the game is paused with P or in photo mode, the sound stops\n"
+      N_("While the game is paused with P or in photo mode, the sound stops\n"
       "too and carries on where it stopped: 1 = on (default), 0 = the sound\n"
-      "keeps playing." },
+      "keeps playing.") },
     /* To-do 117 (user 2026-11-06): the pause key's old way, --debug only. */
     { "audio", "old_pause", OPT_BOOL, "0", "0", NULL, NULL,
       "Debug (--debug only): the pause key (P) as before 0.2.3: it stops\n"
@@ -505,10 +620,10 @@ static const Option s_options[] = {
       "game as photo mode does, only where photo mode can)." },
     { "language", "language", OPT_CHOICE, "english", "english",
       "RECOMP_LANGUAGE", "english french german italian spanish japanese",
-      "Language of the game's text, menus and subtitles: english (default),\n"
+      N_("Language of the game's text, menus and subtitles: english (default),\n"
       "french, german, italian, spanish or japanese. Voices are English in\n"
       "every language. Applies when the game is started again. Saves made in\n"
-      "one language load in all the others." },
+      "one language load in all the others.") },
     /* To-do 229 (user 2026-11-17): its own setting, the Text language by
      * default; read by the overlay every frame (src/ui_text.cpp). */
     { "language", "ui_language", OPT_CHOICE, "auto", "auto", "RECOMP_UI_LANGUAGE",
@@ -640,11 +755,11 @@ static const Option s_options[] = {
     { "photo", "photo_window", OPT_RECT, "", "", NULL, NULL,
       "Where the photo panel sits and its size, like menu_window." },
     { "controls", "keyboard_mouse", OPT_BOOL, "1", "1", NULL, NULL,
-      "Keyboard and mouse as a player's controller (beside a real one;\n"
+      N_("Keyboard and mouse as a player's controller (beside a real one;\n"
       "keyboard_slot says which player):\n"
       "1 = on (default), 0 = off. F3 in the game changes the keys; the\n"
       "mouse looks around. In a window, click the picture to use the mouse\n"
-      "(Alt+Tab, F2 or F3 let it go again)." },
+      "(Alt+Tab, F2 or F3 let it go again).") },
     /* To-do 40 (user 2026-11-14): menu_mouse.cpp. */
     { "controls", "menu_mouse", OPT_BOOL, "1", "1", NULL, NULL,
       "The mouse in the game's own menus, with keyboard_mouse = 1:\n"
@@ -677,7 +792,7 @@ static const Option s_options[] = {
     /* To-do 29 (2026-11-07; per slot, user 2026-11-07; dead zone default 10,
      * user 2026-11-07): applied by controls_apply. */
     { "controls", "rumble1", OPT_BOOL, "1", "1", NULL, NULL,
-      "Per slot (controller port) 1-4, F3 > Slots:\n"
+      N_("Per slot (controller port) 1-4, F3 > Slots:\n"
       "rumbleN: the controller rumbles, 1 = on (default; when the game's own\n"
       "Vibration option is on too), 0 = off.\n"
       "rumble_strengthN: how strong, 0 to 200 percent of what the game asks\n"
@@ -686,7 +801,7 @@ static const Option s_options[] = {
       "0 to 40 percent of full tilt (default 10; 14 = the game's own: about\n"
       "14 on the left stick, 15 on the right); lower = quicker to respond,\n"
       "higher = for a worn stick that drifts. Controllers only (not the\n"
-      "keyboard)." },
+      "keyboard).") },
     { "controls", "rumble_strength1", OPT_NUM, "100", "100", NULL, NULL, NULL,
       0.0f, 200.0f },
     { "controls", "stick_dead_zone1", OPT_NUM, "10", "10", NULL, NULL, NULL,
@@ -709,7 +824,7 @@ static const Option s_options[] = {
     /* To-do 35 (user 2026-11-15): gyro aiming per slot, F3 > Slots >
      * Options; applied by controls_apply_gyro. */
     { "controls", "gyro_story1", OPT_BOOL, "1", "1", NULL, NULL,
-      "Gyro aiming, per slot 1-4 (controllers with a gyro: PlayStation and\n"
+      N_("Gyro aiming, per slot 1-4 (controllers with a gyro: PlayStation and\n"
       "Switch controllers), F3 > Slots > Options:\n"
       "gyro_storyN: single player, 1 = on (default): turning the controller\n"
       "aims while a weapon is out and the left trigger is held; 0 = off.\n"
@@ -718,7 +833,7 @@ static const Option s_options[] = {
       "gyro_speed_xN / gyro_speed_yN: how far the aim turns left / right and\n"
       "up / down, percent of the controller's own turn (25 to 1000, default\n"
       "200: twice as far).\n"
-      "gyro_invert_yN: 1 = tilting the controller up aims down (default 0)." },
+      "gyro_invert_yN: 1 = tilting the controller up aims down (default 0).") },
     { "controls", "gyro_mp1", OPT_BOOL, "0", "0", NULL, NULL, NULL },
     { "controls", "gyro_speed_x1", OPT_NUM, "200", "200", NULL, NULL, NULL,
       25.0f, 1000.0f },
@@ -747,11 +862,11 @@ static const Option s_options[] = {
       25.0f, 1000.0f },
     { "controls", "gyro_invert_y4", OPT_BOOL, "0", "0", NULL, NULL, NULL },
     { "controls", "story_camera_speed1", OPT_NUM, "100", "100", NULL, NULL,
-      "Camera speed, how fast the right stick turns the camera and aims, 25 to\n"
+      N_("Camera speed, how fast the right stick turns the camera and aims, 25 to\n"
       "300 percent (default 100), F3 > Slots > Options:\n"
       "story_camera_speed1: single player (slot 1's controller; the camera and\n"
       "aiming with a weapon).\n"
-      "mp_camera_speedN: multiplayer, per slot 1-4 (that player's aim).",
+      "mp_camera_speedN: multiplayer, per slot 1-4 (that player's aim)."),
       25.0f, 300.0f },
     { "controls", "mp_camera_speed1", OPT_NUM, "100", "100", NULL, NULL, NULL,
       25.0f, 300.0f },
@@ -795,25 +910,25 @@ static const Option s_options[] = {
     { "chords", "chord_freecam", OPT_CHOICE, "back+x", "back+x", NULL,
       CHORDS_CHOICES, NULL },
     { "controls_story", "story_mouse_x", OPT_NUM, "100", "100", NULL, NULL,
-      "Keys and mouse in single player (story); F3 changes them.\n"
-      "Mouse sensitivity left and right, 10 to 400 percent (default 100).",
+      N_("Keys and mouse in single player (story); F3 changes them.\n"
+      "Mouse sensitivity left and right, 10 to 400 percent (default 100)."),
       10.0f, 400.0f },
     { "controls_story", "story_mouse_y", OPT_NUM, "100", "100", NULL, NULL,
-      "Mouse sensitivity up and down, 10 to 400 percent (default 100).",
+      N_("Mouse sensitivity up and down, 10 to 400 percent (default 100)."),
       10.0f, 400.0f },
     { "controls_story", "story_invert_y", OPT_BOOL, "0", "0", NULL, NULL,
-      "1 = moving the mouse forward looks down (default 0)." },
+      N_("1 = moving the mouse forward looks down (default 0).") },
     { "controls_story", "story_scheme", OPT_CHOICE, "classic", "classic", NULL,
       "classic modern",
-      "classic = the controller's layout (the weapon key takes the weapon\n"
+      N_("classic = the controller's layout (the weapon key takes the weapon\n"
       "out and puts it away, and is the context action); modern = hold\n"
       "story_aim to take the weapon out, Attack fires only while aiming,\n"
-      "story_context is the context action only." },
+      "story_context is the context action only.") },
     { "controls_story", "story_slingshot_aim", OPT_CHOICE, "hold", "hold", NULL,
       "hold toggle",
-      "Modern only: how a slingshot pad's slingshot aims. hold (default;\n"
+      N_("Modern only: how a slingshot pad's slingshot aims. hold (default;\n"
       "aimed while story_aim is held, as the other weapons) or toggle\n"
-      "(story_context turns it on and off, as Classic's weapon key)." },
+      "(story_context turns it on and off, as Classic's weapon key).") },
     { "controls_story", "story_move_forward", OPT_KEY, "w", "w", NULL, NULL,
       "Up to three keys per action, a list: space, mouse4, shift+e (a\n"
       "combo: hold shift, then press e). F3 says what each does (menus\n"
@@ -923,8 +1038,8 @@ static const Option s_options[] = {
     { "controller_story", "pad_modern_bat_aim_hold", OPT_CHOICE, "lt", "lt", NULL, PADB_CHOICES, NULL },
 #undef PADB_CHOICES
     { "controls_multiplayer", "mp_mouse_x", OPT_NUM, "100", "100", NULL, NULL,
-      "Keys and mouse in multiplayer (the game's Emily layout); F3 changes them.\n"
-      "Mouse sensitivity left and right, 10 to 400 percent (default 100).",
+      N_("Keys and mouse in multiplayer (the game's Emily layout); F3 changes them.\n"
+      "Mouse sensitivity left and right, 10 to 400 percent (default 100)."),
       10.0f, 400.0f },
     { "controls_multiplayer", "mp_mouse_y", OPT_NUM, "100", "100", NULL, NULL,
       "Mouse sensitivity up and down, 10 to 400 percent (default 100).",
@@ -951,9 +1066,9 @@ static const Option s_options[] = {
     { "controls_multiplayer", "mp_zoom", OPT_KEY, "mouse2", "mouse2", NULL, NULL, NULL },
     { "controls_multiplayer", "mp_zoom_mode", OPT_CHOICE, "toggle", "toggle", NULL,
       "toggle hold",
-      "How the zoom key zooms on foot: toggle (default; press to zoom in,\n"
+      N_("How the zoom key zooms on foot: toggle (default; press to zoom in,\n"
       "press again to zoom out, as the controller) or hold (zoomed in while\n"
-      "the key is held). In a vehicle it is always as the controller." },
+      "the key is held). In a vehicle it is always as the controller.") },
     { "controls_multiplayer", "mp_reload", OPT_KEY, "r", "r", NULL, NULL, NULL },
     { "controls_multiplayer", "mp_interact", OPT_KEY, "e", "e", NULL, NULL, NULL },
     { "controls_multiplayer", "mp_weapon_mode", OPT_KEY, "x", "x", NULL, NULL, NULL },
@@ -1056,6 +1171,10 @@ static const struct {
     { "character_foliage_detail",
                               { "low",      "extended", "extended", "extended" } },
     { "smooth_world_shadows", { "0",        "1",       "1",      "1"       } },
+    /* User 2026-11-25 (to-do 52). */
+    { "ambient_occlusion",    { "0",        "0",       "1",      "1"       } },
+    /* User 2026-11-25 (to-do 51): off only on Low. */
+    { "per_pixel_lighting",   { "0",        "1",       "1",      "1"       } },
     { "cutscene_blur",        { "original", "updated", "updated", "updated" } },
     { "texture_filter",       { "original", "aniso4",  "aniso8", "aniso16" } },
     { "hrtf",                 { "0",        "1",       "1",      "1"       } },
@@ -1401,6 +1520,7 @@ static void apply_env(size_t i)
  * temporary file first and moved over the old one, so a failed write never
  * leaves half a file. */
 static void write_binds(FILE *f);
+static void write_packs(FILE *f);
 
 static int write_file(void)
 {
@@ -1438,6 +1558,7 @@ static int write_file(void)
         }
         fprintf(f, "%s = %s\n", o->key, s_value[i]);
     }
+    write_packs(f);
     write_binds(f);
     if (fclose(f) || !MoveFileExA(tmp, s_path, MOVEFILE_REPLACE_EXISTING)) {
         fprintf(stderr, "[SETTINGS] could not write %s\n", s_path);
@@ -1529,6 +1650,92 @@ static void write_binds(FILE *f)
           "; in the console, unbind <key>, bind reset; or here as key = command.\n", f);
     for (int i = 0; i < s_nbinds; i++)
         fprintf(f, "%s = %s\n", s_bind_key[i], s_bind_cmd[i]);
+}
+
+/* ---- texture packs (to-do 288) -------------------------------------------------
+ *
+ * settings.ini's [texture_packs], before [binds]: one line a pack in the
+ * list's order, the top one first (it wins where two packs change the same
+ * texture), "on = <folder name>" or "off = <folder name>" (listed, not used).
+ * Kept apart from the options table like the binds: a list of any length,
+ * where an option's value is at most 259 bytes. tex_packs.c checks the
+ * names; here a line is only refused when empty, too long or given twice. */
+#define MAX_PACKS 64
+#define PACK_NAME 128
+
+static char s_pack_name[MAX_PACKS][PACK_NAME];
+static int s_pack_on[MAX_PACKS];
+static int s_npacks;
+
+int settings_pack_count(void)
+{
+    return s_npacks;
+}
+
+const char *settings_pack_name(int i)
+{
+    return i >= 0 && i < s_npacks ? s_pack_name[i] : NULL;
+}
+
+int settings_pack_on(int i)
+{
+    return i >= 0 && i < s_npacks && s_pack_on[i];
+}
+
+static int pack_add(const char *name, int on)
+{
+    if (!*name || strlen(name) >= PACK_NAME || s_npacks == MAX_PACKS)
+        return 0;
+    for (int i = 0; i < s_npacks; i++)
+        if (!_stricmp(s_pack_name[i], name))
+            return 0;                   /* twice: the higher place counts */
+    strcpy_s(s_pack_name[s_npacks], PACK_NAME, name);
+    s_pack_on[s_npacks++] = on;
+    return 1;
+}
+
+/* A line of the section (settings_load). A name an editor saved in the PC's
+ * own code page (not valid UTF-8) is read in that code page, as paths are
+ * (to-do 262). */
+static void pack_line(const char *key, const char *name, int line)
+{
+    char conv[PACK_NAME * 3];
+    WCHAR wide[PACK_NAME * 2];
+    int on = !_stricmp(key, "on");
+
+    if (!on && _stricmp(key, "off")) {
+        fprintf(stderr, "[SETTINGS] %s line %d: [texture_packs] takes \"on = <folder>\" or "
+                "\"off = <folder>\", not %s: ignored\n", s_path, line, key);
+        return;
+    }
+    if (!conker_is_utf8(name)
+        && MultiByteToWideChar(conker_legacy_cp(), 0, name, -1, wide, PACK_NAME * 2) > 0
+        && WideCharToMultiByte(CP_UTF8, 0, wide, -1, conv, sizeof conv, NULL, NULL) > 0)
+        name = conv;
+    if (!pack_add(name, on))
+        fprintf(stderr, "[SETTINGS] %s line %d: texture pack \"%s\" ignored (empty, longer than "
+                "%d bytes, named twice or past %d packs)\n", s_path, line, name, PACK_NAME - 1,
+                MAX_PACKS);
+}
+
+int settings_packs_set(int n, const char *const *names, const int *on)
+{
+    s_npacks = 0;
+    for (int i = 0; i < n; i++)
+        pack_add(names[i], on[i] != 0);
+    return write_file();
+}
+
+static void write_packs(FILE *f)
+{
+    fputs("\n[texture_packs]\n"
+          "; Texture packs: folders of PNG textures in textures\\packs next to\n"
+          "; conker.exe, one line each, the top one first (it wins where two packs\n"
+          "; change the same texture): on = used, off = listed but not used. A new\n"
+          "; folder starts off. F2 > Extras > Texture Packs changes them in the\n"
+          "; game, at once.\n", f);
+    for (int i = 0; i < s_npacks; i++)
+        fprintf(f, "%s = %s\n", s_pack_on[i] ? "on" : "off", s_pack_name[i]);
 }
 
 int settings_set(const char *key, const char *value)
@@ -1718,6 +1925,43 @@ void settings_dump_presets(FILE *f)
     }
 }
 
+/* A quality-preset option with no line in an existing settings.ini (new
+ * since the file was written; ambient_occlusion in 0.7.0, to-do 52): the
+ * value of the one preset all the file's other preset options match, so a
+ * player on Low or Medium keeps that preset and does not get a dearer
+ * option switched on by an update. No match, or more than one: the default.
+ * The launcher does the same (SettingsViewModel.Reload). */
+static void preset_fill_new(const char *seen)
+{
+    int match = -1, matches = 0;
+
+    for (int p = 0; p < SETTINGS_PRESETS; p++) {
+        int ok = 1, any = 0;
+        for (int k = 0; k < NUM_PRESET_KEYS && ok; k++) {
+            int o = find(s_presets[k].key);
+            if (o < 0 || !seen[o])
+                continue;
+            any = 1;
+            ok = !_stricmp(s_value[o], s_presets[k].v[p]);
+        }
+        if (ok && any) {
+            match = p;
+            matches++;
+        }
+    }
+    if (matches != 1)
+        return;
+    for (int k = 0; k < NUM_PRESET_KEYS; k++) {
+        int o = find(s_presets[k].key);
+        if (o < 0 || seen[o] || !_stricmp(s_value[o], s_presets[k].v[match]))
+            continue;
+        strcpy_s(s_value[o], MAX_PATH, s_presets[k].v[match]);
+        fprintf(stderr, "[SETTINGS] %s: no %s line (new option), the %s "
+                "preset's %s\n", s_path, s_presets[k].key,
+                s_preset_names[match], s_presets[k].v[match]);
+    }
+}
+
 void settings_load(const char *save_dir)
 {
     char buf[1024], section[64] = "";
@@ -1725,6 +1969,7 @@ void settings_load(const char *save_dir)
     int line = 0, old_windowed = 0, mode_seen = 0;
     const char *old_popin = NULL;       /* grass_full_detail, before 0.3.4 */
     int detail_seen = 0;
+    char seen[NUM_OPTIONS] = { 0 };     /* the option has a line in the file */
     size_t i;
 
     /* The Pop-in Fix's old switch (scripts): RECOMP_GRASS_FULL=0 is detail
@@ -1797,6 +2042,10 @@ void settings_load(const char *save_dir)
                 bind_put(key, trim(eq + 1));
                 continue;
             }
+            if (!_stricmp(section, "texture_packs")) {
+                pack_line(key, trim(eq + 1), line);
+                continue;
+            }
             for (i = 0; i < NUM_OPTIONS; i++)
                 if (!_stricmp(s_options[i].section, section)
                         && !_stricmp(s_options[i].key, key))
@@ -1831,8 +2080,10 @@ void settings_load(const char *save_dir)
             }
             sprintf_s(where, sizeof(where), "%s line %d", s_path, line);
             normalize(&s_options[o], trim(eq + 1), s_value[o], where);
+            seen[o] = 1;
         }
         fclose(f);
+        preset_fill_new(seen);
         if (old_windowed && !mode_seen) {
             int o = find("display_mode");
             strcpy_s(s_value[o], MAX_PATH, "windowed");

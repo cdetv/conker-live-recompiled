@@ -34,5 +34,9 @@ int menu_mouse_name_key(HWND hwnd, UINT m, WPARAM w, LPARAM l);
 
 /* overlay.cpp: the quit question, as Esc on the main menu's boards. */
 void overlay_open_quit(void);
+/* overlay.cpp: a bold italic serif for our Back (to-do 291), NULL if Windows
+ * has none. */
+struct ImFont;
+ImFont *overlay_title_font(void);
 
 #endif

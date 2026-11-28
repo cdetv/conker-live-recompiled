@@ -185,7 +185,7 @@ public sealed class SettingsSchema
     {
         if (!File.Exists(folder.GameExe))
         {
-            throw new IOException("conker.exe is missing from the launcher's folder.");
+            throw new SaidIOException(S("conker.exe is missing from the launcher's folder."));
         }
 
         var start = new ProcessStartInfo(folder.GameExe, "--dump-settings")
@@ -196,7 +196,7 @@ public sealed class SettingsSchema
             RedirectStandardOutput = true,
             StandardOutputEncoding = System.Text.Encoding.UTF8,    // the game prints UTF-8 (to-do 262)
         };
-        using Process process = OwnProcesses.Start(start) ?? throw new IOException("conker.exe didn't start.");
+        using Process process = OwnProcesses.Start(start) ?? throw new SaidIOException(S("conker.exe didn't start."));
         string json;
         try
         {
@@ -211,7 +211,7 @@ public sealed class SettingsSchema
 
         if (process.ExitCode != 0)
         {
-            throw new IOException($"conker.exe --dump-settings ended with {process.ExitCode}.");
+            throw new SaidIOException(S("conker.exe --dump-settings ended with {0}.", process.ExitCode));
         }
 
         return Parse(json);

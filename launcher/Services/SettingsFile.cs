@@ -154,6 +154,144 @@ public static class SettingsFile
             lines.Insert(last + 1, text);
         }
 
+        Save(path, lines, bom);
+    }
+
+    // ---- [texture_packs] (to-do 288 part 2d) -------------------------------------------------
+
+    private const string PacksHeader = "[texture_packs]";
+
+    /// <summary>The section's comment as the game writes it (<c>write_packs</c> in <c>src/settings.c</c>).</summary>
+    private static readonly string[] PacksComment =
+    [
+        "; Texture packs: folders of PNG textures in textures\\packs next to",
+        "; conker.exe, one line each, the top one first (it wins where two packs",
+        "; change the same texture): on = used, off = listed but not used. A new",
+        "; folder starts off. F2 > Extras > Texture Packs changes them in the",
+        "; game, at once.",
+    ];
+
+    private static bool IsPacksHeader(string line) => line.Trim().Equals(PacksHeader, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsHeader(string line) => line.TrimStart().StartsWith('[');
+
+    /// <summary>
+    /// settings.ini's <c>[texture_packs]</c>: one <c>on = name</c> / <c>off = name</c> line a pack, in
+    /// order, the top one first. Read as the game reads it (<c>pack_line</c>): other keys, empty names,
+    /// names of 128 bytes or more, a name given twice (the first counts) and lines past 64 are left out.
+    /// Empty when there is no file or no section.
+    /// </summary>
+    public static List<(string Name, bool On)> ReadPacks(string path)
+    {
+        var packs = new List<(string Name, bool On)>();
+        if (!File.Exists(path))
+        {
+            return packs;
+        }
+
+        bool inside = false;
+        foreach (Line line in Load(path, out _))
+        {
+            if (IsHeader(line.Text))
+            {
+                inside = IsPacksHeader(line.Text);
+                continue;
+            }
+
+            if (!inside || KeyOf(line.Text) is not { } key)
+            {
+                continue;
+            }
+
+            bool on = key.Equals("on", StringComparison.OrdinalIgnoreCase);
+            string name = line.Text[(line.Text.IndexOf('=') + 1)..].Trim();
+            if ((on || key.Equals("off", StringComparison.OrdinalIgnoreCase)) && name.Length > 0
+                && Utf8.GetByteCount(name) < 128 && packs.Count < 64
+                && !packs.Exists(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                packs.Add((name, on));
+            }
+        }
+
+        return packs;
+    }
+
+    /// <summary>
+    /// Replaces the <c>[texture_packs]</c> section's pack lines with <paramref name="packs"/> (its
+    /// heading and comments stay; every other line of the file stays byte for byte). Without the
+    /// section, it goes before <c>[binds]</c> (or at the end) with the game's comment. A missing file
+    /// is written as the game writes a new one (<paramref name="schema"/>; the Settings tab's way),
+    /// so the game's first start on this PC still picks its preset: without a schema, nothing is
+    /// written and this throws <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public static void WritePacks(string path, SettingsSchema? schema, IReadOnlyList<(string Name, bool On)> packs)
+    {
+        bool bom = false;
+        List<Line> lines;
+        if (File.Exists(path))
+        {
+            lines = Load(path, out bom);
+        }
+        else if (schema is not null)
+        {
+            lines = [.. NewFile(schema).Select(t => new Line(null, t))];
+        }
+        else
+        {
+            throw new InvalidOperationException("there is no settings.ini yet");
+        }
+
+        IEnumerable<Line> packLines = packs.Select(p => new Line(null, $"{(p.On ? "on" : "off")} = {p.Name}"));
+        int header = lines.FindIndex(l => IsPacksHeader(l.Text));
+        if (header >= 0)
+        {
+            int end = lines.FindIndex(header + 1, l => IsHeader(l.Text));
+            end = end < 0 ? lines.Count : end;
+            for (int i = end - 1; i > header; i--)
+            {
+                if (KeyOf(lines[i].Text) is not null)
+                {
+                    lines.RemoveAt(i);
+                    end--;
+                }
+            }
+
+            // After the heading and its comments, before the blank line ahead of the next section.
+            int at = end;
+            while (at > header + 1 && lines[at - 1].Text.Trim().Length == 0)
+            {
+                at--;
+            }
+
+            lines.InsertRange(at, packLines);
+        }
+        else
+        {
+            List<Line> section = [new Line(null, ""), new Line(null, PacksHeader),
+                                  .. PacksComment.Select(c => new Line(null, c)), .. packLines];
+            int binds = lines.FindIndex(l => l.Text.Trim().Equals("[binds]", StringComparison.OrdinalIgnoreCase));
+            if (binds < 0)
+            {
+                lines.AddRange(section);
+            }
+            else
+            {
+                // The blank line before [binds] stays the one before it.
+                int at = binds;
+                while (at > 0 && lines[at - 1].Text.Trim().Length == 0)
+                {
+                    at--;
+                }
+
+                lines.InsertRange(at, section);
+            }
+        }
+
+        Save(path, lines, bom);
+    }
+
+    private static void Save(string path, List<Line> lines, bool bom)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         string temp = path + ".launcher.tmp";
         using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write))

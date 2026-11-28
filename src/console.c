@@ -36,9 +36,12 @@
 #include "debug_tools.h"
 #include "cmd_pipe.h"
 #include "dev_logs.h"
+#include "motion_blur.h"
+#include "char_lighting.h"
 #include "audio_fx.h"
 #include "speaker_test.h"
 #include "room_reverb.h"
+#include "tex_packs.h"
 
 int xbox_PadLiveLine(const char *line);
 long overlay_dev_shot(const char *path, char *why, size_t why_size);
@@ -986,6 +989,311 @@ static void cmd_wireframe(int argc, char **argv)
     reply("Wireframe %s", names[to]);
 }
 
+/* To-do 237 (recomp_manual.c "Widescreen HUD"): the HUD's shape, its area,
+ * the bubbles' and the pause screen's shapes, for this run only (F2 Display
+ * keeps the settings); the multiplayer HUD's pieces (tests). */
+void conker_SetHudShape(int shape);
+void conker_SetHudArea(float pct);
+void conker_SetBubbleShape(int shape);
+void conker_SetPauseScreen(int shape);
+void conker_GetHud(int *shape, int *area, int *bubble43, int *pause43);
+void conker_SetMpHudTest(uint32_t mask);
+int conker_SetMpHudPiece(int n, int anchor);
+uint32_t conker_GetMpHudPiece(int n, int *anchor);
+int conker_SetMpHudWidget(int n, int anchor);
+const char *conker_GetMpHudWidget(int n, int *anchor);
+
+static int is_shape(const char *s)
+{
+    return !strcmp(s, "stretched") || !strcmp(s, "4:3");
+}
+
+static void cmd_hud(int argc, char **argv)
+{
+    static const char *const anchors[] = { "none", "left", "mid", "right" };
+    int shape, area, bubble43, pause43;
+
+    if (argc == 3 && !strcmp(argv[1], "mptest")) {
+        char *end = NULL;
+        unsigned long m = strtoul(argv[2], &end, 16);
+        if (*end) {
+            complain("hud mptest wants a hex mask");
+            return;
+        }
+        conker_SetMpHudTest((uint32_t)m);
+        reply("multiplayer HUD pieces %08lX squeezed round the view's middle (test)", m);
+        return;
+    }
+    if (argc == 4 && !strcmp(argv[1], "mppiece")) {
+        int n = atoi(argv[2]), a;
+        for (a = 0; a < 4 && strcmp(argv[3], anchors[a]); a++)
+            ;
+        if (a == 4 || !conker_SetMpHudPiece(n, a)) {
+            complain("hud mppiece <0-28> none|left|mid|right");
+            return;
+        }
+        reply("multiplayer HUD piece %d: %s (this run only)", n, anchors[a]);
+        return;
+    }
+    if (argc == 2 && !strcmp(argv[1], "mplist")) {
+        int n, a;
+        uint32_t fn;
+        const char *name;
+        for (n = 0; (fn = conker_GetMpHudPiece(n, &a)) != 0; n++)
+            reply("piece %2d  0x%08X  %s", n, fn, anchors[a]);
+        for (n = 0; (name = conker_GetMpHudWidget(n, &a)) != NULL; n++)
+            reply("widget %2d  %s  %s", n, name, a ? anchors[a] : "by its third");
+        return;
+    }
+    if (argc == 4 && !strcmp(argv[1], "mpwidget")) {
+        int n = atoi(argv[2]), a;
+        for (a = 0; a < 4 && strcmp(argv[3], anchors[a]); a++)
+            ;
+        if (a == 4 || !conker_SetMpHudWidget(n, a)) {
+            complain("hud mpwidget <n> none|left|mid|right");
+            return;
+        }
+        reply("multiplayer HUD widget %d: %s (this run only)", n, anchors[a]);
+        return;
+    }
+    if (argc == 2 && is_shape(argv[1]))
+        conker_SetHudShape(argv[1][0] == '4');
+    else if (argc == 3 && !strcmp(argv[1], "area")) {
+        char *end = NULL;
+        double v = strtod(argv[2], &end);
+        if (*end || v < 0.0 || v > 100.0) {
+            complain("hud area wants 0 to 100");
+            return;
+        }
+        conker_SetHudArea((float)v);
+    } else if (argc == 3 && !strcmp(argv[1], "bubbles") && is_shape(argv[2]))
+        conker_SetBubbleShape(argv[2][0] == '4');
+    else if (argc == 3 && !strcmp(argv[1], "pause") && is_shape(argv[2]))
+        conker_SetPauseScreen(argv[2][0] == '4');
+    else if (argc != 1) {
+        complain("hud [stretched|4:3] | area <0-100> | bubbles <stretched|4:3> | "
+                 "pause <stretched|4:3> | mplist | mptest <hex> | mppiece|mpwidget <n> <anchor>");
+        return;
+    }
+    conker_GetHud(&shape, &area, &bubble43, &pause43);
+    reply("HUD %s, area %d %%, bubbles %s, pause screen %s (this run only)",
+          shape ? "4:3" : "stretched", area, bubble43 ? "4:3" : "stretched",
+          pause43 ? "4:3" : "stretched");
+}
+
+/* The toolkit's AO tuning (ao_d3d11.c): span, brightness knee, floor. */
+void xbox_SetAoTuning(float span, float luma, float floor_);
+void xbox_GetAoTuning(float *span, float *luma, float *floor_);
+
+/* To-do 52: off / on / the AO term alone at a held picture, its two
+ * sliders, and the pass's tuning, for this run only (F2 Graphics keeps the
+ * sliders). */
+static void cmd_ao(int argc, char **argv)
+{
+    static const char *const names[3] = { "off", "on", "alone" };
+    int mode;
+    float strength, radius, span, luma, floor_;
+
+    conker_GetAo(&mode, &strength, &radius);
+    if (argc >= 2 && (!strcmp(argv[1], "span") || !strcmp(argv[1], "luma")
+                      || !strcmp(argv[1], "floor"))) {
+        float lo = argv[1][0] == 's' ? 0.02f : 0.0f;
+        char *end = NULL;
+        double v = argc >= 3 ? strtod(argv[2], &end) : -1.0;
+        if (argc < 3 || *end || v < lo || v > 1.0) {
+            complain("ao %s wants %g to 1", argv[1], lo);
+            return;
+        }
+        xbox_SetAoTuning(argv[1][0] == 's' ? (float)v : -1.0f,
+                         argv[1][0] == 'l' ? (float)v : -1.0f,
+                         argv[1][0] == 'f' ? (float)v : -1.0f);
+        xbox_GetAoTuning(&span, &luma, &floor_);
+        reply("Ambient occlusion tuning: span %.2f of the height, dark pixels "
+              "below %.2f weakened, floor %.2f (this run only)", span, luma,
+              floor_);
+        return;
+    }
+    if (argc >= 2) {
+        if (!strcmp(argv[1], "strength") || !strcmp(argv[1], "radius")) {
+            int is_s = argv[1][0] == 's';
+            float lo = is_s ? 0.0f : 10.0f, hi = 100.0f;
+            char *end = NULL;
+            double v = argc >= 3 ? strtod(argv[2], &end) : -1.0;
+            if (argc < 3 || *end || v < lo || v > hi) {
+                complain("ao %s wants %.0f to %.0f", argv[1], lo, hi);
+                return;
+            }
+            if (is_s)
+                strength = (float)v;
+            else
+                radius = (float)v;
+        } else {
+            for (mode = 0; mode < 3 && strcmp(argv[1], names[mode]); mode++)
+                ;
+            if (mode == 3) {
+                complain("ao wants off, on, alone, strength <0-100> or radius "
+                         "<10-100>");
+                return;
+            }
+        }
+        conker_SetAo(mode, strength, radius);
+        conker_GetAo(&mode, &strength, &radius);
+    }
+    reply("Ambient occlusion %s, strength %.0f %%, radius %.0f (this run only; "
+          "F2 Graphics keeps it)", names[mode], strength, radius);
+}
+
+/* To-do 51: per-pixel character lighting off / on / in even frames only,
+ * and its debug views (src/char_lighting.h), for this run only. */
+static void cmd_lit(int argc, char **argv)
+{
+    static const char *const modes[3] = { "off", "on", "even" };
+    static const char *const said[3] = {
+        "off", "on", "on in even frames only"
+    };
+    int i, ramp, knee;
+
+    conker_GetBlobSoft(&ramp, &knee);
+    if (argc >= 2 && !strcmp(argv[1], "soft")) {
+        if (argc < 3) {
+            complain("lit soft wants <ramp 0-255> [knee 0-100]");
+            return;
+        }
+        ramp = atoi(argv[2]);
+        if (argc >= 4)
+            knee = atoi(argv[3]);
+        conker_SetBlobSoft(ramp, knee);
+        conker_GetBlobSoft(&ramp, &knee);
+    } else if (argc >= 3 && !strcmp(argv[1], "view")) {
+        for (i = 0; i < 7 && strcmp(argv[2], g_lit_view_names[i]); i++)
+            ;
+        if (i == 7) {
+            complain("lit view wants off, vertex, key, ambient, blobs, term "
+                     "or face");
+            return;
+        }
+        conker_SetLitView(i);
+    } else if (argc >= 2) {
+        for (i = 0; i < 3 && strcmp(argv[1], modes[i]); i++)
+            ;
+        if (i == 3) {
+            complain("lit wants off, on, even, view <off|vertex|key|ambient|"
+                     "blobs|term|face> or soft <ramp> [knee]");
+            return;
+        }
+        conker_SetPerPixel(i);
+    }
+    i = conker_GetPerPixel();
+    reply("Per-pixel character lighting %s, view %s, blob softness ramp %d "
+          "knee %d (this run only)", said[i >= 0 && i < 3 ? i : 0],
+          g_lit_view_names[conker_GetLitView()], ramp, knee);
+}
+
+/* To-do 288 part 2b: the texture packs on, switched while the game runs
+ * (tex_packs.h; from the next frame), for this run only. The names are the
+ * rest of the line (a name may have spaces); a pack called off: "|off". */
+static void cmd_texpacks(int argc, char **argv)
+{
+    static char found[64][TEX_PACK_NAME];
+    char list[512];
+    const char *rest = line_rest();
+    size_t at = 0;
+    int n, i;
+
+    (void)argv;
+    if (argc >= 2) {
+        char want[4096];
+        size_t len = strlen(rest);
+        if (len >= sizeof want) {
+            complain("texpacks: the list is too long");
+            return;
+        }
+        memcpy(want, rest, len + 1);
+        while (len && isspace((unsigned char)want[len - 1]))
+            want[--len] = 0;
+        if (tex_packs_set(!_stricmp(want, "off") ? "" : want) < 0) {
+            complain("texpacks: the packs stay as they were (the log says why)");
+            return;
+        }
+    }
+    n = tex_packs_found(found, 64);
+    if (n < 0) {
+        complain("The textures folder is off (RECOMP_TEX_REPLACE): no packs");
+        return;
+    }
+    list[0] = 0;
+    for (i = 0; i < n && at + strlen(found[i]) + 8 < sizeof list; i++)
+        at += (size_t)snprintf(list + at, sizeof list - at, "%s%s", i ? ", " : "", found[i]);
+    if (i < n)
+        snprintf(list + at, sizeof list - at, ", ...");
+    reply("Texture packs on: %s%s", *tex_packs_on() ? tex_packs_on() : "none",
+          argc >= 2 ? " (from the next frame; this run only)" : "");
+    reply("Folders in textures\\packs: %s", n ? list : "none");
+}
+
+/* To-do 235: off / on / the motion as colour, the strength, and the tuning
+ * (ramp, longest smear, sharp middle), for this run only. */
+static void cmd_mblur(int argc, char **argv)
+{
+    static const char *const names[3] = { "off", "on", "view" };
+    int mode;
+    float strength, lo, hi, max_px, middle;
+    double a = -1.0, b = -1.0;
+    char *end = NULL;
+
+    conker_GetMotionBlur(&mode, &strength);
+    if (argc >= 3) {
+        a = strtod(argv[2], &end);
+        if (*end)
+            a = -1.0;
+    }
+    if (argc >= 4) {
+        b = strtod(argv[3], &end);
+        if (*end)
+            b = -1.0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "strength")) {
+        if (a < 0.0 || a > 100.0) {
+            complain("mblur strength wants 0 to 100");
+            return;
+        }
+        conker_SetMotionBlur(-1, (float)a);
+    } else if (argc >= 2 && !strcmp(argv[1], "ramp")) {
+        if (a < 0.0 || b <= a || b > 3600.0) {
+            complain("mblur ramp wants <none under> <all from> in degrees a "
+                     "second, e.g. 40 140");
+            return;
+        }
+        conker_SetMotionBlurTuning((float)a, (float)b, -1.0f, -1.0f);
+    } else if (argc >= 2 && !strcmp(argv[1], "max")) {
+        if (a < 1.0 || a > 128.0) {
+            complain("mblur max wants 1 to 128 (guest pixels)");
+            return;
+        }
+        conker_SetMotionBlurTuning(-1.0f, -1.0f, (float)a, -1.0f);
+    } else if (argc >= 2 && !strcmp(argv[1], "middle")) {
+        if (a < 0.0 || a > 1.0) {
+            complain("mblur middle wants 0 to 1 (share of the half diagonal)");
+            return;
+        }
+        conker_SetMotionBlurTuning(-1.0f, -1.0f, -1.0f, (float)a);
+    } else if (argc >= 2) {
+        for (mode = 0; mode < 3 && strcmp(argv[1], names[mode]); mode++)
+            ;
+        if (mode == 3) {
+            complain("mblur wants off, on, view, strength <0-100>, ramp <lo> "
+                     "<hi>, max <px> or middle <0-1>");
+            return;
+        }
+        conker_SetMotionBlur(mode, -1.0f);
+    }
+    conker_GetMotionBlur(&mode, &strength);
+    conker_GetMotionBlurTuning(&lo, &hi, &max_px, &middle);
+    reply("Motion blur %s, strength %.0f %%; none under %.0f, all from %.0f "
+          "deg/s; longest %.0f px; sharp middle %.2f (this run only)",
+          names[mode], strength, lo, hi, max_px, middle);
+}
+
 static void cmd_timescale(int argc, char **argv)
 {
     int to = conker_TimescaleLast();
@@ -1532,7 +1840,7 @@ static void cmd_pad(int argc, char **argv)
 {
     if (argc < 2) {
         complain("pad wants presses as RECOMP_PAD_LIVE lines: a:100 lup:2000 &rt:300 "
-                 "p2-start mouse:40,0");
+                 "p2-start mouse:40,0 mouse:600,0:1500");
         return;
     }
     for (int i = 1; i < argc; i++)
@@ -2494,6 +2802,30 @@ static const Command s_commands[] = {
     { "bear", "[on|off]", "Conker the Bear (twice the size, lower voice)", cmd_cheat },
     { "wireframe", "[models|all|off]", "draws characters and objects, or everything, as lines",
       cmd_wireframe },
+    { "hud", "[stretched|4:3] | area <0-100> | bubbles <stretched|4:3> | pause <stretched|4:3> "
+      "| mplist | mptest <hex> | mppiece <n> <a> | mpwidget <n> <a>",
+      "the HUD's, speech bubbles' and pause screen's shapes on a wide picture for this run "
+      "(area: the side pieces from the 4:3 box in the middle, 0, to the screen edges, 100; "
+      "mp...: the multiplayer HUD's pieces, their anchors none|left|mid|right, mptest "
+      "squeezes the masked ones round the middle to find them)",
+      cmd_hud },
+    { "ao", "[off|on|alone] | strength <0-100> | radius <10-100> | span|luma|floor <0-1>",
+      "ambient occlusion for this run (alone = the AO term only, grey; span, luma, "
+      "floor: the pass's tuning)", cmd_ao },
+    { "mblur", "[off|on|view] | strength <0-100> | ramp <lo> <hi> | max <px> | middle <0-1>",
+      "camera motion blur for this run (view = the motion as colour each frame; ramp: "
+      "none under lo, all from hi degrees a second; max: the longest smear, guest pixels; "
+      "middle: the share of the half diagonal kept sharp)", cmd_mblur },
+    { "lit", "[off|on|even] | view <off|vertex|key|ambient|blobs|term|face> | soft <ramp> [knee]",
+      "per-pixel character lighting for this run (even = in even frames only; views: "
+      "vertex = the maths at the corners, key / ambient / blobs / term alone, face = "
+      "outside green, inside red; soft: the blob shadows' soft edge, ramp 0-255 = "
+      "hundredths of a blob's size around its edge, knee 0-100 = how round their sum "
+      "reaches full shadow, 0 0 = the game's hard blobs)", cmd_lit },
+    { "texpacks", "[<pack>|<pack>... | off]",
+      "the texture packs on for this run, the top one first (it wins on a texture two "
+      "change), switched from the next frame; a pack is a folder in textures\\packs (no "
+      "value: which are on, and the folders there)", cmd_texpacks },
     { "cue", "<number>", "plays one of the game's sounds", cmd_cue },
     { "tune", "list [name] | <number|name> | stop", "plays one of the game's music tunes",
       cmd_tune },
@@ -2538,7 +2870,8 @@ static const Command s_commands[] = {
       "playing has ended, with the parts it goes on into (none playing: one starting within "
       "10 s; default at most 600 s)", cmd_waitscene },
     { "pad", "<press> ...", "presses on the game's controller: a:100, lup:2000, &rt:300 "
-      "(at once, on top of a held one), p2-start, mouse:40,0", cmd_pad },
+      "(at once, on top of a held one), p2-start, mouse:40,0 (mouse:600,0:1500: spread "
+      "over 1500 ms)", cmd_pad },
     { "shot", "[name]", "the picture as shown, without menus, into shots\\ in the save "
       "folder (no name: shot_<date>_<time>)", cmd_shot },
     { "mark", "[note]", "a numbered [MARK] line in the log with where the game is, and a "

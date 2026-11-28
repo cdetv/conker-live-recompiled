@@ -16,14 +16,16 @@ public sealed partial class SteamViewModel : ObservableObject
     {
         Available = SteamShortcut.Supported;
         steam = Available ? SteamShortcut.Find() : null;
+        // A language switch (to-do 289): every text here said again.
+        Lang.Changed += (_, _) => OnPropertyChanged(string.Empty);
     }
 
     /// <summary>The section shows (real Windows; hidden under Wine).</summary>
     public bool Available { get; }
 
     public string Text => steam is null
-        ? "Steam wasn't found on this PC."
-        : "Adds the launcher to your Steam library as a non-Steam game, with artwork from SteamGridDB. Clicking it again updates it.";
+        ? T("Steam wasn't found on this PC.")
+        : T("Adds the launcher to your Steam library as a non-Steam game, with artwork from SteamGridDB. Clicking it again updates it.");
 
     /// <summary>Steam is open: Yes / No in the button's place first (it closes meanwhile).</summary>
     [ObservableProperty]
@@ -35,7 +37,10 @@ public sealed partial class SteamViewModel : ObservableObject
 
     /// <summary>What Add to Steam is doing, did, or why it stopped.</summary>
     [ObservableProperty]
-    public partial string? Status { get; set; }
+    [NotifyPropertyChangedFor(nameof(Status))]
+    public partial Said? StatusSaid { get; set; }
+
+    public string? Status => StatusSaid?.ToString();
 
     [ObservableProperty]
     public partial bool StatusIsError { get; set; }
@@ -45,7 +50,7 @@ public sealed partial class SteamViewModel : ObservableObject
     {
         if (SteamShortcut.IsRunning())
         {
-            Status = null;
+            StatusSaid = null;
             IsAsking = true;
             return;
         }
@@ -71,30 +76,32 @@ public sealed partial class SteamViewModel : ObservableObject
         bool done = false;
         try
         {
-            SteamResult r = await SteamShortcut.AddAsync(steam, launcher, new Progress<string>(text =>
+            SteamResult r = await SteamShortcut.AddAsync(steam, launcher, new Progress<Said>(text =>
             {
                 if (!done)
                 {
-                    Status = text;
+                    StatusSaid = text;
                 }
             }));
             done = true;
-            string pictures = r.Pictures == r.PicturesWanted
-                ? "with its artwork"
-                : r.Pictures == 0 ? "without artwork (SteamGridDB couldn't be reached)"
-                : $"with {r.Pictures} of {r.PicturesWanted} pictures (SteamGridDB couldn't send the rest)";
-            Status = $"{(r.Updated ? "Updated in" : "Added to")} Steam for {r.Account}, {pictures}. Steam is starting.";
+            Said pictures = r.Pictures == r.PicturesWanted
+                ? S("with its artwork")
+                : r.Pictures == 0 ? S("without artwork (SteamGridDB couldn't be reached)")
+                : S("with {0} of {1} pictures (SteamGridDB couldn't send the rest)", r.Pictures, r.PicturesWanted);
+            StatusSaid = r.Updated
+                ? S("Updated in Steam for {0}, {1}. Steam is starting.", r.Account, pictures)
+                : S("Added to Steam for {0}, {1}. Steam is starting.", r.Account, pictures);
         }
         catch (SteamException e)
         {
             done = true;
-            Status = e.Message;
+            StatusSaid = e.Text;
             StatusIsError = true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             done = true;
-            Status = $"Adding it to Steam failed: {e.Message}";
+            StatusSaid = S("Adding it to Steam failed: {0}", Why(e));
             StatusIsError = true;
         }
         finally

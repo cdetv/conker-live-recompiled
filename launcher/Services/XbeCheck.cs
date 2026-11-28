@@ -35,16 +35,17 @@ public static class XbeCheck
 
         if (Describe(xbe) is not { } info)
         {
-            throw new ImportException("This default.xbe isn't an Xbox program; the files may be damaged.");
+            throw new ImportException(S("This default.xbe isn't an Xbox program; the files may be damaged."));
         }
 
-        string what = $"{info.Title} ({info.Region}, version {info.Version:X8})";
+        Said what = S("{0} ({1}, version {2:X8})", info.Title, info.Region, info.Version);
         throw new ImportException(info.TitleId == ConkerTitleId
-            ? $"This is {what}, a version of Conker: Live & Reloaded that isn't supported. Only the PAL and USA retail discs work."
-            : $"This is {what}, not Conker: Live & Reloaded.");
+            ? S("This is {0}, a version of Conker: Live & Reloaded that isn't supported. Only the PAL and USA retail discs work.", what)
+            : S("This is {0}, not Conker: Live & Reloaded.", what));
     }
 
-    private sealed record Info(uint TitleId, string Title, string Region, uint Version);
+    // Title and Region are words in the language shown (to-do 289): said again after a switch.
+    private sealed record Info(uint TitleId, Said Title, Said Region, uint Version);
 
     // The XBE header: "XBEH", base address at 0x104, certificate address at 0x118; in the
     // certificate the title ID at 0x08, the title name (40 UTF-16 chars) at 0x0C, the game
@@ -66,26 +67,26 @@ public static class XbeCheck
         ReadOnlySpan<byte> c = xbe.AsSpan((int)cert);
         string title = Encoding.Unicode.GetString(c.Slice(0x0C, 80)).TrimEnd('\0');
         uint regions = BinaryPrimitives.ReadUInt32LittleEndian(c[0xA0..]);
-        List<string> names = [];
+        List<Said> names = [];
         if ((regions & 1) != 0)
         {
-            names.Add("North America");
+            names.Add(S("North America"));
         }
 
         if ((regions & 2) != 0)
         {
-            names.Add("Japan");
+            names.Add(S("Japan"));
         }
 
         if ((regions & 4) != 0)
         {
-            names.Add("rest of the world");
+            names.Add(S("rest of the world"));
         }
 
         return new Info(
             BinaryPrimitives.ReadUInt32LittleEndian(c[0x08..]),
-            title.Length > 0 ? title : "an unnamed Xbox game",
-            names.Count > 0 ? string.Join(", ", names) : "no region",
+            title.Length > 0 ? Said.As(title) : S("an unnamed Xbox game"),
+            names.Count > 0 ? new Said(() => string.Join(", ", names)) : S("no region"),
             BinaryPrimitives.ReadUInt32LittleEndian(c[0xAC..]));
     }
 }

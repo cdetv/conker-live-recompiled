@@ -27,24 +27,21 @@ public sealed class GameImporter(GameFolder folder)
         ImportTools.RemoveFolder(TempDir);
     }
 
-    /// <summary>The words the Files tab shows for an import of the Xbox Store version.</summary>
-    public const string StoreVersion = "Xbox Store version";
-
-    /// <summary>Imports <paramref name="source"/>; returns what was imported ("PAL disc", "USA disc", <see cref="StoreVersion"/>).</summary>
-    public string Import(string source, IProgress<JobProgress> progress, CancellationToken cancel)
+    /// <summary>Imports <paramref name="source"/>; returns what was imported ("PAL disc", "USA disc", "Xbox Store version").</summary>
+    public Said Import(string source, IProgress<JobProgress> progress, CancellationToken cancel)
     {
         CleanLeftovers();
         try
         {
-            string what = StorePackage.IsPackageName(source)
+            Said what = StorePackage.IsPackageName(source)
                 ? FromPackage(source, progress, cancel)
                 : (Path.GetExtension(source).ToLowerInvariant() switch
                 {
                     ".xbe" => FromFolder(Path.GetDirectoryName(Path.GetFullPath(source))!, progress, cancel),
                     ".zip" or ".7z" or ".rar" => FromArchive(source, progress, cancel),
                     _ => FromDisc(source, progress, cancel),
-                }) + " disc";
-            progress.Report(new JobProgress("Finishing", null));
+                }) == "USA" ? S("USA disc") : S("PAL disc");
+            progress.Report(new JobProgress(S("Finishing"), null));
             ImportTools.Swap(Staging, folder.GameDir);
             return what;
         }
@@ -56,14 +53,14 @@ public sealed class GameImporter(GameFolder folder)
 
     private string FromDisc(string image, IProgress<JobProgress> progress, CancellationToken cancel)
     {
-        progress.Report(new JobProgress("Reading the disc image", null));
+        progress.Report(new JobProgress(S("Reading the disc image"), null));
         using XdvdfsImage disc = XdvdfsImage.Open(image)
-            ?? throw new ImportException($"{Path.GetFileName(image)} isn't an Xbox disc image.");
+            ?? throw new ImportException(S("{0} isn't an Xbox disc image.", Path.GetFileName(image)));
         List<XdvdfsEntry> entries = disc.ListAll();
         XdvdfsEntry xbe = entries.FirstOrDefault(e => !e.IsDirectory && e.Path.Equals("default.xbe", StringComparison.OrdinalIgnoreCase))
-            ?? throw new ImportException("The disc image has no default.xbe: it isn't an Xbox game disc.");
+            ?? throw new ImportException(S("The disc image has no default.xbe: it isn't an Xbox game disc."));
         string region = XbeCheck.Require(disc.ReadAll(xbe));
-        CopyEntries(disc, entries, "The disc image", progress, cancel);
+        CopyEntries(disc, entries, false, progress, cancel);
         return region;
     }
 
@@ -72,9 +69,9 @@ public sealed class GameImporter(GameFolder folder)
     /// there, the hash chain, three sampled groups), then every block hash-checked as the copy
     /// reads it. Any failure stops with one of the two approved messages and leaves <c>game\</c> as it was.
     /// </summary>
-    private string FromPackage(string pick, IProgress<JobProgress> progress, CancellationToken cancel)
+    private Said FromPackage(string pick, IProgress<JobProgress> progress, CancellationToken cancel)
     {
-        progress.Report(new JobProgress("Reading the Xbox Store version", null));
+        progress.Report(new JobProgress(S("Reading the Xbox Store version"), null));
         string header = StorePackage.HeaderFor(pick);
         if (!File.Exists(header))
         {
@@ -98,7 +95,7 @@ public sealed class GameImporter(GameFolder folder)
         XdvdfsEntry xbe = entries.FirstOrDefault(e => !e.IsDirectory && e.Path.Equals("default.xbe", StringComparison.OrdinalIgnoreCase))
             ?? throw new ImportException(GodPackageStream.DamagedMessage);
         string region = XbeCheck.Require(image.ReadAll(xbe));
-        CopyEntries(image, entries, "The package", progress, cancel);
+        CopyEntries(image, entries, true, progress, cancel);
 
         // The copy as written: default.xbe still the same build.
         if (XbeCheck.Require(File.ReadAllBytes(Path.Combine(Staging, "default.xbe"))) != region)
@@ -106,21 +103,22 @@ public sealed class GameImporter(GameFolder folder)
             throw new ImportException(GodPackageStream.DamagedMessage);
         }
 
-        return StoreVersion;
+        return S("Xbox Store version");
     }
 
-    /// <summary>Copies every entry of <paramref name="source"/> into the staging folder, after the free space check.</summary>
-    private void CopyEntries(XdvdfsImage source, List<XdvdfsEntry> entries, string sourceName, IProgress<JobProgress> progress, CancellationToken cancel)
+    /// <summary>Copies every entry of <paramref name="source"/> (the Store version's package or a disc image) into the staging folder, after the free space check.</summary>
+    private void CopyEntries(XdvdfsImage source, List<XdvdfsEntry> entries, bool package, IProgress<JobProgress> progress, CancellationToken cancel)
     {
         long total = entries.Sum(e => e.Size);
         ImportTools.RequireSpace(folder.Root, total);
         Directory.CreateDirectory(Staging);
-        ByteProgress bytes = new(progress, "Copying the game files", total);
+        ByteProgress bytes = new(progress, S("Copying the game files"), total);
         foreach (XdvdfsEntry entry in entries)
         {
             cancel.ThrowIfCancellationRequested();
             string path = ImportTools.SafePath(Staging, entry.Path)
-                ?? throw new ImportException($"{sourceName} has a bad file name ({entry.Path}).");
+                ?? throw new ImportException(package ? S("The package has a bad file name ({0}).", entry.Path)
+                                                     : S("The disc image has a bad file name ({0}).", entry.Path));
             if (entry.IsDirectory)
             {
                 Directory.CreateDirectory(path);
@@ -139,7 +137,7 @@ public sealed class GameImporter(GameFolder folder)
         string own = Path.GetFullPath(folder.GameDir).TrimEnd('\\') + "\\";
         if (full.StartsWith(own, StringComparison.OrdinalIgnoreCase))
         {
-            throw new ImportException("These are the imported files already. Pick the disc image or the folder you imported from.");
+            throw new ImportException(S("These are the imported files already. Pick the disc image or the folder you imported from."));
         }
 
         string region = XbeCheck.Require(File.ReadAllBytes(Path.Combine(source, "default.xbe")));
@@ -147,7 +145,7 @@ public sealed class GameImporter(GameFolder folder)
         long total = files.Sum(f => f.Length);
         ImportTools.RequireSpace(folder.Root, total);
         Directory.CreateDirectory(Staging);
-        ByteProgress bytes = new(progress, "Copying the game files", total);
+        ByteProgress bytes = new(progress, S("Copying the game files"), total);
         foreach (FileInfo file in files)
         {
             cancel.ThrowIfCancellationRequested();
@@ -163,7 +161,7 @@ public sealed class GameImporter(GameFolder folder)
 
     private string FromArchive(string source, IProgress<JobProgress> progress, CancellationToken cancel)
     {
-        progress.Report(new JobProgress("Opening the archive", null));
+        progress.Report(new JobProgress(S("Opening the archive"), null));
         using var archive = ImportTools.OpenArchive(source);
         List<(string Key, long Size)> files = ImportTools.ListFiles(archive);
 
@@ -174,7 +172,7 @@ public sealed class GameImporter(GameFolder folder)
             ImportTools.RequireSpace(folder.Root, image.Size * 2);
             string name = Path.GetFileName(image.Key);
             ImportTools.Extract(archive, TempDir, key => key == image.Key ? name : null,
-                new ByteProgress(progress, "Unpacking the disc image", image.Size), cancel);
+                new ByteProgress(progress, S("Unpacking the disc image"), image.Size), cancel);
             return FromDisc(Path.Combine(TempDir, name), progress, cancel);
         }
 
@@ -185,13 +183,13 @@ public sealed class GameImporter(GameFolder folder)
             .FirstOrDefault();
         if (xbe.Key is null)
         {
-            throw new ImportException($"{Path.GetFileName(source)} holds no disc image (.iso) and no default.xbe.");
+            throw new ImportException(S("{0} holds no disc image (.iso) and no default.xbe.", Path.GetFileName(source)));
         }
 
         string prefix = xbe.Key[..^"default.xbe".Length];
         ImportTools.RequireSpace(folder.Root, files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal)).Sum(f => f.Size));
         ImportTools.Extract(archive, Staging, key => key.StartsWith(prefix, StringComparison.Ordinal) ? key[prefix.Length..] : null,
-            new ByteProgress(progress, "Unpacking the game files", files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal)).Sum(f => f.Size)),
+            new ByteProgress(progress, S("Unpacking the game files"), files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal)).Sum(f => f.Size)),
             cancel);
         return XbeCheck.Require(File.ReadAllBytes(Path.Combine(Staging, "default.xbe")));
     }

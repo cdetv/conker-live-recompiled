@@ -153,6 +153,16 @@ code. DEBUG_MODE.txt in this folder lists everything it does. It's a
 testing tool: back up your saves (the userdata folder) first.
 
 
+TEXTURE PACKS
+-------------
+
+A texture pack swaps the game's textures for new art. Unzip a pack into
+textures\packs next to conker.exe and tick it in F2 > Extras > Texture
+Packs (or in the list on the launcher's Files tab). To make your own,
+Export Textures on the launcher's Files tab saves every texture as a PNG
+to edit. TEXTURE_PACKS.txt in this folder explains how.
+
+
 WHERE YOUR FILES ARE
 --------------------
 
@@ -212,8 +222,9 @@ LICENCE AND CREDITS
 
 The project's own code is MIT licensed (LICENSE.txt). It is built with the
 xboxrecomp toolkit by Ned Heller (sp00nznet) and contributors, the xemu
-sound emulation (LGPL, in xemu_apu.dll), the Full DSP sound effects after
-yacineolivier-maker's ConkerLR-Recomp (MIT), the package reader, the
+sound emulation (LGPL, in xemu_apu.dll), the Full DSP sound effects and
+the ambient occlusion after yacineolivier-maker's ConkerLR-Recomp (MIT),
+the package reader, the
 Frying Pan, the Milk Fix and Free Swing after Txukie's xboxrecomp-conker
 (MIT), Dear ImGui, SDL3, AMD FidelityFX CAS and FSR 1, NVIDIA FXAA, SMAA,
 .NET and Avalonia; the full list, with every licence, is

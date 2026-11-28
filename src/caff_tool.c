@@ -17,9 +17,21 @@
  *   conker.exe --carve [--check] [--game-dir <folder>] [--save-dir <folder>]
  *       the launcher's step after an import (src/caff_cache.c): fills
  *       <save>\assets\ from the game files (the recipes' files, then
- *       inventory.json from all 266 packages); "PROGRESS <done> <total>
+ *       inventory.json from all 266 packages, then the sharper text and
+ *       buttons, assets\sharp\, to-do 53); "PROGRESS <done> <total>
  *       <name>" lines, then DONE or FAILED. --check only says whether it is needed:
  *       exit 0 up to date, 3 stale, 1 no game files (no guest, ~no time).
+ *   conker.exe --texture-list <out.tsv> [--game-dir <folder>]
+ *       the texture pack kit (to-do 238, src/texkit_tool.c): every picture
+ *       of every package with its replacement name (hash) as a TSV; the
+ *       player's game data, so it stays on their PC. "PROGRESS <done>
+ *       <total> <name>" lines, then DONE (with the counts) or FAILED.
+ *   conker.exe --texture-export <out folder> [--game-dir <folder>]
+ *       the same, and each picture a pack can replace as a PNG, once per
+ *       hash: <out>\<package's folder below aid>\<name>.png (the
+ *       extractor's tree and file names: zpackage\Level\Bank\...), the list as
+ *       <out>\textures.tsv. PNGs already there are kept (a stopped export
+ *       goes on); DONE with the counts and bytes, or FAILED.
  *
  * Only the XBE goes into guest memory (main.c conker_tool_guest_up): no
  * window, kernel or game. Paths come from the wide command line as UTF-8,
@@ -36,6 +48,7 @@
 
 #include "caff.h"
 #include "caff_cache.h"
+#include "texkit.h"
 
 int  conker_tool_guest_up(const void *xbe, size_t size);
 void conker_tool_guest_down(void);
@@ -360,7 +373,9 @@ int caff_tool_cmd(void)
         fprintf(stderr, "Usage: conker --list-package <package> [--json] [--game-dir <folder>]\n"
                         "       conker --extract <package> <resource> <out file> [--game-dir <folder>]\n"
                         "       conker --unpack-all <out folder> [--game-dir <folder>]\n"
-                        "       conker --carve [--check] [--game-dir <folder>] [--save-dir <folder>]\n");
+                        "       conker --carve [--check] [--game-dir <folder>] [--save-dir <folder>]\n"
+                        "       conker --texture-list <out.tsv> [--game-dir <folder>]\n"
+                        "       conker --texture-export <out folder> [--game-dir <folder>]\n");
         LocalFree(wargv);
         return 2;
     }
@@ -396,7 +411,8 @@ int caff_tool_cmd(void)
         fprintf(stderr, "No default.xbe in %s\n", game);
         return 1;
     }
-    if (strcmp(mode, "--unpack-all") && strcmp(mode, "--carve")
+    if (strcmp(mode, "--unpack-all") && strcmp(mode, "--carve") && strcmp(mode, "--texture-list")
+        && strcmp(mode, "--texture-export")
         && !caff_resolve_package(game, arg, path, sizeof path)) {
         fprintf(stderr, "[CAFF] no package %s (as a file or under %s\\dvddata\\aid)\n",
                 arg, game);
@@ -412,10 +428,49 @@ int caff_tool_cmd(void)
     if (!strcmp(mode, "--carve")) {
         rc = caff_guest_begin();
         if (!rc) {
-            rc = caff_cache_carve(game, save, 1, carve_progress, NULL);
+            rc = caff_cache_carve(game, save, 1, 1, carve_progress, NULL);
             caff_guest_end();
         }
         printf("%s\n", rc ? "FAILED" : "DONE");
+        rc = rc ? 1 : 0;
+    } else if (!strcmp(mode, "--texture-export")) {
+        char aid[PATH_CAP];
+        TexkitResult tr;
+
+        slashes(arg);
+        for (i = (int)strlen(arg); i > 1 && arg[i - 1] == '\\'; i--)
+            arg[i - 1] = 0;
+        snprintf(aid, sizeof aid, "%s\\dvddata\\aid", game);
+        rc = caff_guest_begin();
+        if (!rc) {
+            rc = texkit_export(aid, caff_guest_unpack, arg, carve_progress, NULL, &tr);
+            caff_guest_end();
+        }
+        if (rc)
+            printf("FAILED\n");
+        else
+            printf("DONE %d packages (%d failed), %d pictures a pack can replace: %d PNGs "
+                   "written (%.1f MB), %d there already, %d failed, in %s\n", tr.packages,
+                   tr.failed, tr.distinct, tr.written, tr.bytes / 1048576.0, tr.skipped, tr.bad,
+                   arg);
+        rc = rc || tr.bad ? 1 : 0;
+    } else if (!strcmp(mode, "--texture-list")) {
+        char aid[PATH_CAP];
+        TexkitResult tr;
+
+        slashes(arg);
+        snprintf(aid, sizeof aid, "%s\\dvddata\\aid", game);
+        rc = caff_guest_begin();
+        if (!rc) {
+            rc = texkit_list(aid, caff_guest_unpack, arg, carve_progress, NULL, &tr);
+            caff_guest_end();
+        }
+        if (rc)
+            printf("FAILED\n");
+        else
+            printf("DONE %d packages (%d failed), %d textures, %d pictures, %d a pack can "
+                   "replace (one PNG each), in %s\n", tr.packages, tr.failed, tr.textures,
+                   tr.images, tr.distinct, arg);
         rc = rc ? 1 : 0;
     } else if (!strcmp(mode, "--unpack-all")) {
         slashes(arg);

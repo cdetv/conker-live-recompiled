@@ -13,10 +13,10 @@
  * folder's name) in every copied text file becomes "<user>". A log over
  * TRIM_OVER keeps its start and end.
  *
- * The zip is written here, compression included (deflate with fixed Huffman
- * codes, RFC 1951 3.2.6; logs shrink about 5x): no tar.exe (missing in a
- * Wine prefix, r-linux-proton.md) and no new library. Written as .part,
- * renamed when complete.
+ * The zip is written here, compression included (src/deflate.c: deflate with
+ * fixed Huffman codes, RFC 1951 3.2.6; logs shrink about 5x): no tar.exe
+ * (missing in a Wine prefix, r-linux-proton.md) and no new library. Written
+ * as .part, renamed when complete.
  */
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -35,6 +35,7 @@
 #include <string.h>
 
 #include "bug_report.h"
+#include "deflate.h"
 
 #ifndef CONKER_VERSION_STR
 #define CONKER_VERSION_STR "dev"
@@ -120,197 +121,6 @@ static void put32(Buf *b, uint32_t v)
     uint8_t x[4] = { (uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16),
                      (uint8_t)(v >> 24) };
     buf_add(b, x, 4);
-}
-
-/* ── CRC-32 and deflate (fixed Huffman codes) ─────────────── */
-
-static uint32_t s_crc[256];
-static uint16_t s_lit_code[288];            /* bit-reversed, LSB first */
-static uint8_t s_lit_bits[288];
-static uint8_t s_dist_code[30];
-static uint8_t s_len_sym[259];              /* length 3..258 -> 0..28 */
-static uint8_t s_dist_sym[32769];           /* distance 1..32768 -> 0..29 */
-
-static const uint16_t s_len_base[29] = {
-    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59,
-    67, 83, 99, 115, 131, 163, 195, 227, 258 };
-static const uint8_t s_len_extra[29] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4,
-    5, 5, 5, 5, 0 };
-static const uint16_t s_dist_base[30] = {
-    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513,
-    769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
-static const uint8_t s_dist_extra[30] = {
-    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10,
-    11, 11, 12, 12, 13, 13 };
-
-static uint32_t rev_bits(uint32_t v, int n)
-{
-    uint32_t r = 0;
-    while (n--) {
-        r = (r << 1) | (v & 1);
-        v >>= 1;
-    }
-    return r;
-}
-
-static void tables_init(void)
-{
-    static int done;
-    uint32_t i, c, k;
-
-    if (done)
-        return;
-    done = 1;
-    for (i = 0; i < 256; i++) {
-        c = i;
-        for (k = 0; k < 8; k++)
-            c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-        s_crc[i] = c;
-    }
-    for (i = 0; i < 288; i++) {
-        uint32_t code;
-        int len;
-        if (i < 144)      { code = 0x30 + i;          len = 8; }
-        else if (i < 256) { code = 0x190 + (i - 144); len = 9; }
-        else if (i < 280) { code = i - 256;           len = 7; }
-        else              { code = 0xC0 + (i - 280);  len = 8; }
-        s_lit_code[i] = (uint16_t)rev_bits(code, len);
-        s_lit_bits[i] = (uint8_t)len;
-    }
-    for (i = 0; i < 30; i++)
-        s_dist_code[i] = (uint8_t)rev_bits(i, 5);
-    for (i = 0; i < 28; i++)
-        for (k = s_len_base[i]; k < s_len_base[i] + (1u << s_len_extra[i])
-                                && k <= 258; k++)
-            s_len_sym[k] = (uint8_t)i;
-    s_len_sym[258] = 28;
-    for (i = 0; i < 30; i++)
-        for (k = s_dist_base[i]; k < s_dist_base[i] + (1u << s_dist_extra[i])
-                                 && k <= 32768; k++)
-            s_dist_sym[k] = (uint8_t)i;
-}
-
-static uint32_t crc32_of(const uint8_t *p, size_t n)
-{
-    uint32_t c = 0xFFFFFFFFu;
-    while (n--)
-        c = s_crc[(c ^ *p++) & 0xFF] ^ (c >> 8);
-    return c ^ 0xFFFFFFFFu;
-}
-
-typedef struct {
-    Buf *out;
-    uint64_t acc;
-    int bits;
-} Bits;
-
-static void put_bits(Bits *w, uint32_t v, int n)
-{
-    w->acc |= (uint64_t)v << w->bits;
-    w->bits += n;
-    if (w->bits >= 32) {
-        if (!buf_reserve(w->out, 4)) {
-            memcpy(w->out->p + w->out->n, &w->acc, 4);     /* x64: LE */
-            w->out->n += 4;
-        }
-        w->acc >>= 32;
-        w->bits -= 32;
-    }
-}
-
-#define WSIZE    32768u
-#define WMASK    (WSIZE - 1)
-#define HBITS    15
-#define MAXCHAIN 48
-
-static uint32_t hash3(const uint8_t *p)
-{
-    uint32_t v = (uint32_t)p[0] << 16 | (uint32_t)p[1] << 8 | p[2];
-    return (v * 2654435761u) >> (32 - HBITS);
-}
-
-/* One final fixed-Huffman block (BTYPE 01). Returns 0 or -1. */
-static int deflate_fixed(const uint8_t *in, size_t n, Buf *out)
-{
-    int32_t *head = (int32_t *)malloc(sizeof(int32_t) << HBITS);
-    int32_t *prev = (int32_t *)malloc(sizeof(int32_t) * WSIZE);
-    Bits w = { out, 0, 0 };
-    size_t i = 0;
-
-    if (!head || !prev) {
-        free(head);
-        free(prev);
-        return -1;
-    }
-    memset(head, 0xFF, sizeof(int32_t) << HBITS);
-    buf_reserve(out, n + n / 8 + 64);
-    put_bits(&w, 1, 1);                     /* BFINAL */
-    put_bits(&w, 1, 2);                     /* BTYPE = 01, fixed codes */
-    while (i < n) {
-        size_t best = 0, bdist = 0;
-
-        if (i + 3 <= n) {
-            uint32_t h = hash3(in + i);
-            int32_t cand = head[h];
-            int chain = MAXCHAIN;
-            size_t maxlen = n - i < 258 ? n - i : 258;
-
-            while (cand >= 0 && chain-- > 0) {
-                size_t d = i - (size_t)cand, len = 0;
-                int32_t next;
-                if (d >= WSIZE)
-                    break;
-                if (in[cand + best] == in[i + best]) {
-                    while (len < maxlen && in[cand + len] == in[i + len])
-                        len++;
-                    if (len > best) {
-                        best = len;
-                        bdist = d;
-                        if (len == maxlen)
-                            break;
-                    }
-                }
-                next = prev[cand & WMASK];
-                if (next >= cand)
-                    break;
-                cand = next;
-            }
-            prev[i & WMASK] = head[h];
-            head[h] = (int32_t)i;
-        }
-        if (best >= 3) {
-            unsigned ls = s_len_sym[best], ds = s_dist_sym[bdist], k;
-            put_bits(&w, s_lit_code[257 + ls], s_lit_bits[257 + ls]);
-            if (s_len_extra[ls])
-                put_bits(&w, (uint32_t)(best - s_len_base[ls]), s_len_extra[ls]);
-            put_bits(&w, s_dist_code[ds], 5);
-            if (s_dist_extra[ds])
-                put_bits(&w, (uint32_t)(bdist - s_dist_base[ds]), s_dist_extra[ds]);
-            for (k = 1; k < best; k++) {
-                size_t p = i + k;
-                if (p + 3 <= n) {
-                    uint32_t h = hash3(in + p);
-                    prev[p & WMASK] = head[h];
-                    head[h] = (int32_t)p;
-                }
-            }
-            i += best;
-        } else {
-            put_bits(&w, s_lit_code[in[i]], s_lit_bits[in[i]]);
-            i++;
-        }
-    }
-    put_bits(&w, s_lit_code[256], s_lit_bits[256]);         /* end of block */
-    while (w.bits > 0) {
-        uint8_t byte = (uint8_t)w.acc;
-        buf_add(out, &byte, 1);
-        w.acc >>= 8;
-        w.bits -= 8;
-    }
-    free(head);
-    free(prev);
-    return out->fail ? -1 : 0;
 }
 
 /* ── Files to collect ─────────────────────────────────────── */
@@ -927,7 +737,9 @@ static void dos_time(const FILETIME *ft, unsigned *date, unsigned *time)
 static int zip_entry(HANDLE f, Buf *cd, uint32_t *offset, const char *name,
                      const uint8_t *data, size_t n, const FILETIME *mt, int stored)
 {
-    Buf hdr = { 0 }, packed = { 0 };
+    Buf hdr = { 0 };
+    uint8_t *packed = NULL;
+    size_t packed_n = 0;
     const uint8_t *body = data;
     size_t body_n = n, name_n = strlen(name);
     unsigned method = 0, date, time;
@@ -935,12 +747,11 @@ static int zip_entry(HANDLE f, Buf *cd, uint32_t *offset, const char *name,
     DWORD put;
     int ok;
 
-    tables_init();
-    crc = crc32_of(data, n);
-    if (!stored && n > 64 && deflate_fixed(data, n, &packed) == 0
-        && packed.n < n) {
-        body = packed.p;
-        body_n = packed.n;
+    crc = deflate_crc32(0, data, n);
+    if (!stored && n > 64 && deflate_fixed(data, n, &packed, &packed_n) == 0
+        && packed_n < n) {
+        body = packed;
+        body_n = packed_n;
         method = 8;
     }
     dos_time(mt, &date, &time);
@@ -977,13 +788,13 @@ static int zip_entry(HANDLE f, Buf *cd, uint32_t *offset, const char *name,
     put32(cd, *offset);
     buf_add(cd, name, name_n);
 
-    ok = !hdr.fail && !packed.fail
+    ok = !hdr.fail
         && WriteFile(f, hdr.p, (DWORD)hdr.n, &put, NULL) && put == hdr.n
         && (body_n == 0 || (WriteFile(f, body, (DWORD)body_n, &put, NULL)
                             && put == body_n));
     *offset += (uint32_t)(hdr.n + body_n);
     free(hdr.p);
-    free(packed.p);
+    free(packed);
     return ok ? 0 : -1;
 }
 

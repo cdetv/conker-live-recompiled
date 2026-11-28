@@ -35,7 +35,8 @@ public sealed class ReleaseNotesView : StackPanel
         List<TextBlockInfo> blocks = ReleaseText.Parse(Markdown ?? "");
         if (blocks.Count == 0)
         {
-            Children.Add(new TextBlock { Text = "No notes for this release.", Foreground = Brushes.Gray });
+            // The notes themselves stay English (GitHub's page text); this line follows the language.
+            Children.Add(new TextBlock { Text = T("No notes for this release."), Foreground = Brushes.Gray });
             return;
         }
 

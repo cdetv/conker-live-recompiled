@@ -52,6 +52,11 @@ static const struct {
     { "swing", "RECOMP_SWING_LOG", "[SWING] the swing piece (Extras): Quick Swing presses, "
       "Forgiving Combo's kept presses, the bat's combo state per change, Fast Weapon Draw, "
       "Free Swing, the camera switch, layered draws, the strafe's arm; 2 = [SWTRACE] the player and [ARMQ] his arms every frame", 2 },
+    { "ao", "RECOMP_AO_LOG", "[AO] ambient occlusion: the values sent per change, and every "
+      "10 s how many views got it and how many not (why)", 1 },
+    { "mblur", "RECOMP_MBLUR_LOG", "[MBLUR] camera motion blur: on / off and why, cuts, "
+      "every 2 s the frames blurred and the quickest turn; 2 = also every frame's turn "
+      "(deg/s), move and share", 2 },
 };
 
 static volatile LONG s_level[DLOG_COUNT];

@@ -75,6 +75,7 @@
 #include "menu_page.h"
 #include "controls.h"
 #include "settings.h"
+#include "ui_text.h"
 #include "xbox_kbm.h"
 #include "legacy_cp.h"          /* WM_CHAR's code page (to-do 262) */
 
@@ -131,6 +132,7 @@ static volatile LONG s_keys_used;   /* a key or controller press since the execu
 static volatile LONG s_cy_keys;     /* the same, for the cylinder lists' hold */
 static volatile LONG s_touch;       /* the last move or press was a touch (to-do 270) */
 static volatile LONG s_touch_cursor; /* touch_cursor = 1: the pointer shows for touch too */
+static volatile LONG s_pad_last;    /* the last press or move was a controller's: no Back (291) */
 static HWND s_hwnd;
 
 static void push(int type, float x, float y, int n)
@@ -193,6 +195,7 @@ static HCURSOR pointer_cursor(void)
 /* A real move or press, by the mouse or a touch: the pointer is in use. */
 static void pointer_used(int touch)
 {
+    InterlockedExchange(&s_pad_last, 0);
     LONG was = InterlockedExchange(&s_touch, touch ? 1 : 0);
     if (!s_shown || was != (touch ? 1 : 0)) {
         InterlockedExchange(&s_shown, 1);
@@ -286,7 +289,9 @@ int menu_mouse_message(HWND h, UINT m, WPARAM w, LPARAM l, float x, float y,
         return 0;
     case WM_KEYDOWN:
     case WM_SYSKEYDOWN:
-        /* The keys are in use: the pointer goes until the mouse moves. */
+        /* The keys are in use: the pointer goes until the mouse moves (our
+         * Back stays: the keyboard is not a controller). */
+        InterlockedExchange(&s_pad_last, 0);
         if (s_on) {
             InterlockedExchange(&s_keys_used, 1);
             InterlockedExchange(&s_cy_keys, 1);
@@ -350,6 +355,7 @@ int menu_mouse_message(HWND h, UINT m, WPARAM w, LPARAM l, float x, float y,
         *result = TRUE;
         return 1;
     case WM_MOUSEWHEEL:
+        InterlockedExchange(&s_pad_last, 0);
         s_wheel_rest += GET_WHEEL_DELTA_WPARAM(w);
         if (s_wheel_rest >= WHEEL_DELTA || s_wheel_rest <= -WHEEL_DELTA) {
             push(EV_WHEEL, 0, 0, s_wheel_rest / WHEEL_DELTA);
@@ -1360,6 +1366,62 @@ static void page_frame(float dt, ULONGLONG idle)
     }
 }
 
+/* ---- our Back on a main menu board's page (to-do 291) -------------------------
+ *
+ * Options, Chapters and Game 1-3 show no way back on the screen (the game
+ * draws no button prompts there): a "Back" of ours in the top left corner, in
+ * the menu language (T(); the launcher's "go back" line), clicked or tapped =
+ * B, as Esc and a right click are. Shown while the menus are used with the
+ * mouse, the keyboard or a touchscreen; a controller's press or stick hides it
+ * until one of those is used again (s_pad_last). The look of our arrows: a
+ * bold italic serif of Windows' (overlay_title_font; without one the default
+ * font leant), ivory to gold, a warm glow, dim at rest and lit under the
+ * pointer. Japanese draws with the default font's Japanese one, upright, as
+ * the game's Japanese titles are. Its click box reaches the picture's corner. */
+#define BACK_H       0.055f  /* the text's size, of the picture's height */
+#define BACK_MARGIN  0.035f  /* from the top and left edges, of the height */
+
+static bool s_bk_ok;            /* shown now: a board's page, no controller */
+static bool s_bk_over;          /* under the pointer */
+static bool s_bk_down;          /* the left button went down on it */
+static float s_bk_fade, s_bk_lit, s_bk_pulse;
+static float s_bk_box[4];       /* its click box as last drawn, px (x1 0 = not drawn yet) */
+
+static bool back_at(float x, float y)
+{
+    return s_bk_ok && s_bk_box[2] > 0.0f && x >= s_bk_box[0] && x <= s_bk_box[2]
+           && y >= s_bk_box[1] && y <= s_bk_box[3];
+}
+
+/* Once a frame, after page_frame. */
+static void back_frame(float dt)
+{
+    s_bk_ok = s_on && s_page_ok && s_page.screen == MENU_SCREEN_BOARD && s_page.board >= 1
+              && s_page.board <= 5 && !s_pad_last;
+    s_bk_over = s_shown && !s_pg_dragged && back_at(s_px, s_py);
+    if (s_bk_over) {                    /* nothing of the page's lights under it */
+        s_pg_over = -1;
+        s_pg_over_pr = -1;
+        s_pa_over = 0;
+    }
+    if (!s_bk_ok)
+        s_bk_down = false;
+    s_bk_fade = ease(s_bk_fade, s_bk_ok ? 1.0f : 0.0f, s_bk_ok ? 9.0f : 10.0f, dt);
+    if (!s_bk_ok && s_bk_fade < 0.01f)
+        s_bk_fade = 0.0f;
+    s_bk_lit = ease(s_bk_lit, s_bk_over || s_bk_down ? 1.0f : 0.0f, 12.0f, dt);
+    s_bk_pulse -= dt * 5.0f;
+    if (s_bk_pulse < 0.0f)
+        s_bk_pulse = 0.0f;
+    {
+        static bool was;
+        if (s_bk_ok != was && s_on)
+            fprintf(stderr, "[MOUSE] page: Back %s\n", s_bk_ok ? "shown" : s_page_ok
+                    && s_pad_last ? "hidden (controller)" : "hidden");
+        was = s_bk_ok;
+    }
+}
+
 /* ---- the multiplayer menus' cylinder lists (step 5) --------------------------
  *
  * Every multiplayer list (Welcome, Dumbots, Profiles, the map list, Configure,
@@ -2069,7 +2131,7 @@ static void events_frame(void)
             s_px = e.x;
             s_py = e.y;
             s_pg_moved = true;
-            if (s_ldown && !s_boards && s_page_ok && !s_pl_down_key)
+            if (s_ldown && !s_boards && s_page_ok && !s_pl_down_key && !s_bk_down)
                 page_move(e.x, e.y);
             if (s_ldown && !s_boards && !s_page_ok && s_cy_ok && !s_pl_down_key)
                 cyl_move(e.x, e.y);
@@ -2090,11 +2152,17 @@ static void events_frame(void)
             s_down_x = e.x;
             s_down_board = -1;
             s_pl_down_key = 0;
+            s_bk_down = false;
             if (s_nk_ok) {                  /* the name keyboard: typed when let go on it */
                 s_nk_down = nk_at(e.x, e.y);
                 break;
             }
             if (!s_boards) {
+                if (back_at(e.x, e.y)) {    /* our Back (291): B when let go on it */
+                    s_bk_down = true;
+                    s_bk_pulse = 1.0f;
+                    break;
+                }
                 int k = plate_at(e.x, e.y);
                 if (k >= 0) {           /* a prompt: pressed when let go on it */
                     s_pl_down_key = s_pl.p[k].key;
@@ -2129,6 +2197,12 @@ static void events_frame(void)
                     conker_NameKbClick(k & 15, k >> 4);
                 }
                 s_nk_down = -1;
+            } else if (s_ldown && s_bk_down) {
+                if (back_at(e.x, e.y)) {
+                    fprintf(stderr, "[MOUSE] page: our Back clicked (B)\n");
+                    tap(XBOX_KBM_B);
+                }
+                s_bk_down = false;
             } else if (!s_boards && s_ldown && s_pl_down_key) {
                 int k = plate_at(e.x, e.y);
                 if (k >= 0 && s_pl.p[k].key == s_pl_down_key
@@ -2207,6 +2281,7 @@ static void events_frame(void)
             s_cl_drag = false;
             s_cl_press = 0;
             s_pl_down_key = 0;
+            s_bk_down = false;
             s_pg_down = -2;
             s_pg_drag = 0;
             s_pg_dragged = false;
@@ -2229,6 +2304,7 @@ int menu_mouse_on(void)
 
 void menu_mouse_pad_used(void)
 {
+    InterlockedExchange(&s_pad_last, 1);
     if (s_on) {
         InterlockedExchange(&s_keys_used, 1);
         InterlockedExchange(&s_cy_keys, 1);
@@ -2344,6 +2420,7 @@ int menu_mouse_frame(unsigned w, unsigned h, int blocked)
 
     ULONGLONG idle = (ULONGLONG)(DWORD)((DWORD)GetTickCount() - (DWORD)s_move_tick);
     page_frame(dt, idle);
+    back_frame(dt);
     cyl_frame(dt, idle);
     plate_frame();
     nk_frame();
@@ -2351,7 +2428,7 @@ int menu_mouse_frame(unsigned w, unsigned h, int blocked)
 
     int over = s_shown && s_boards ? arrow_at(s_px, s_py) : 0;
     s_over_board = s_shown && s_boards && !over && !s_dragged ? board_at(s_px, s_py) : -1;
-    bool page_over = (s_page_ok && (s_pa_over || s_pg_over >= 0 || s_pg_over_pr >= 0))
+    bool page_over = (s_page_ok && (s_pa_over || s_pg_over >= 0 || s_pg_over_pr >= 0 || s_bk_over))
                      || (s_cy_ok && (s_cy_over >= 0 || s_cya_over)) || s_pl_over >= 0
                      || (cls_mode() && s_cl_over && !s_cl_drag)
                      || (s_nk_ok && s_nk_over >= 0);
@@ -2404,6 +2481,7 @@ int menu_mouse_frame(unsigned w, unsigned h, int blocked)
             s_pulse[r] = 0.0f;
     }
     return s_fade > 0.0f || s_pa_fade > 0.0f || s_cya_fade > 0.0f || s_cl_fade > 0.0f
+           || s_bk_fade > 0.0f
            || (s_spots_debug > 0 && (s_boards || s_page_ok || s_cy_ok || s_pl_ok || s_nk_ok));
 }
 
@@ -2503,6 +2581,62 @@ static void draw_arrow(ImDrawList *dl, int r)
     draw_chevron(dl, arrow_box(r), r ? 1 : -1, s_fade, s_lit[r], s_pulse[r]);
 }
 
+/* No letter beyond Latin (UTF-8 lead bytes from 0xE0 start CJK and the rest). */
+static bool latin_only(const char *t)
+{
+    for (; *t; t++)
+        if ((unsigned char)*t >= 0xE0)
+            return false;
+    return true;
+}
+
+/* Our Back (to-do 291), as the chevrons: shadow, glow, ivory to gold. Keeps
+ * its click box for the next frame's hit test. */
+static void draw_back(ImDrawList *dl)
+{
+    const char *t = T("Back");
+    const bool latin = latin_only(t);
+    ImFont *f = latin ? overlay_title_font() : NULL;
+    const bool lean = latin && !f;      /* no italic serif: the default font leant */
+    if (!f)
+        f = ImGui::GetIO().Fonts->Fonts[0];
+    const float lit = s_bk_lit, a = s_bk_fade * (0.60f + 0.40f * lit);
+    const float scale = 1.0f + 0.06f * lit - 0.08f * s_bk_pulse;
+    const float size = s_h * BACK_H, sz = size * scale;
+    const ImVec2 ts = f->CalcTextSizeA(size, FLT_MAX, 0.0f, t);
+    const float x = s_h * BACK_MARGIN, y = s_h * BACK_MARGIN * 0.8f;
+    const ImVec2 c(x + ts.x * 0.5f, y + ts.y * 0.5f);
+    const ImVec2 p(c.x - ts.x * scale * 0.5f, c.y - ts.y * scale * 0.5f);
+
+    s_bk_box[0] = 0.0f;
+    s_bk_box[1] = 0.0f;
+    s_bk_box[2] = x + ts.x + size * 0.45f;
+    s_bk_box[3] = y + ts.y + size * 0.30f;
+
+    const int vs = dl->VtxBuffer.Size;
+    dl->AddText(f, sz, ImVec2(p.x + sz * 0.03f, p.y + sz * 0.045f),
+                IM_COL32(0, 0, 0, (int)(a * 0.40f * 255.0f)), t);
+    for (int ring = 0; ring < 2; ring++) {
+        float rad = sz * (ring ? 0.075f : 0.04f);
+        float ga = a * (0.05f + 0.07f * lit) * (ring ? 0.7f : 1.0f);
+        for (int k = 0; k < 8; k++) {
+            float ang = (float)k * 0.785398f;
+            dl->AddText(f, sz, ImVec2(p.x + cosf(ang) * rad, p.y + sinf(ang) * rad),
+                        IM_COL32(255, 205, 110, (int)(ga * 255.0f)), t);
+        }
+    }
+    const int v0 = dl->VtxBuffer.Size;
+    dl->AddText(f, sz, p, IM_COL32(255, 255, 255, (int)(a * 255.0f)), t);
+    const int v1 = dl->VtxBuffer.Size;
+    ImU32 top = lit > 0.5f ? IM_COL32(255, 255, 236, 255) : IM_COL32(255, 248, 206, 255);
+    ImU32 bot = lit > 0.5f ? IM_COL32(250, 222, 140, 255) : IM_COL32(232, 196, 112, 255);
+    ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, v1, ImVec2(c.x, p.y),
+                                                  ImVec2(c.x, p.y + ts.y * scale), top, bot);
+    if (lean)
+        for (int i = vs; i < v1; i++)
+            dl->VtxBuffer[i].pos.x -= (dl->VtxBuffer[i].pos.y - c.y) * 0.15f;
+}
+
 void menu_mouse_draw(unsigned w, unsigned h)
 {
     (void)w;
@@ -2547,6 +2681,11 @@ void menu_mouse_draw(unsigned w, unsigned h)
             rect(s_page.prompt[k].box, k == s_pg_over_pr ? IM_COL32(255, 255, 0, 255)
                                                          : IM_COL32(255, 160, 0, 255));
         rect(s_page.chapter_name, IM_COL32(0, 200, 255, 255));
+        if (s_bk_ok && s_bk_box[2] > 0.0f)      /* our Back's click box (291) */
+            dl->AddRect(ImVec2(s_bk_box[0] + 1.0f, s_bk_box[1] + 1.0f),
+                        ImVec2(s_bk_box[2], s_bk_box[3]),
+                        s_bk_over ? IM_COL32(255, 255, 0, 255) : IM_COL32(255, 255, 255, 255),
+                        0.0f, 0, 2.0f);
     }
     if (s_spots_debug > 0 && s_cy_ok) {
         /* RECOMP_MENU_SPOTS=1 on a cylinder list: its outline, each row's
@@ -2642,6 +2781,8 @@ void menu_mouse_draw(unsigned w, unsigned h)
         for (int k = 0; k < 2; k++)
             draw_chevron(dl, a[k], k ? 1 : -1, s_cl_fade, s_cl_lit[k], s_cl_pulse[k]);
     }
+    if (s_bk_fade > 0.0f)
+        draw_back(dl);
     if (s_fade <= 0.0f)
         return;
     draw_arrow(dl, 0);

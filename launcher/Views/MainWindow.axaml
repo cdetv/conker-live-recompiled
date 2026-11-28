@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ConkerLauncher.ViewModels"
         xmlns:v="using:ConkerLauncher.Views"
+        xmlns:l="using:ConkerLauncher.Services"
         x:Class="ConkerLauncher.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Conker: Live &amp; Recompiled"
@@ -19,7 +20,7 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
           <ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent}"
                        IsIndeterminate="{Binding ProgressIndeterminate}" VerticalAlignment="Center" />
-          <Button Grid.Column="1" Content="Cancel" Command="{Binding CancelCommand}" />
+          <Button Grid.Column="1" Content="{l:T 'Cancel'}" Command="{Binding CancelCommand}" />
         </Grid>
       </StackPanel>
     </DataTemplate>
@@ -97,7 +98,7 @@
           </Grid.ColumnDefinitions>
           <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
           <!-- A sound channel's Mute (to-do 13; user 2026-11-07): the word over the value, the box over the reset button. -->
-          <TextBlock Grid.Column="1" Text="Mute" IsVisible="{Binding HasMute}" VerticalAlignment="Center" HorizontalAlignment="Right" />
+          <TextBlock Grid.Column="1" Text="{l:T 'Mute'}" IsVisible="{Binding HasMute}" VerticalAlignment="Center" HorizontalAlignment="Right" />
           <CheckBox Classes="box" Grid.Column="2" IsChecked="{Binding IsMuted}" IsVisible="{Binding HasMute}" HorizontalAlignment="Center"
                     AutomationProperties.Name="{Binding MuteName}" MinWidth="0" MinHeight="0" Padding="0" />
         </Grid>
@@ -148,10 +149,10 @@
         <Button Grid.Column="3" Width="160" Content="{Binding PadLabel}" Command="{Binding CapturePadCommand}"
                 IsVisible="{Binding HasPad}" HorizontalContentAlignment="Center"
                 AutomationProperties.Name="{Binding PadName}"
-                ToolTip.Tip="Click, then press a button on a controller (or pick one)" />
+                ToolTip.Tip="{l:T 'Click, then press a button on a controller (or pick one)'}" />
         <TextBlock Grid.Column="3" Width="160" Text="{Binding PadFixed}" IsVisible="{Binding ShowPadFixed}"
                    Foreground="{StaticResource DimTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center"
-                   ToolTip.Tip="The controller's own: not rebindable" />
+                   ToolTip.Tip="{l:T 'The controller\'s own: not rebindable'}" />
         <Panel Grid.Column="4" Width="36" IsVisible="{Binding ShowPad}">
           <Button Content="↺" Command="{Binding ResetPadCommand}" IsVisible="{Binding PadChanged}"
                   ToolTip.Tip="{Binding PadResetTip}" AutomationProperties.Name="{Binding PadResetTip}" VerticalAlignment="Center" />
@@ -162,9 +163,9 @@
     <DataTemplate DataType="vm:KeyHeaderItem">
       <Border Classes="row">
       <Grid ColumnDefinitions="*,160,36,Auto,Auto" ColumnSpacing="6" Margin="0,4,0,0">
-        <TextBlock Text="Action" Foreground="{StaticResource DimTextBrush}" />
-        <TextBlock Grid.Column="1" Text="Keys" HorizontalAlignment="Center" Foreground="{StaticResource DimTextBrush}" />
-        <TextBlock Grid.Column="3" Width="160" Text="Controller" TextAlignment="Center" Foreground="{StaticResource DimTextBrush}" />
+        <TextBlock Text="{l:T 'Action'}" Foreground="{StaticResource DimTextBrush}" />
+        <TextBlock Grid.Column="1" Text="{l:T 'Keys'}" HorizontalAlignment="Center" Foreground="{StaticResource DimTextBrush}" />
+        <TextBlock Grid.Column="3" Width="160" Text="{l:T 'Controller'}" TextAlignment="Center" Foreground="{StaticResource DimTextBrush}" />
         <Panel Grid.Column="4" Width="36" />
       </Grid>
       </Border>
@@ -176,8 +177,8 @@
         <Button Content="{Binding Label}" Command="{Binding AskCommand}" IsVisible="{Binding !IsAsking}" />
         <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsAsking}">
           <TextBlock Text="{Binding Question}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
-          <Button Content="Yes" Command="{Binding ConfirmCommand}" />
-          <Button Classes="safe" Content="No" Command="{Binding CancelCommand}" />
+          <Button Content="{l:T 'Yes'}" Command="{Binding ConfirmCommand}" />
+          <Button Classes="safe" Content="{l:T 'No'}" Command="{Binding CancelCommand}" />
         </StackPanel>
       </StackPanel>
     </DataTemplate>
@@ -192,17 +193,17 @@
         <Button Content="{Binding Label}" Command="{Binding AskCommand}" IsVisible="{Binding !IsAsking}" />
         <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsAsking}">
           <TextBlock Text="{Binding Question}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
-          <Button Content="Yes" Command="{Binding ConfirmCommand}" />
-          <Button Classes="safe" Content="No" Command="{Binding CancelCommand}" />
+          <Button Content="{l:T 'Yes'}" Command="{Binding ConfirmCommand}" />
+          <Button Classes="safe" Content="{l:T 'No'}" Command="{Binding CancelCommand}" />
         </StackPanel>
       </StackPanel>
     </DataTemplate>
     <DataTemplate DataType="vm:SlotsItem">
       <StackPanel Spacing="4" Margin="0,6">
         <Grid ColumnDefinitions="70,*,90,90" ColumnSpacing="8">
-          <TextBlock Text="Slot" Foreground="{StaticResource DimTextBrush}" />
-          <TextBlock Grid.Column="1" Text="Controller" Foreground="{StaticResource DimTextBrush}" />
-          <TextBlock Grid.Column="2" Text="Keyboard" Foreground="{StaticResource DimTextBrush}" />
+          <TextBlock Text="{l:T 'Slot'}" Foreground="{StaticResource DimTextBrush}" />
+          <TextBlock Grid.Column="1" Text="{l:T 'Controller'}" Foreground="{StaticResource DimTextBrush}" />
+          <TextBlock Grid.Column="2" Text="{l:T 'Keyboard'}" Foreground="{StaticResource DimTextBrush}" />
         </Grid>
         <ItemsControl ItemsSource="{Binding Rows}">
           <ItemsControl.ItemTemplate>
@@ -221,22 +222,22 @@
                 <CheckBox Classes="box" Grid.Column="2" IsChecked="{Binding KeyboardOn}" ToolTip.Tip="{Binding KeyboardTip}"
                           AutomationProperties.Name="{Binding KeyboardName}" HorizontalAlignment="Center" />
                 <!-- F3's per-slot Options window (rumble, sticks, gyro; user 2026-11-15). -->
-                <Button Grid.Column="3" Content="Options" Command="{Binding OpenOptionsCommand}" HorizontalAlignment="Stretch"
+                <Button Grid.Column="3" Content="{l:T 'Options'}" Command="{Binding OpenOptionsCommand}" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center" AutomationProperties.Name="{Binding OptionsName}"
-                        ToolTip.Tip="Rumble, sticks and gyro aiming for this slot's controller" />
+                        ToolTip.Tip="{l:T 'Rumble, sticks and gyro aiming for this slot\'s controller'}" />
               </Grid>
               </Border>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
-        <Button Content="Look for controllers again" Margin="0,4,0,0"
+        <Button Content="{l:T 'Look for controllers again'}" Margin="0,4,0,0"
                 Command="{Binding $parent[TabControl].((vm:ControlsViewModel)DataContext).RefreshPadsCommand}" />
       </StackPanel>
     </DataTemplate>
     <!-- F3 Slots' Chords button (to-do 39): one for every controller. -->
     <DataTemplate DataType="vm:ChordsItem">
-      <Button Content="Chords" Command="{Binding OpenCommand}" Margin="0,6" AutomationProperties.Name="Chords"
-              ToolTip.Tip="Two buttons held together for the menus, photo mode and cheats (every controller)" />
+      <Button Content="{l:T 'Chords'}" Command="{Binding OpenCommand}" Margin="0,6" AutomationProperties.Name="{l:T 'Chords'}"
+              ToolTip.Tip="{l:T 'Two buttons held together for the menus, photo mode and cheats (every controller)'}" />
     </DataTemplate>
   </Window.DataTemplates>
   <Panel>
@@ -268,13 +269,13 @@
                      IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <TextBlock Text="{Binding VersionLine}" Foreground="{StaticResource DimTextBrush}" FontSize="12" TextWrapping="Wrap" />
           <StackPanel Orientation="Horizontal" Spacing="14">
-            <Button Content="Version History" Command="{Binding OpenHistoryCommand}" FontSize="12" Padding="10,3" />
-            <CheckBox Content="Auto Update" IsChecked="{Binding AutoUpdate}" FontSize="12" MinHeight="24"
-                      ToolTip.Tip="Install a new version by itself whenever the launcher starts" />
+            <Button Content="{l:T 'Version History'}" Command="{Binding OpenHistoryCommand}" FontSize="12" Padding="10,3" />
+            <CheckBox Content="{l:T 'Auto Update'}" IsChecked="{Binding AutoUpdate}" FontSize="12" MinHeight="24"
+                      ToolTip.Tip="{l:T 'Install a new version by itself whenever the launcher starts'}" />
           </StackPanel>
         </StackPanel>
         <Button Grid.Column="1" Classes="secondary" Content="{Binding UpdateButtonText}" Command="{Binding OpenUpdatePromptCommand}" />
-        <Button Grid.Column="2" Classes="play" Content="PLAY" Command="{Binding PlayCommand}" />
+        <Button Grid.Column="2" Classes="play" Content="{l:T 'PLAY'}" Command="{Binding PlayCommand}" />
       </Grid>
 
       <!-- Help line while the pad is in use (to-do 121 1f): the focused control's tooltip, which a
@@ -287,16 +288,16 @@
       <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
               BorderThickness="1" CornerRadius="8" Padding="12,4,12,12">
         <TabControl x:Name="MainTabs">
-          <TabItem Header="FILES">
+          <TabItem Header="{l:T 'FILES'}">
             <ScrollViewer DataContext="{Binding Files}" x:DataType="vm:FilesViewModel">
               <StackPanel Spacing="10" Margin="4,8,16,4">
                 <!-- Game files -->
-                <TextBlock Classes="section" Text="Game files" />
+                <TextBlock Classes="section" Text="{l:T 'Game files'}" />
                 <TextBlock Text="{Binding GameFilesText}" TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button Content="{Binding ImportButtonText}" Command="{Binding ImportGameCommand}" />
                   <!-- An installed Xbox Store version found on this PC (to-do 37): imported in one click. -->
-                  <Button Content="Import Xbox Store version" Command="{Binding ImportStoreVersionCommand}"
+                  <Button Content="{l:T 'Import Xbox Store version'}" Command="{Binding ImportStoreVersionCommand}"
                           IsVisible="{Binding StoreVersionFound}" />
                 </StackPanel>
 
@@ -304,7 +305,7 @@
                 <ContentControl Content="{Binding}" ContentTemplate="{StaticResource JobStatus}" IsVisible="{Binding GameStatusVisible}" />
 
                 <!-- Decensor patch -->
-                <TextBlock Classes="section" Text="Decensor patch" Margin="0,8,0,0" />
+                <TextBlock Classes="section" Text="{l:T 'Decensor patch'}" Margin="0,8,0,0" />
                 <TextBlock Text="{Binding DecensorText}" TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button Content="{Binding AddPatchButtonText}" Command="{Binding AddPatchCommand}" />
@@ -315,44 +316,85 @@
                 <TextBlock Text="{Binding DecensorCheckNote}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
                            IsVisible="{Binding DecensorCheckNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
-                           Text="The decensor patch is made by nastys, Vaani and Theconker64 and is downloaded from their GitHub releases. It is not part of this launcher." />
+                           Text="{l:T 'The decensor patch is made by nastys, Vaani and Theconker64 and is downloaded from their GitHub releases. It is not part of this launcher.'}" />
 
                 <!-- Shaders: conker.exe precompile-shaders fills the shader cache (to-do 25, SPEC 9.3). -->
-                <TextBlock Classes="section" Text="Shaders" Margin="0,8,0,0" />
+                <TextBlock Classes="section" Text="{l:T 'Shaders'}" Margin="0,8,0,0" />
                 <TextBlock Text="{Binding ShadersText}" TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !ConfirmDeleteShaders}">
                   <Button Content="{Binding PrecompileButtonText}" Command="{Binding PrecompileShadersCommand}" />
-                  <Button Content="Delete Shaders" Command="{Binding AskDeleteShadersCommand}" />
+                  <Button Content="{l:T 'Delete Shaders'}" Command="{Binding AskDeleteShadersCommand}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmDeleteShaders}">
-                  <TextBlock Text="Delete every compiled shader? The game compiles them again as you play (or precompile again)."
+                  <TextBlock Text="{l:T 'Delete every compiled shader? The game compiles them again as you play (or precompile again).'}"
                              TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="480" />
-                  <Button Content="Yes" Command="{Binding DeleteShadersCommand}" />
-                  <Button Classes="safe" Content="No" Command="{Binding CancelDeleteShadersCommand}" />
+                  <Button Content="{l:T 'Yes'}" Command="{Binding DeleteShadersCommand}" />
+                  <Button Classes="safe" Content="{l:T 'No'}" Command="{Binding CancelDeleteShadersCommand}" />
                 </StackPanel>
                 <TextBlock Text="{Binding PrecompileError}" TextWrapping="Wrap" Classes="error"
                            IsVisible="{Binding PrecompileError, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
                 <!-- Game assets: conker.exe carve makes them from the game files (to-do 43, SPEC 9.3). -->
-                <TextBlock Classes="section" Text="Game assets" Margin="0,8,0,0" />
+                <TextBlock Classes="section" Text="{l:T 'Game assets'}" Margin="0,8,0,0" />
                 <TextBlock Text="{Binding AssetsText}" TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !ConfirmDeleteAssets}">
-                  <Button Content="Delete Assets" Command="{Binding AskDeleteAssetsCommand}" />
+                  <Button Content="{l:T 'Delete Assets'}" Command="{Binding AskDeleteAssetsCommand}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmDeleteAssets}">
-                  <TextBlock Text="Delete the prepared game assets? The launcher prepares them again the next time it starts."
+                  <TextBlock Text="{l:T 'Delete the prepared game assets? The launcher prepares them again the next time it starts.'}"
                              TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="480" />
-                  <Button Content="Yes" Command="{Binding DeleteAssetsCommand}" />
-                  <Button Classes="safe" Content="No" Command="{Binding CancelDeleteAssetsCommand}" />
+                  <Button Content="{l:T 'Yes'}" Command="{Binding DeleteAssetsCommand}" />
+                  <Button Classes="safe" Content="{l:T 'No'}" Command="{Binding CancelDeleteAssetsCommand}" />
                 </StackPanel>
                 <TextBlock Text="{Binding AssetsError}" TextWrapping="Wrap" Classes="error"
                            IsVisible="{Binding AssetsError, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
+                <!-- Texture packs: conker.exe texture-export saves the textures as PNGs (to-do 238, SPEC 9.3). -->
+                <TextBlock Classes="section" Text="{l:T 'Texture packs'}" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding TexturesText}" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="{Binding ExportButtonText}" Command="{Binding ExportTexturesCommand}"
+                          ToolTip.Tip="{l:T 'Saves the textures of your game files as PNGs to make a texture pack from'}" />
+                  <Button Content="{l:T 'Dump Folder'}" Command="{Binding OpenExportedTexturesCommand}"
+                          ToolTip.Tip="{l:T 'Opens textures\\dump, where Export Textures saves the PNGs'}" />
+                  <Button Content="{l:T 'Packs Folder'}" Command="{Binding OpenPacksFolderCommand}"
+                          ToolTip.Tip="{l:T 'Opens textures\\packs, where each texture pack is a folder of its own'}" />
+                </StackPanel>
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource JobProgress}" IsVisible="{Binding TexturesJobVisible}" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource JobStatus}" IsVisible="{Binding TexturesStatusVisible}" />
+                <!-- The pack list (to-do 288 part 2d): settings.ini's [texture_packs], the same list as the game's
+                     F2 > Extras > Texture Packs. A row's check box ticks; dragging a row (MainWindow.OnPackPointer*)
+                     or holding A on it and pressing up / down (PadNavigator) moves it. -->
+                <StackPanel Spacing="2" DataContext="{Binding Packs}" x:DataType="vm:TexturePacksViewModel" Margin="0,4,0,0">
+                  <TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
+                             Margin="0,0,0,4" />
+                  <ItemsControl x:Name="PackList" ItemsSource="{Binding Packs}" IsEnabled="{Binding CanChange}"
+                                IsVisible="{Binding HasPacks}" Width="420" HorizontalAlignment="Left">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:TexturePackItem">
+                        <Border Classes="packrow" Classes.held="{Binding IsHeld}">
+                          <DockPanel>
+                            <!-- The grip: drag here or anywhere on the row. -->
+                            <Border DockPanel.Dock="Right" Background="Transparent" Cursor="SizeNorthSouth" Padding="12,6,4,6">
+                              <Path Data="M0,0 H14 M0,5 H14 M0,10 H14" Stroke="{StaticResource DimTextBrush}"
+                                    StrokeThickness="1.5" VerticalAlignment="Center" />
+                            </Border>
+                            <CheckBox Classes="pack" Content="{Binding Name}" IsChecked="{Binding On}"
+                                      ToolTip.Tip="{l:T 'Ticked: the game uses this pack. Drag a pack to move it; with a controller, hold A on it and press up or down'}" />
+                          </DockPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="{Binding Error}" Classes="error" TextWrapping="Wrap"
+                             IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+
                 <!-- User files: where they are kept (SPEC 9.3); a change moves them. -->
-                <TextBlock Classes="section" Text="User files" Margin="0,8,0,0" />
+                <TextBlock Classes="section" Text="{l:T 'User files'}" Margin="0,8,0,0" />
                 <StackPanel Spacing="4" DataContext="{Binding UserFiles}" x:DataType="vm:UserFilesViewModel">
-                  <TextBlock Text="Saves, settings, photos and logs are kept in:" TextWrapping="Wrap" />
-                  <RadioButton GroupName="UserFiles" Content="The game folder (userdata)" IsChecked="{Binding InGameFolder}"
+                  <TextBlock Text="{l:T 'Saves, settings, photos and logs are kept in:'}" TextWrapping="Wrap" />
+                  <RadioButton GroupName="UserFiles" Content="{l:T 'The game folder (userdata)'}" IsChecked="{Binding InGameFolder}"
                                IsEnabled="{Binding CanChoose}" />
                   <RadioButton GroupName="UserFiles" Content="{Binding AppDataText}" IsChecked="{Binding InAppData}"
                                IsEnabled="{Binding CanChoose}" />
@@ -363,11 +405,12 @@
                              IsVisible="{Binding StatusText, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Button Content="Logs" Command="{Binding OpenLogsCommand}" />
-                  <Button Content="Saves" Command="{Binding OpenSavesCommand}" />
-                  <Button Content="Photos" Command="{Binding OpenPhotosCommand}" />
-                  <Button Content="Report Bug" Command="{Binding Report.OpenCommand}"
-                          ToolTip.Tip="Makes a .zip to attach to a GitHub issue, for a crash noticed later" />
+                  <Button Content="{l:T 'Logs'}" Command="{Binding OpenLogsCommand}" />
+                  <Button Content="{l:T 'Saves'}" Command="{Binding OpenSavesCommand}" />
+                  <Button Content="{l:T 'Photos'}" Command="{Binding OpenPhotosCommand}" />
+                  <!-- The button's words follow the language; the Report Bug pop-up stays English, as the game's does (to-do 289). -->
+                  <Button Content="{l:T 'Report Bug'}" Command="{Binding Report.OpenCommand}"
+                          ToolTip.Tip="{l:T 'Makes a .zip to attach to a GitHub issue, for a crash noticed later'}" />
                 </StackPanel>
 
                 <!-- Steam (to-do 285): Add to Steam on real Windows; under Wine the release's add-to-steam.sh does it. -->
@@ -375,40 +418,40 @@
                   <TextBlock Classes="section" Text="Steam" Margin="0,8,0,0" />
                   <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
                   <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsAsking}">
-                    <Button Content="Add to Steam" Command="{Binding AskAddCommand}"
-                            ToolTip.Tip="Adds the launcher to your Steam library with its artwork; Steam closes for a moment and starts again" />
+                    <Button Content="{l:T 'Add to Steam'}" Command="{Binding AskAddCommand}"
+                            ToolTip.Tip="{l:T 'Adds the launcher to your Steam library with its artwork; Steam closes for a moment and starts again'}" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsAsking}">
-                    <TextBlock Text="Steam is open: it closes while the game is added, then starts again. Go ahead?"
+                    <TextBlock Text="{l:T 'Steam is open: it closes while the game is added, then starts again. Go ahead?'}"
                                TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="480" />
-                    <Button Content="Yes" Command="{Binding AddCommand}" />
-                    <Button Classes="safe" Content="No" Command="{Binding CancelAddCommand}" />
+                    <Button Content="{l:T 'Yes'}" Command="{Binding AddCommand}" />
+                    <Button Classes="safe" Content="{l:T 'No'}" Command="{Binding CancelAddCommand}" />
                   </StackPanel>
                   <TextBlock Text="{Binding Status}" TextWrapping="Wrap"
                              Classes.error="{Binding StatusIsError}" Classes.ok="{Binding !StatusIsError}"
                              IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
                   <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DimTextBrush}"
-                             Text="The artwork is made by PopASquatt, Jiquita and EVE Online and is downloaded from SteamGridDB when you click. It is not part of this launcher." />
+                             Text="{l:T 'The artwork is made by PopASquatt, Jiquita and EVE Online and is downloaded from SteamGridDB when you click. It is not part of this launcher.'}" />
                 </StackPanel>
               </StackPanel>
             </ScrollViewer>
           </TabItem>
-          <TabItem Header="SETTINGS">
+          <TabItem Header="{l:T 'SETTINGS'}">
             <!-- The game's F2 menu, from what conker.exe dump-settings prints (SPEC 9.3). -->
             <DockPanel DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel">
               <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="4,8,16,4">
-                <TextBlock Text="The game is running: change settings in its F2 menu. This tab unlocks when the game closes."
+                <TextBlock Text="{l:T 'The game is running: change settings in its F2 menu. This tab unlocks when the game closes.'}"
                            TextWrapping="Wrap" Foreground="#FFE0A040" IsVisible="{Binding IsLocked}" />
                 <TextBlock Text="{Binding ErrorText}" TextWrapping="Wrap" Classes="error"
                            IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !ConfirmReset}">
-                  <Button Content="Reset to defaults" Command="{Binding AskResetCommand}" IsEnabled="{Binding IsEditable}" />
+                  <Button Content="{l:T 'Reset to defaults'}" Command="{Binding AskResetCommand}" IsEnabled="{Binding IsEditable}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmReset}">
-                  <TextBlock Text="Set every setting (all four tabs, not the controls) back to the default?"
-                             TextWrapping="Wrap" VerticalAlignment="Center" />
-                  <Button Content="Reset" Command="{Binding ResetCommand}" />
-                  <Button Classes="safe" Content="Cancel" Command="{Binding CancelResetCommand}" />
+                  <TextBlock Text="{l:T 'Set every setting (all four tabs, not the controls) back to the default?'}"
+                             TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="440" />
+                  <Button Content="{l:T 'Reset'}" Command="{Binding ResetCommand}" />
+                  <Button Classes="safe" Content="{l:T 'Cancel'}" Command="{Binding CancelResetCommand}" />
                 </StackPanel>
                 <ItemsControl ItemsSource="{Binding TopItems}" IsEnabled="{Binding IsEditable}" />
               </StackPanel>
@@ -429,11 +472,11 @@
               </TabControl>
             </DockPanel>
           </TabItem>
-          <TabItem Header="CONTROLS">
+          <TabItem Header="{l:T 'CONTROLS'}">
             <!-- The game's F3 menu, from what conker.exe dump-settings and list-pads print (SPEC 9.3). -->
             <DockPanel DataContext="{Binding Controls}" x:DataType="vm:ControlsViewModel">
               <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="4,8,16,0">
-                <TextBlock Text="The game is running: change controls in its F3 menu. This tab unlocks when the game closes."
+                <TextBlock Text="{l:T 'The game is running: change controls in its F3 menu. This tab unlocks when the game closes.'}"
                            TextWrapping="Wrap" Foreground="#FFE0A040" IsVisible="{Binding IsLocked}" />
                 <TextBlock Text="{Binding ErrorText}" TextWrapping="Wrap" Classes="error"
                            IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
@@ -523,26 +566,26 @@
       <Border x:Name="WelcomeBox" Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="560" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="16">
-          <TextBlock Classes="section" Text="Welcome" FontSize="22" />
+          <TextBlock Classes="section" Text="{l:T 'Welcome'}" FontSize="22" />
           <TextBlock TextWrapping="Wrap"
-                     Text="To play, the launcher needs the game files from your own copy of Conker: Live &amp; Reloaded: a disc image (.iso, PAL or USA), an archive holding it (.zip, .7z, .rar), a copied game folder, or the Xbox Store version." />
+                     Text="{l:T 'To play, the launcher needs the game files from your own copy of Conker: Live &amp; Reloaded: a disc image (.iso, PAL or USA), an archive holding it (.zip, .7z, .rar), a copied game folder, or the Xbox Store version.'}" />
           <!-- An installed Xbox Store version found on this PC (to-do 37): one click imports it. -->
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" IsVisible="{Binding Files.StoreVersionFound}">
             <TextBlock TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{StaticResource XboxGreenBrush}"
-                       Text="Xbox Store version found on this PC." />
-            <Button Grid.Column="1" Classes="play" Content="Import Xbox Store version" FontSize="16"
+                       Text="{l:T 'Xbox Store version found on this PC.'}" />
+            <Button Grid.Column="1" Classes="play" Content="{l:T 'Import Xbox Store version'}" FontSize="16"
                     Command="{Binding ImportStoreFromPromptCommand}" />
           </Grid>
           <!-- A file dropped here is imported at once (to-do 122); a drag it won't take says why while it hovers. -->
           <Panel>
-            <TextBlock Text="or drag your disc image here" FontSize="13" Foreground="{StaticResource DimTextBrush}"
+            <TextBlock Text="{l:T 'or drag your disc image here'}" FontSize="13" Foreground="{StaticResource DimTextBrush}"
                        IsVisible="{Binding WelcomeDropProblem, Converter={x:Static ObjectConverters.IsNull}}" />
             <TextBlock Classes="error" Text="{Binding WelcomeDropProblem}" FontSize="13" TextWrapping="Wrap"
                        IsVisible="{Binding WelcomeDropProblem, Converter={x:Static ObjectConverters.IsNotNull}}" />
           </Panel>
           <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-            <Button Classes="secondary safe" Content="Not now" Command="{Binding DismissImportPromptCommand}" />
-            <Button Classes="play" Content="Import Files" FontSize="16" Command="{Binding ImportFromPromptCommand}" />
+            <Button Classes="secondary safe" Content="{l:T 'Not now'}" Command="{Binding DismissImportPromptCommand}" />
+            <Button Classes="play" Content="{l:T 'Import Files'}" FontSize="16" Command="{Binding ImportFromPromptCommand}" />
           </StackPanel>
         </StackPanel>
       </Border>
@@ -555,7 +598,7 @@
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="600" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="12">
-          <TextBlock Classes="section" Text="Update available" FontSize="22" />
+          <TextBlock Classes="section" Text="{l:T 'Update available'}" FontSize="22" />
           <TextBlock Text="{Binding UpdateTitle}" Foreground="{StaticResource DimTextBrush}" />
           <Border Background="#FF0A0E0A" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="6">
             <ScrollViewer MaxHeight="340">
@@ -563,10 +606,10 @@
             </ScrollViewer>
           </Border>
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-            <CheckBox Content="Don't remind me" IsChecked="{Binding SkipThisRelease}" VerticalAlignment="Center"
-                      ToolTip.Tip="No window at start for this version; it shows again when a newer one is out" />
-            <Button Grid.Column="1" Classes="secondary safe" Content="Update Later" Command="{Binding UpdateLaterCommand}" />
-            <Button Grid.Column="2" Classes="play" Content="Update Now" FontSize="16" Command="{Binding UpdateCommand}" />
+            <CheckBox Content="{l:T 'Don\'t remind me'}" IsChecked="{Binding SkipThisRelease}" VerticalAlignment="Center"
+                      ToolTip.Tip="{l:T 'No window at start for this version; it shows again when a newer one is out'}" />
+            <Button Grid.Column="1" Classes="secondary safe" Content="{l:T 'Update Later'}" Command="{Binding UpdateLaterCommand}" />
+            <Button Grid.Column="2" Classes="play" Content="{l:T 'Update Now'}" FontSize="16" Command="{Binding UpdateCommand}" />
           </Grid>
         </StackPanel>
       </Border>
@@ -577,8 +620,8 @@
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="640" Height="600" HorizontalAlignment="Center" VerticalAlignment="Center">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Classes="section" Text="Version history" FontSize="22" Margin="0,0,0,12" />
-          <Button DockPanel.Dock="Bottom" Classes="secondary safe" Content="Close" Command="{Binding CloseHistoryCommand}"
+          <TextBlock DockPanel.Dock="Top" Classes="section" Text="{l:T 'Version history'}" FontSize="22" Margin="0,0,0,12" />
+          <Button DockPanel.Dock="Bottom" Classes="secondary safe" Content="{l:T 'Close'}" Command="{Binding CloseHistoryCommand}"
                   HorizontalAlignment="Right" Margin="0,12,0,0" />
           <TextBlock DockPanel.Dock="Top" Text="{Binding HistoryNote}" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}"
                      IsVisible="{Binding HistoryNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
@@ -594,7 +637,7 @@
                         <TextBlock Text="{Binding DateLine}" Foreground="{StaticResource DimTextBrush}" VerticalAlignment="Center" />
                       </WrapPanel>
                       <v:ReleaseNotesView Markdown="{Binding Body}" />
-                      <HyperlinkButton Content="Open on GitHub" NavigateUri="{Binding Page}" Padding="0,2"
+                      <HyperlinkButton Content="{l:T 'Open on GitHub'}" NavigateUri="{Binding Page}" Padding="0,2"
                                        IsVisible="{Binding Page, Converter={x:Static ObjectConverters.IsNotNull}}" />
                       <Border Height="1" Background="{StaticResource PanelBorderBrush}" Margin="0,8,0,0" />
                     </StackPanel>
@@ -668,27 +711,29 @@
                 CornerRadius="10" Padding="28,24" Width="480" HorizontalAlignment="Center" VerticalAlignment="Center"
                 IsVisible="{Binding Conflict, Converter={x:Static ObjectConverters.IsNull}}">
           <StackPanel Spacing="12">
-            <TextBlock Classes="section" Text="Moving user files" />
+            <TextBlock Classes="section" Text="{l:T 'Moving user files'}" />
             <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" />
             <ProgressBar IsIndeterminate="True" />
           </StackPanel>
         </Border>
         <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
-                CornerRadius="10" Padding="28,24" Width="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                CornerRadius="10" Padding="28,24" Width="640" HorizontalAlignment="Center" VerticalAlignment="Center"
                 IsVisible="{Binding Conflict, Converter={x:Static ObjectConverters.IsNotNull}}">
           <StackPanel Spacing="14">
             <TextBlock Text="{Binding Question}" TextWrapping="Wrap" FontSize="16" />
             <TextBlock Text="{Binding SaveLine}" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" />
-            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" IsVisible="{Binding !ConfirmDelete}">
-              <Button Content="Backup and Transfer" Command="{Binding BackupAndTransferCommand}" ToolTip.Tip="{Binding TransferTip}" />
-              <Button Content="Backup and Delete" Command="{Binding BackupAndDeleteCommand}" ToolTip.Tip="{Binding BackupTip}" />
+            <!-- 640 wide and a wrapping row (to-do 289): French / Spanish / Italian button names are longer;
+                 a language still too long puts the last button on a second line instead of cutting it off. -->
+            <WrapPanel ItemSpacing="10" LineSpacing="8" HorizontalAlignment="Right" IsVisible="{Binding !ConfirmDelete}">
+              <Button Content="{l:T 'Backup and Transfer'}" Command="{Binding BackupAndTransferCommand}" ToolTip.Tip="{Binding TransferTip}" />
+              <Button Content="{l:T 'Backup and Delete'}" Command="{Binding BackupAndDeleteCommand}" ToolTip.Tip="{Binding BackupTip}" />
               <Button Content="{Binding DeleteText}" Command="{Binding AskDeleteCommand}" />
-            </StackPanel>
+            </WrapPanel>
             <StackPanel Spacing="10" IsVisible="{Binding ConfirmDelete}">
               <TextBlock Text="{Binding DeleteQuestion}" TextWrapping="Wrap" Foreground="#FFE0A040" />
               <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-                <Button Content="Delete" Command="{Binding DeleteCommand}" />
-                <Button Classes="safe" Content="Cancel" Command="{Binding CancelDeleteCommand}" />
+                <Button Content="{l:T 'Delete'}" Command="{Binding DeleteCommand}" />
+                <Button Classes="safe" Content="{l:T 'Cancel'}" Command="{Binding CancelDeleteCommand}" />
               </StackPanel>
             </StackPanel>
           </StackPanel>
@@ -706,8 +751,8 @@
           <TextBlock DockPanel.Dock="Top" Classes="section" Text="{Binding OptionsRow.OptionsTitle, FallbackValue=''}" FontSize="22" />
           <TextBlock DockPanel.Dock="Top" Text="{Binding OptionsRow.ControllerText, FallbackValue=''}" Foreground="{StaticResource DimTextBrush}"
                      TextWrapping="Wrap" Margin="0,2,0,8" />
-          <Button DockPanel.Dock="Bottom" Classes="secondary safe" Content="Close" Command="{Binding CloseOptionsCommand}"
-                  AutomationProperties.Name="Close slot options" HorizontalAlignment="Right" Margin="0,12,0,0" />
+          <Button DockPanel.Dock="Bottom" Classes="secondary safe" Content="{l:T 'Close'}" Command="{Binding CloseOptionsCommand}"
+                  AutomationProperties.Name="{l:T 'Close slot options'}" HorizontalAlignment="Right" Margin="0,12,0,0" />
           <ScrollViewer>
             <ItemsControl ItemsSource="{Binding OptionsRow.Items, FallbackValue={x:Null}}" Margin="0,0,14,0" />
           </ScrollViewer>
@@ -722,22 +767,22 @@
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="680" MaxHeight="680" HorizontalAlignment="Center" VerticalAlignment="Center">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Classes="section" Text="Controller chords" FontSize="22" />
+          <TextBlock DockPanel.Dock="Top" Classes="section" Text="{l:T 'Controller chords'}" FontSize="22" />
           <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,2,0,8" FontSize="13" Foreground="{StaticResource DimTextBrush}"
-                     Text="Two buttons held together for our own extras, on slot 1's controller; one set for every controller, apart from its normal controls. Button names are an Xbox controller's: on a PlayStation controller Back = Share / Create, Start = Options, LB / RB = L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle." />
+                     Text="{l:T 'Two buttons held together for our own extras, on slot 1\'s controller; one set for every controller, apart from its normal controls. Button names are an Xbox controller\'s: on a PlayStation controller Back = Share / Create, Start = Options, LB / RB = L1 / R1, A / B / X / Y = Cross / Circle / Square / Triangle.'}" />
           <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,12,0,0">
             <TextBlock Text="{Binding ChordsMessage}" TextWrapping="Wrap" Foreground="#FFE0A040"
                        IsVisible="{Binding ChordsMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
             <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding AskResetChords}">
-              <TextBlock Text="Put every chord back to its default?" VerticalAlignment="Center" />
-              <Button Content="Yes" Command="{Binding ConfirmResetChordsCommand}" />
-              <Button Content="No" Command="{Binding CancelResetChordsCommand}" />
+              <TextBlock Text="{l:T 'Put every chord back to its default?'}" VerticalAlignment="Center" />
+              <Button Content="{l:T 'Yes'}" Command="{Binding ConfirmResetChordsCommand}" />
+              <Button Content="{l:T 'No'}" Command="{Binding CancelResetChordsCommand}" />
             </StackPanel>
             <DockPanel>
-              <Button DockPanel.Dock="Left" Content="Reset all chords" Command="{Binding ResetChordsCommand}"
+              <Button DockPanel.Dock="Left" Content="{l:T 'Reset all chords'}" Command="{Binding ResetChordsCommand}"
                       IsVisible="{Binding !AskResetChords}" />
-              <Button Classes="secondary safe" Content="Close" Command="{Binding CloseChordsCommand}"
-                      AutomationProperties.Name="Close chords" HorizontalAlignment="Right" />
+              <Button Classes="secondary safe" Content="{l:T 'Close'}" Command="{Binding CloseChordsCommand}"
+                      AutomationProperties.Name="{l:T 'Close chords'}" HorizontalAlignment="Right" />
             </DockPanel>
           </StackPanel>
           <ScrollViewer>
@@ -751,10 +796,11 @@
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ChordRow">
                           <Border Classes="row">
-                            <Grid ColumnDefinitions="*,220,80,36" ColumnSpacing="8" Margin="0,2">
+                            <!-- 270: a French D-pad chord ("Croix directionnelle droite + Start") whole (to-do 289). -->
+                            <Grid ColumnDefinitions="*,270,80,36" ColumnSpacing="8" Margin="0,2">
                               <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" ToolTip.Tip="{Binding Tip}">
                                 <TextBlock Text="{Binding Label}" />
-                                <TextBlock Text="(required)" Foreground="{StaticResource DimTextBrush}" IsVisible="{Binding Required}" />
+                                <TextBlock Text="{l:T '(required)'}" Foreground="{StaticResource DimTextBrush}" IsVisible="{Binding Required}" />
                               </StackPanel>
                               <ComboBox Grid.Column="1" ItemsSource="{Binding Options}" SelectedItem="{Binding Selected}"
                                         AutomationProperties.Name="{Binding Name}" HorizontalAlignment="Stretch" MaxDropDownHeight="420">
@@ -769,9 +815,9 @@
                                   </DataTemplate>
                                 </ComboBox.ItemTemplate>
                               </ComboBox>
-                              <Button Grid.Column="2" Content="Press" Command="{Binding PressCommand}" HorizontalAlignment="Stretch"
+                              <Button Grid.Column="2" Content="{l:T 'Press'}" Command="{Binding PressCommand}" HorizontalAlignment="Stretch"
                                       HorizontalContentAlignment="Center" AutomationProperties.Name="{Binding PressName}"
-                                      ToolTip.Tip="Set it by holding the chord on a controller" />
+                                      ToolTip.Tip="{l:T 'Set it by holding the chord on a controller'}" />
                               <Button Grid.Column="3" Content="&#x21BA;" Command="{Binding ResetCommand}" IsVisible="{Binding !IsDefault}"
                                       AutomationProperties.Name="{Binding ResetName}" ToolTip.Tip="{Binding ResetTip}" />
                             </Grid>
@@ -795,17 +841,17 @@
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="10">
-          <TextBlock Text="On a controller, hold two buttons together for:" />
+          <TextBlock Text="{l:T 'On a controller, hold two buttons together for:'}" />
           <TextBlock Classes="section" Text="{Binding ChordCapturing.Label, FallbackValue=''}" TextWrapping="Wrap" />
-          <TextBlock Text="{Binding ChordCapturing.ChordText, StringFormat='Chord now: {0}', FallbackValue=''}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ChordCapturing.ChordNowText, FallbackValue=''}" TextWrapping="Wrap" />
           <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}"
-                     Text="Hold one button and press the other: Back or RB with another button, a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both sticks clicked. B alone, Esc or Cancel: no change." />
+                     Text="{l:T 'Hold one button and press the other: Back or RB with another button, a D-pad direction with A, B, X, Y, LB, Start, RB or Back, or both sticks clicked. B alone, Esc or Cancel: no change.'}" />
           <TextBlock Text="{Binding ChordCaptureMessage}" TextWrapping="Wrap" Foreground="#FFE0A040"
                      IsVisible="{Binding ChordCaptureMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-            <Button Content="No chord" Command="{Binding NoChordCommand}" Focusable="False"
+            <Button Content="{l:T 'No chord'}" Command="{Binding NoChordCommand}" Focusable="False"
                     IsVisible="{Binding !ChordCapturing.Required, FallbackValue=False}" />
-            <Button Classes="safe" Content="Cancel" Command="{Binding CancelChordCaptureCommand}" Focusable="False" />
+            <Button Classes="safe" Content="{l:T 'Cancel'}" Command="{Binding CancelChordCaptureCommand}" Focusable="False" />
           </StackPanel>
         </StackPanel>
       </Border>
@@ -818,15 +864,15 @@
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="10">
-          <TextBlock Text="On a controller, press the button for:" />
+          <TextBlock Text="{l:T 'On a controller, press the button for:'}" />
           <TextBlock Classes="section" Text="{Binding PadCaptureTitle}" TextWrapping="Wrap" />
           <TextBlock Text="{Binding PadNowText}" TextWrapping="Wrap" />
           <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}"
-                     Text="A button another action uses at the same moment swaps with this one. Back, Esc or Cancel: no change. Back and the D-pad can't be bound. Button names are an Xbox controller's (PlayStation: A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options)." />
+                     Text="{l:T 'A button another action uses at the same moment swaps with this one. Back, Esc or Cancel: no change. Back and the D-pad can\'t be bound. Button names are an Xbox controller\'s (PlayStation: A / B / X / Y = Cross / Circle / Square / Triangle, LB / RB / LT / RT = L1 / R1 / L2 / R2, Start = Options).'}" />
           <TextBlock Text="{Binding PadCaptureMessage}" TextWrapping="Wrap" Foreground="#FFE0A040"
                      IsVisible="{Binding PadCaptureMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <ComboBox ItemsSource="{Binding PadOptions}" SelectedItem="{Binding PadSelected}" HorizontalAlignment="Stretch"
-                    AutomationProperties.Name="Controller button" MaxDropDownHeight="420">
+                    AutomationProperties.Name="{l:T 'Controller button'}" MaxDropDownHeight="420">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="vm:PadOption">
                 <TextBlock Text="{Binding Display}" />
@@ -834,9 +880,9 @@
             </ComboBox.ItemTemplate>
           </ComboBox>
           <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-            <Button Content="No button" Command="{Binding NoPadButtonCommand}" Focusable="False"
+            <Button Content="{l:T 'No button'}" Command="{Binding NoPadButtonCommand}" Focusable="False"
                     IsVisible="{Binding PadNoneAllowed}" />
-            <Button Classes="safe" Content="Cancel" Command="{Binding CancelPadCaptureCommand}" Focusable="False" />
+            <Button Classes="safe" Content="{l:T 'Cancel'}" Command="{Binding CancelPadCaptureCommand}" Focusable="False" />
           </StackPanel>
         </StackPanel>
       </Border>
@@ -849,18 +895,18 @@
       <Border Background="#FF111811" BorderBrush="{StaticResource XboxGreenBrush}" BorderThickness="1"
               CornerRadius="10" Padding="28,24" Width="440" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel Spacing="10">
-          <TextBlock Text="Press a key or a mouse button for:" />
+          <TextBlock Text="{l:T 'Press a key or a mouse button for:'}" />
           <TextBlock Classes="section" Text="{Binding Capturing.Label, FallbackValue=''}" TextWrapping="Wrap" />
           <TextBlock Text="{Binding Capturing.KeysNow, FallbackValue=''}" TextWrapping="Wrap" />
           <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource DimTextBrush}"
-                     Text="A key it doesn't have is added (up to 3), a key it has is taken off. For a combo hold one key and press another. Clicking here (not on a button) is that mouse button. Esc cancels." />
+                     Text="{l:T 'A key it doesn\'t have is added (up to 3), a key it has is taken off. For a combo hold one key and press another. Clicking here (not on a button) is that mouse button. Esc cancels.'}" />
           <TextBlock Text="{Binding HoldingText}" TextWrapping="Wrap"
                      IsVisible="{Binding HoldingText, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <TextBlock Text="{Binding CaptureMessage}" TextWrapping="Wrap" Foreground="#FFE0A040"
                      IsVisible="{Binding CaptureMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-            <Button Content="No key" Command="{Binding NoKeyCommand}" Focusable="False" />
-            <Button Content="Cancel" Command="{Binding CancelCaptureCommand}" Focusable="False" />
+            <Button Content="{l:T 'No key'}" Command="{Binding NoKeyCommand}" Focusable="False" />
+            <Button Content="{l:T 'Cancel'}" Command="{Binding CancelCaptureCommand}" Focusable="False" />
           </StackPanel>
         </StackPanel>
       </Border>

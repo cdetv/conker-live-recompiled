@@ -21,7 +21,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Hints = PadHints.For(PadHintState.Page, PadKind.Xbox);
         // First: it decides where SaveFolder is, which the other tabs read.
         UserFiles = new UserFilesViewModel(folder, IsGameRunning);
-        Files = new FilesViewModel(folder, picker, UserFiles, IsGameRunning, Pad);
+        // The launcher's language (to-do 289): the game's Menu language from settings.ini, before anything is shown.
+        Lang.Init(folder.Root);
+        Lang.FollowSettingsFile();
+        Lang.Changed += (_, _) =>
+        {
+            if (History is { } history)
+            {
+                History = [.. history.Select(h => new HistoryEntry(h.Release))];
+            }
+
+            OnPropertyChanged(string.Empty);
+        };
+        // The schema: only for a pack list saved before there is a settings.ini (the new file's values).
+        Files = new FilesViewModel(folder, picker, UserFiles, IsGameRunning, Pad, () => Settings?.Schema);
         Settings = new SettingsViewModel(folder);
         Controls = new ControlsViewModel(folder);
         Debug = new DebugViewModel(folder, IsGameRunning);
@@ -99,19 +112,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>"Loading ..." or why the history couldn't be loaded.</summary>
     [ObservableProperty]
-    public partial string? HistoryNote { get; set; }
+    [NotifyPropertyChangedFor(nameof(HistoryNote))]
+    public partial Said? HistoryNoteSaid { get; set; }
 
-    public string UpdateTitle => NewRelease is { } r ? $"v{Updater.TagVersion(r.Tag)} is out (you have {VersionText})" : "";
+    public string? HistoryNote => HistoryNoteSaid?.ToString();
+
+    public string UpdateTitle => NewRelease is { } r ? T("v{0} is out (you have {1})", Updater.TagVersion(r.Tag), VersionText) : "";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(VersionLine))]
-    public partial string? UpdateNote { get; set; }
+    [NotifyPropertyChangedFor(nameof(VersionLine), nameof(UpdateNote))]
+    public partial Said? UpdateNoteSaid { get; set; }
+
+    public string? UpdateNote => UpdateNoteSaid?.ToString();
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(UpdateCommand), nameof(PlayCommand))]
     public partial bool IsUpdating { get; set; }
 
-    public string UpdateButtonText => NewRelease is { } r ? $"Update to v{Updater.TagVersion(r.Tag)}" : "Update";
+    public string UpdateButtonText => NewRelease is { } r ? T("Update to v{0}", Updater.TagVersion(r.Tag)) : T("Update");
 
     public FilesViewModel Files { get; }
 
@@ -187,7 +205,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>A line at the bottom of the window, such as why the game didn't start.</summary>
     [ObservableProperty]
-    public partial string? Message { get; set; }
+    [NotifyPropertyChangedFor(nameof(Message))]
+    public partial Said? MessageSaid { get; set; }
+
+    public string? Message => MessageSaid?.ToString();
 
     /// <summary>Looks at the folder again (the window calls this whenever it is activated).</summary>
     public void Refresh()
@@ -293,18 +314,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        HistoryNote = "Loading the version history ...";
+        HistoryNoteSaid = S("Loading the version history ...");
         try
         {
             using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
             List<ReleaseInfo> releases = await Updater.GetHistoryAsync(timeout.Token);
             History = [.. releases.Select(r => new HistoryEntry(r))];
-            HistoryNote = releases.Count == 0 ? "No releases found." : null;
+            HistoryNoteSaid = releases.Count == 0 ? S("No releases found.") : null;
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException
                                        or KeyNotFoundException or InvalidOperationException)
         {
-            HistoryNote = $"Couldn't load the version history: {e.Message}";
+            HistoryNoteSaid = S("Couldn't load the version history: {0}", Why(e));
         }
     }
 
@@ -337,7 +358,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (!File.Exists(folder.GameExe))
         {
-            Message = "conker.exe is missing from the launcher's folder.";
+            MessageSaid = S("conker.exe is missing from the launcher's folder.");
             return;
         }
 
@@ -360,7 +381,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (System.ComponentModel.Win32Exception e)
         {
-            Message = $"The game didn't start: {e.Message}";
+            MessageSaid = S("The game didn't start: {0}", e.Message);
             Pad.Start();
             return;
         }
@@ -438,21 +459,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// </summary>
     public async Task CheckForUpdateAsync(bool justUpdated)
     {
-        string? quiet = justUpdated ? "Updated" : null;
-        UpdateNote = quiet;
+        Said? quiet = justUpdated ? S("Updated") : null;
+        UpdateNoteSaid = quiet;
         _ = updater.CleanAfterUpdateAsync();
         try
         {
             using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
             ReleaseInfo latest = await Updater.GetLatestAsync(timeout.Token);
             NewRelease = Updater.IsNewer(latest) ? latest : null;
-            UpdateNote = NewRelease is not null ? $"v{Updater.TagVersion(latest.Tag)} is out" : quiet;
+            UpdateNoteSaid = NewRelease is not null ? S("v{0} is out", Updater.TagVersion(latest.Tag)) : quiet;
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException
                                        or KeyNotFoundException or InvalidOperationException)
         {
             // Also while the release repo doesn't exist yet (GitHub answers 404).
-            UpdateNote = quiet ?? "Couldn't check for updates";
+            UpdateNoteSaid = quiet ?? S("Couldn't check for updates");
         }
 
         LoadPrefs();
@@ -482,19 +503,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (IsGameRunning())
         {
-            Message = "Close the game first: the update replaces conker.exe.";
+            MessageSaid = S("Close the game first: the update replaces conker.exe.");
             return;
         }
 
         Flush();
         ShowUpdatePrompt = false;
-        Message = null;
+        MessageSaid = null;
         IsUpdating = true;
         Files.Updating = true;
         // The update replaces conker.exe, which the pad helper runs.
         Pad.Stop();
+        // The bottom line is short: the download as a percentage, the other steps by their words.
         var progress = new Progress<JobProgress>(p =>
-            UpdateNote = p.Fraction is { } f ? $"{p.Text.Split(':')[0]}: {f:P0}" : p.Text);
+            UpdateNoteSaid = p.Fraction is { } f ? S("Downloading v{0}: {1:P0}", Updater.TagVersion(release.Tag), f) : p.Text);
         try
         {
             await updater.ApplyAsync(release, progress, CancellationToken.None);
@@ -504,15 +526,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (ImportException e)
         {
-            Message = e.Message;
+            MessageSaid = e.Text;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or HttpRequestException
                                        or System.ComponentModel.Win32Exception)
         {
-            Message = e is HttpRequestException ? $"The update download failed: {e.Message}" : $"The update failed: {e.Message}";
+            MessageSaid = e is HttpRequestException ? S("The update download failed: {0}", Why(e)) : S("The update failed: {0}", Why(e));
         }
 
-        UpdateNote = $"v{Updater.TagVersion(release.Tag)} is out";
+        UpdateNoteSaid = S("v{0} is out", Updater.TagVersion(release.Tag));
         IsUpdating = false;
         Files.Updating = false;
         Pad.Start();
@@ -521,16 +543,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanUpdate() => NewRelease is not null && !IsUpdating && !Files.IsBusy && !Files.IsPrecompiling && !UserFiles.IsBusy;
 }
 
-/// <summary>A release in the Version History window.</summary>
+/// <summary>A release in the Version History window (made again after a language switch: its date line is words).</summary>
 public sealed class HistoryEntry(ReleaseInfo release)
 {
+    public ReleaseInfo Release { get; } = release;
+
     public string Title { get; } = $"v{Updater.TagVersion(release.Tag)?.ToString() ?? release.Tag}";
 
-    /// <summary>"3 November 2026", and whether this launcher is that version.</summary>
+    /// <summary>"3 November 2026" (the language's date), and whether this launcher is that version.</summary>
     public string DateLine { get; } = string.Join(" · ", new[]
     {
-        release.Published?.ToLocalTime().ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
-        Updater.TagVersion(release.Tag) == Updater.Current ? "installed" : null,
+        release.Published is { } p ? Lang.Day(p.ToLocalTime().DateTime) : null,
+        Updater.TagVersion(release.Tag) == Updater.Current ? T("installed") : null,
     }.Where(s => s is not null));
 
     public string Body { get; } = release.Body;

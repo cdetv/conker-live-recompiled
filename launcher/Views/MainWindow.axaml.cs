@@ -58,6 +58,12 @@ public sealed partial class MainWindow : Window, IFilePicker
         AddHandler(GotFocusEvent, OnFocusMoved, RoutingStrategies.Bubble, handledEventsToo: true);
         // After every layout pass, before anything is drawn: a scroll moves the ring in the same pass.
         LayoutUpdated += (_, _) => ClipFocusRing();
+        // The texture pack list (to-do 288 part 2d): dragging a row moves it. Tunnel + handled
+        // too: the row's check box takes the press first otherwise.
+        PackList.AddHandler(PointerPressedEvent, OnPackPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        PackList.AddHandler(PointerMovedEvent, OnPackPointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+        PackList.AddHandler(PointerReleasedEvent, OnPackPointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
+        PackList.PointerCaptureLost += (_, _) => EndPackDrag();
         // Pop-ups keep the keyboard's focus (to-do 121 part 1e).
         foreach (Control o in Overlays.Append((Control)WelcomeOverlay.Parent!))
         {
@@ -662,5 +668,117 @@ public sealed partial class MainWindow : Window, IFilePicker
             e.Handled = true;
             controls.TakeWheel(e.Delta.Y);
         }
+    }
+
+    // ---- the texture pack list: dragging a row (to-do 288 part 2d) --------------------------------
+
+    private const double PackDragStart = 6;     // px the pointer goes up or down before a press is a drag
+    private int packPressed = -1;               // the row the left button went down on
+    private Point packPressedAt;
+    private int packDragging = -1;              // the row being dragged: its place now
+    private bool packDragMoved;
+
+    private TexturePacksViewModel? PacksVm => (DataContext as MainWindowViewModel)?.Files.Packs;
+
+    /// <summary>The row a pointer event came from (its place in the list), or -1.</summary>
+    private int PackRowOf(object? source)
+    {
+        for (var v = source as Visual; v is not null && v != PackList; v = v.GetVisualParent())
+        {
+            if (v is Control { DataContext: TexturePackItem item } && PacksVm is { } packs)
+            {
+                return packs.Packs.IndexOf(item);
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>The row under <paramref name="y"/> (the list's own coordinates); the first or last past the ends.</summary>
+    private int PackRowAt(double y)
+    {
+        int count = PackList.ItemCount;
+        for (int i = 0; i < count; i++)
+        {
+            if (PackList.ContainerFromIndex(i) is Control row
+                && row.TranslatePoint(new Point(0, row.Bounds.Height), PackList) is { } bottom && y < bottom.Y)
+            {
+                return i;
+            }
+        }
+
+        return count - 1;
+    }
+
+    private void OnPackPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        packPressed = PacksVm is { CanChange: true } && e.GetCurrentPoint(PackList).Properties.IsLeftButtonPressed
+            ? PackRowOf(e.Source)
+            : -1;
+        packPressedAt = e.GetPosition(PackList);
+    }
+
+    private void OnPackPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (PacksVm is not { } packs)
+        {
+            return;
+        }
+
+        Point at = e.GetPosition(PackList);
+        if (packDragging < 0)
+        {
+            if (packPressed < 0 || !e.GetCurrentPoint(PackList).Properties.IsLeftButtonPressed
+                || Math.Abs(at.Y - packPressedAt.Y) < PackDragStart)
+            {
+                return;
+            }
+
+            // A drag: the list takes the pointer, so the row's check box doesn't tick when let go.
+            packDragging = packPressed;
+            packDragMoved = false;
+            packs.BeginMove(packDragging);
+            e.Pointer.Capture(PackList);
+        }
+
+        e.Handled = true;
+        int to = PackRowAt(at.Y);
+        while (to != packDragging)
+        {
+            int next = packs.Move(packDragging, to > packDragging ? 1 : -1);
+            if (next == packDragging)
+            {
+                break;
+            }
+
+            packDragging = next;
+            packDragMoved = true;
+        }
+    }
+
+    private void OnPackPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        packPressed = -1;
+        if (packDragging < 0)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        EndPackDrag();
+        e.Pointer.Capture(null);
+    }
+
+    /// <summary>The drag ends (let go, or the pointer taken away): saved when the row moved.</summary>
+    private void EndPackDrag()
+    {
+        if (packDragging < 0)
+        {
+            return;
+        }
+
+        packDragging = -1;
+        PacksVm?.EndMove(packDragMoved);
+        packDragMoved = false;
     }
 }

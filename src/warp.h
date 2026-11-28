@@ -66,6 +66,12 @@ void conker_WarpToCutscene(int level, int scene);
 int conker_Wireframe(void);
 void conker_SetWireframe(int mode);
 
+/* Ambient occlusion (to-do 52): mode 0 off, 1 on, 2 the AO term alone (grey,
+ * for tuning); strength 0-100 %, radius 10-100 world units. A value out of
+ * range keeps the current one. Get: the values in effect. */
+void conker_SetAo(int mode, float strength, float radius);
+void conker_GetAo(int *mode, float *strength, float *radius);
+
 /* Timescale (to-do 21): 0-300 %; 0 = the pause key's freeze. Last: what it was before. */
 int conker_Timescale(void);
 int conker_TimescaleLast(void);

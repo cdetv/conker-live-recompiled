@@ -50,6 +50,7 @@
 #include "speaker_test.h"
 #include "room_reverb.h"
 #include "dev_logs.h"
+#include "motion_blur.h"       /* camera motion blur (to-do 235) */
 #include "addons.h"            /* Recomp Addons (0.6.0) */
 #include "cutscene_edits.h"    /* Extras: Update Cutscene (to-do 47) */
 #include "swing.h"             /* Extras: the swing piece (to-dos 42, 233, 234) */
@@ -78,6 +79,9 @@ static int wide_scene_hides_id(uint32_t id);
 static int menu_hides_char_id(uint32_t id);
 static void noclip_move(void);
 static void noclip_level_load(void);
+static void game1_title(void);
+static void game2_title(void);
+static void game3_title(void);
 
 /* ── Manual function overrides ─────────────────────────────── */
 
@@ -133,6 +137,14 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
         return mpu_load;
     if (xbox_va == 0x002D6570u)
         return noclip_move;
+    /* To-do 290: the board titles Game 1-3 are callbacks the title text
+     * element calls through its pointer (+0x38). */
+    if (xbox_va == 0x00204E80u)
+        return game1_title;
+    if (xbox_va == 0x00204EE0u)
+        return game2_title;
+    if (xbox_va == 0x00204F40u)
+        return game3_title;
     return (recomp_func_t)0;
 }
 
@@ -459,6 +471,242 @@ void sub_0053D700_enter(void)
                 want ? "cutscene shown at 4:3" : "full width again",
                 MEM32(0x007FA1F8u), MEM8(0x0076F0DCu));
     }
+}
+
+/* ── Widescreen HUD (to-do 237; F2 Display "HUD Shape" / "HUD Placement") ─────
+ *
+ * The game draws its HUD, speech bubbles and on-screen texts for 640x480;
+ * on a wider picture they stretch with it. At "4:3" each piece is drawn in
+ * its own 4:3 shape instead: wrappers round the routines that draw a piece
+ * put toolkit host effect NV_HOST_FX_LAYOUT (13) in the pushbuffer before
+ * and after it, with an anchor, and the executor squeezes those draws' x
+ * round it (the movie 4:3 trick: viewport and scissor, no vertex change).
+ * Anchors: a share of the view's width (0 = its left edge, 0.5 the middle,
+ * 1 the right edge) or a guest x. "HUD Placement" moves the edge anchors towards
+ * the middle: 100 % = the screen edges, 0 % = the 4:3 box in the middle
+ * (every piece where the original had it on a 4:3 screen). Nothing is sent
+ * at "Stretched", in a 4:3 picture or a 4:3 cutscene (display_widen43), in
+ * the front ends (levels 0x1D, 0x46: their menus are widened already), so
+ * those frames are as before. Pieces (docs/research/r5-looks-hud-checks.md):
+ * hud_draw's callees, the lives tail (type 0x87), screen sprites such as the
+ * SMG sight (0x0015CAF0, own centre), the text pass's items (by place), the
+ * pause screen's pictures and words (own middles); speech bubbles (tail tip)
+ * and the whole pause screen have rows of their own (below). Settings
+ * hud_shape (RECOMP_HUD_SHAPE=stretched|4:3, default 4:3), hud_area
+ * (RECOMP_HUD_AREA=0-100), bubble_shape, pause_screen; RECOMP_HUD_LOG=1
+ * ([HUD] lines: changes, each new text item and pause piece). A squeezed
+ * draw reaches past the 4:3 box (the toolkit widens its clip space), so a
+ * piece sliding in from off the 4:3 screen shows there, not cut at the box's
+ * edge (the lives counter after a respawn at HUD Placement 0 %). */
+enum { HS_STRETCHED, HS_43 };
+static volatile int g_hud_shape = -1;
+static volatile int g_hud_area = -1;    /* percent */
+static int s_hud_log = -1;
+
+void conker_SetHudShape(int shape)
+{
+    g_hud_shape = shape == HS_43 ? HS_43 : HS_STRETCHED;
+    fprintf(stderr, "[HUD] shape: %s\n", g_hud_shape == HS_43 ? "4:3" : "stretched");
+}
+
+void conker_SetHudArea(float pct)
+{
+    int v = (int)floorf(pct + 0.5f);
+    g_hud_area = v < 0 ? 0 : v > 100 ? 100 : v;
+}
+
+static int hud_log(void)
+{
+    if (s_hud_log < 0) {
+        const char *e = getenv("RECOMP_HUD_LOG");
+        s_hud_log = e && *e == '1';
+    }
+    return s_hud_log;
+}
+
+static int hud_shape(void)
+{
+    if (g_hud_shape < 0) {
+        const char *e = getenv("RECOMP_HUD_SHAPE");     /* default 4:3 (user 2026-11-27) */
+        g_hud_shape = e && !strcmp(e, "stretched") ? HS_STRETCHED : HS_43;
+        fprintf(stderr, "[HUD] shape: %s\n", g_hud_shape == HS_43 ? "4:3" : "stretched");
+    }
+    return g_hud_shape;
+}
+
+/* The edge pieces' place: 0 = the 4:3 box in the middle, 1 = the edges. */
+static float hud_area(void)
+{
+    if (g_hud_area < 0) {
+        const char *e = getenv("RECOMP_HUD_AREA");
+        int v = e && *e ? atoi(e) : 100;
+        g_hud_area = v < 0 ? 0 : v > 100 ? 100 : v;
+        fprintf(stderr, "[HUD] area: %d %%\n", g_hud_area);
+    }
+    return (float)g_hud_area * 0.01f;
+}
+
+/* A picture wider than 4:3 in play (not a 4:3 cutscene, not the front ends,
+ * whose menus are widened already). Game thread only. */
+static int hud_wide(void)
+{
+    uint32_t lv;
+    if (display_widen43() <= 1.001f)
+        return 0;
+    lv = MEM32(0x007FA1F8u);
+    return lv != 0x1Du && lv != 0x46u;
+}
+
+/* This frame's HUD pieces get their 4:3 shape. */
+static int hud_squeeze(void)
+{
+    return hud_shape() == HS_43 && hud_wide();
+}
+
+/* Their own rows (user 2026-11-27: the 4:3 bubbles looked squished beside
+ * the wide ones; the pause screen's frame stays stretched): bubble_shape
+ * (RECOMP_BUBBLE_SHAPE=stretched|4:3, default 4:3 since user 2026-11-28,
+ * F2 "Correct") squeezes speech bubbles; pause_screen
+ * (RECOMP_PAUSE_SCREEN=stretched|4:3, default stretched, F2 "Widescreen")
+ * squeezes the whole pause screen round the middle (black bars at the
+ * sides). With the pause screen stretched and hud_shape 4:3 its
+ * pictures and words each keep their own shape round their own middle
+ * (pz_begin). A 4:3 bubble shrinks towards its tail tip (user 2026-11-22,
+ * and again 2026-11-27 after close-ups against "towards the view's middle",
+ * which pulled Birdy's tail off his mouth onto his hat at 21:9: the game
+ * already puts the tail on the speaker in the widened picture). */
+static volatile int g_bubble43 = -1, g_pause43 = -1;
+
+static int shape_env(const char *name)
+{
+    const char *e = getenv(name);
+    return e && (!strcmp(e, "4:3") || !strcmp(e, "43"));
+}
+
+void conker_SetBubbleShape(int shape)
+{
+    g_bubble43 = shape == HS_43;
+    fprintf(stderr, "[HUD] bubbles: %s\n", g_bubble43 ? "4:3" : "stretched");
+}
+
+void conker_SetPauseScreen(int shape)
+{
+    g_pause43 = shape == HS_43;
+    fprintf(stderr, "[HUD] pause screen: %s\n", g_pause43 ? "4:3" : "stretched");
+}
+
+static int bubble_43(void)
+{
+    if (g_bubble43 < 0)                 /* unset: 4:3, the default */
+        g_bubble43 = getenv("RECOMP_BUBBLE_SHAPE") ? shape_env("RECOMP_BUBBLE_SHAPE") : 1;
+    return g_bubble43;
+}
+
+static int pause_43(void)
+{
+    if (g_pause43 < 0)
+        g_pause43 = shape_env("RECOMP_PAUSE_SCREEN");
+    return g_pause43;
+}
+
+void conker_GetHud(int *shape, int *area, int *bubble43, int *pause43)
+{
+    *shape = hud_shape();
+    *area = (int)floorf(hud_area() * 100.0f + 0.5f);
+    *bubble43 = bubble_43();
+    *pause43 = pause_43();
+}
+
+/* The anchors in force, innermost last (a piece drawn inside another's
+ * bracket gets its own, then the outer one again). */
+typedef struct { int on; float x; uint32_t flags; } HudMark;
+#define HUD_DEPTH 8
+static HudMark s_hud_stack[HUD_DEPTH];
+static int s_hud_depth;
+static HudMark s_hud_now;
+
+static void hud_send(const HudMark *m)
+{
+    uint32_t prm[3];
+    prm[0] = m->on ? 1u : 0u;
+    memcpy(&prm[1], &m->x, 4);
+    prm[2] = m->flags;
+    host_fx_mark(13u, prm, 3);          /* NV_HOST_FX_LAYOUT */
+}
+
+static void hud_begin(float x, uint32_t flags)
+{
+    if (s_hud_depth < HUD_DEPTH)
+        s_hud_stack[s_hud_depth] = s_hud_now;
+    s_hud_depth++;
+    s_hud_now.on = 1;
+    s_hud_now.x = x;
+    s_hud_now.flags = flags;
+    hud_send(&s_hud_now);
+}
+
+static void hud_end(void)
+{
+    static const HudMark off = { 0, 0.0f, 0u };
+    if (s_hud_depth <= 0)
+        return;
+    s_hud_depth--;
+    s_hud_now = s_hud_depth < HUD_DEPTH ? s_hud_stack[s_hud_depth] : off;
+    hud_send(&s_hud_now);
+}
+
+/* A piece at an edge (share 0 left, 1 right) or in the middle (0.5): begun
+ * (1, end it with hud_end) when this frame squeezes. HUD Placement pulls an edge
+ * share towards 0.5. */
+static int hud_at_share(float share)
+{
+    if (!hud_squeeze())
+        return 0;
+    hud_begin(0.5f + hud_area() * (share - 0.5f), 0u);
+    return 1;
+}
+
+/* A piece squeezed round its own guest x (a bubble's tail tip, a text over
+ * a world point); HUD Placement does not move it. */
+static int hud_at_x(float gx)
+{
+    if (!hud_squeeze())
+        return 0;
+    hud_begin(gx, 1u);                  /* NV_HOST_LAYOUT_ABS */
+    return 1;
+}
+
+/* A flat piece placed on the 640-wide screen (a text, a screen sprite), by
+ * its x: the left third at the left edge, the right third at the right
+ * edge, the middle third round the middle. */
+static float hud_place_share(float x)
+{
+    return x < 640.0f / 3.0f ? 0.0f : x > 1280.0f / 3.0f ? 1.0f : 0.5f;
+}
+
+static int hud_at_place(float x)
+{
+    return hud_at_share(hud_place_share(x));
+}
+
+/* The whole pause screen round the view's middle (pause_screen 4:3), kept
+ * inside the 4:3 box: its backdrop is bigger than the screen, so the box's
+ * sides are its black bars. */
+static int pause_at_middle(void)
+{
+    if (!pause_43() || !hud_wide())
+        return 0;
+    hud_begin(0.5f, 2u);                /* NV_HOST_LAYOUT_BOX */
+    return 1;
+}
+
+/* A speech bubble (bubble_shape 4:3): round its tail tip gx. */
+static int bubble_at(float gx)
+{
+    if (!bubble_43() || !hud_wide())
+        return 0;
+    hud_begin(gx, 1u);                  /* NV_HOST_LAYOUT_ABS */
+    return 1;
 }
 
 /* ── Field of view (to-do 228; F2 Fixes > Camera "Field of view") ────────
@@ -6407,6 +6655,61 @@ static void mt_add(uint32_t obj, uint32_t str)
     t->pic = 0;
 }
 
+/* Widescreen HUD (to-do 237; user 2026-11-27: "fix the hud elements, but
+ * keep the pause screen background in its stretched format"): with HUD
+ * Shape 4:3 and the pause screen stretched, each picture and text of the
+ * pause page (the A / B / Y buttons and their words, cash, chocolate, the
+ * lives figure, the counts, the Options and Quit? pages) is squeezed round
+ * its own middle, so it keeps its place in the wide frame and its own
+ * shape. The middle is where the mouse code measured the piece the frame
+ * before (a piece's first frame is drawn as it was: the screen comes in
+ * from above, so nothing shows). Keyed by element and text. */
+#define PZ_MAX 64
+static struct { uint32_t obj, str, seq; float gx; } s_pz[PZ_MAX];
+static int s_pause_drawing;             /* inside pause_screen_draw */
+static void mt_str(uint32_t va, char *out, int cap);
+
+/* x0 / x1: the piece's box, normalised over the 640-wide view. */
+static void pz_note(uint32_t obj, uint32_t str, float x0, float x1)
+{
+    int i, k = 0;
+    if (!s_pause_drawing || !(x1 > x0) || !(x0 > -50.0f && x1 < 50.0f))
+        return;
+    for (i = 0; i < PZ_MAX; i++) {
+        if (s_pz[i].obj == obj && s_pz[i].str == str) {
+            k = i;
+            break;
+        }
+        if (s_pz[i].seq < s_pz[k].seq)
+            k = i;
+    }
+    if (hud_log() && (s_pz[k].obj != obj || s_pz[k].str != str)) {
+        char txt[48];
+        mt_str(str, txt, (int)sizeof txt);
+        fprintf(stderr, "[HUD] pause piece %08X %s'%s' middle x %.1f\n", obj,
+                str ? "" : "picture ", str ? txt : "", 320.0f * (1.0f + 0.5f * (x0 + x1)));
+    }
+    s_pz[k].obj = obj;
+    s_pz[k].str = str;
+    s_pz[k].seq = s_mt_seq;
+    s_pz[k].gx = 320.0f * (1.0f + 0.5f * (x0 + x1));
+}
+
+/* 1 = a bracket begun round the piece's middle (end it with hud_end). */
+static int pz_begin(uint32_t obj, uint32_t str)
+{
+    int i;
+    if (!s_pause_drawing || pause_43() || !hud_squeeze())
+        return 0;
+    for (i = 0; i < PZ_MAX; i++)
+        if (s_pz[i].obj == obj && s_pz[i].str == str && s_pz[i].seq
+            && s_mt_seq - s_pz[i].seq <= 2u) {
+            hud_begin(s_pz[i].gx, 1u);  /* NV_HOST_LAYOUT_ABS */
+            return 1;
+        }
+    return 0;
+}
+
 /* The words of the prompt under the pointer glow (user 2026-11-14). The
  * game's own title glow (the wrapper 0x005FBD54, draw 0x00248A50: per-letter
  * callbacks 0x00248920 / 0x00248670 for the text's draw) swings each
@@ -6592,12 +6895,14 @@ void sub_00248C10(void)
 {
     uint32_t obj, str;
     float glow;
+    int pz, n0;
     if (!s_mt_on || s_mt_glyph) {
         sub_00248C10_gen();
         return;
     }
     obj = MEM32(g_esp + 4u);
     str = MEM32(g_esp + 12u);
+    pz = pz_begin(obj, str);            /* to-do 237: round its own middle */
     glow = s_glow_on > 0 ? glow_level(obj) : 0.0f;
     if (glow > 0.0f) {
         uint32_t arg[8];
@@ -6612,8 +6917,13 @@ void sub_00248C10(void)
     s_mt_g[2] = s_mt_g[3] = -1e9f;
     sub_00248C10_gen();
     s_mt_glyph = 0;
+    if (pz)
+        hud_end();
+    n0 = s_mt_n;
     if (s_mt_g[2] > s_mt_g[0] && s_mt_g[3] > s_mt_g[1])
         mt_add(obj, str);
+    if (s_mt_n > n0)
+        pz_note(obj, str, s_mt[n0].b.x0, s_mt[n0].b.x1);
 }
 
 /* A UI picture (a page's 'S' element, vtable 0x005FBCF0: x / y / z at +0x14,
@@ -6669,17 +6979,24 @@ void sub_002479E0(void)
 {
     uint32_t obj = g_ecx;
     MenuText *t;
+    int pz;
     if (!s_mt_on || s_sp_on || s_mt_glyph) {
         sub_002479E0_gen();
         return;
     }
+    pz = pz_begin(obj, 0);              /* to-do 237: round its own middle */
     s_sp_on = 1;
     s_sp_k = 0;
     s_sp_g[0] = s_sp_g[1] = 1e9f;
     s_sp_g[2] = s_sp_g[3] = -1e9f;
     sub_002479E0_gen();
     s_sp_on = 0;
-    if (!(s_sp_g[2] > s_sp_g[0] && s_sp_g[3] > s_sp_g[1]) || s_mt_n >= MT_MAX)
+    if (pz)
+        hud_end();
+    if (!(s_sp_g[2] > s_sp_g[0] && s_sp_g[3] > s_sp_g[1]))
+        return;
+    pz_note(obj, 0, s_sp_g[0], s_sp_g[2]);
+    if (s_mt_n >= MT_MAX)
         return;
     t = &s_mt[s_mt_n++];
     t->obj = obj;
@@ -7015,6 +7332,30 @@ static void mp_pause(MenuPageSnap *s)
 }
 
 /* The frame drawn: what the mouse needs of it, for the executor. */
+/* The pause screen drawn in 4:3 (pause_screen 4:3, to-do 237): its boxes
+ * squeezed round the view's middle with it, so the mouse finds them. */
+static void box_squeeze(MenuBox *b, float s)
+{
+    b->x0 *= s;
+    b->x1 *= s;
+}
+
+static void mp_squeeze(MenuPageSnap *s, float k)
+{
+    int i;
+    for (i = 0; i < MENU_PAGE_ITEMS; i++) {
+        box_squeeze(&s->item[i].label, k);
+        box_squeeze(&s->item[i].no, k);
+        box_squeeze(&s->item[i].yes, k);
+    }
+    box_squeeze(&s->rows, k);
+    box_squeeze(&s->row_top, k);
+    box_squeeze(&s->row_bot, k);
+    for (i = 0; i < MENU_PAGE_PROMPTS; i++)
+        box_squeeze(&s->prompt[i].box, k);
+    box_squeeze(&s->chapter_name, k);
+}
+
 static void mp_end(int screen)
 {
     MenuPageSnap s;
@@ -7043,6 +7384,8 @@ static void mp_end(int screen)
         }
     } else if (screen == MENU_SCREEN_PAUSE && mp_pause_open()) {
         mp_pause(&s);
+        if (pause_43() && hud_wide())
+            mp_squeeze(&s, 1.0f / display_widen43());   /* to-do 237 */
     }
     if (s_mt_log > 0 && s_mt_seq % 30u == 0u && s.screen) {
         fprintf(stderr, "[MTEXT] screen %d board %d pause %d list %08X kind %d n %d cursor %d"
@@ -7370,10 +7713,78 @@ void sub_002161C0(void)
 static int s_pl_draw;
 static void pl_text(void);
 
-/* 0x003D3E60 (a text, its letters through 0x003D30C0): inside the list's
- * draw, the row it belongs to and its letters' box on the texture. */
+/* Widescreen HUD (to-do 237): an item of the text pass 0x001F2BC0 (its two
+ * calls of 0x003D3E60 return to 0x001F2F97 / 0x001F2FB9; the item = the
+ * text - 0x28) gets its 4:3 shape by its place, read where the pass left
+ * it: [0x008076B0] 1 = centred on [0x008076A4], else starting at
+ * [0x00807650] (640x480 units). Over a world point (+0 an object): round
+ * that point. Else by thirds: the left third at the left edge, the right
+ * third at the right edge (the lives number, the bomb-run clock's digits),
+ * the middle round the middle. An x off the 640-wide screen is no screen
+ * place (a match's ammo count beside the sight: x 682-685, drawn near the
+ * middle, 2026-11-27): round the middle, with the sight. While the pause
+ * screen is up (pause flag, not a photo-mode freeze) its texts go with it.
+ * 1 = a bracket begun. */
+static int hud_text_item(uint32_t text)
+{
+    uint32_t item = text - 0x28u;
+    int centred = MEM8(0x008076B0u) != 0;
+    float x = centred ? MEMF(0x008076A4u) : MEMF(0x00807650u);
+    int b;
+
+    if (MEM8(0x007FA275u) && !photo_frozen())
+        b = pause_at_middle();
+    else if (MEM32(item))
+        b = hud_at_x(x);
+    else if (!(x >= 0.0f && x <= 640.0f))
+        b = hud_at_share(0.5f);
+    else
+        b = hud_at_place(x);
+    if (b && hud_log()) {
+        static uint32_t seen[64];
+        static unsigned n, told;
+        uint32_t key = item ^ ((uint32_t)(int)x << 12) ^ ((uint32_t)MEM16(text) << 20), i;
+        for (i = 0; i < 64 && seen[i] != key; i++)
+            ;
+        if (i == 64 && told < 400) {
+            char s[33];
+            unsigned k;
+            seen[n++ & 63u] = key;
+            told++;
+            for (k = 0; k < 32 && MEM16(text + 2u * k) && MEM16(text + 2u * k) != 0xBDu; k++)
+                s[k] = MEM16(text + 2u * k) >= 32 && MEM16(text + 2u * k) < 127
+                     ? (char)MEM16(text + 2u * k) : '.';
+            s[k] = 0;
+            fprintf(stderr, "[HUD] text \"%s\" at x %.0f y %.0f%s (flags %02X, pass %u): %s\n",
+                    s, (double)x, (double)MEMF(0x00807654u), centred ? " centred" : "",
+                    MEM8(item + 0xCu), MEM8(item + 0xEu),
+                    MEM32(item) ? "own place" : !(x >= 0.0f && x <= 640.0f) ? "middle (off screen)"
+                    : x < 640.0f / 3.0f ? "left" : x > 1280.0f / 3.0f ? "right" : "middle");
+        }
+    }
+    return b;
+}
+
+static void text_draw(void);
+
+/* 0x003D3E60 (a text, its letters through 0x003D30C0). */
 extern void sub_003D3E60_gen(void);
 void sub_003D3E60(void)
+{
+    uint32_t ret = MEM32(g_esp);
+    if (ret == 0x001F2F97u || ret == 0x001F2FB9u) {
+        int b = hud_text_item(MEM32(g_esp + 4u));
+        text_draw();
+        if (b)
+            hud_end();
+        return;
+    }
+    text_draw();
+}
+
+/* Inside the list's draw, the row it belongs to and its letters' box on
+ * the texture. */
+static void text_draw(void)
 {
     uint32_t p = MEM32(g_esp + 4u), it = cy_items();
     int i;
@@ -7874,6 +8285,106 @@ void sub_0020E5C0(void)
     }
 }
 
+/* To-do 247: the Mission Brief's corner "B Back". 0x00222B10 (front-end
+ * video; from the video object's vtable slot 2, 0x002306D0) draws at the
+ * locator "top_right" the B picture (0x00201B90 -> 0x0021D4B0) into one
+ * plate texture and the words XBLTEXT_BACK (0x002018F0 -> 0x003D3E60) into
+ * another, each shown whole on the same flat square (0x00201560 ->
+ * 0x002015C0 -> 0x0021AE40). It is none of the plate routines, so it was
+ * no prompt. Inside it the words go through pl_text (their box, the
+ * hover glow), the picture's rectangle is kept (sub_0021D4B0), and both
+ * together, carried through the flat square, make one more B prompt,
+ * offered while the brief's movie plays (conker_MenuPlateSnap). */
+#define PL_CORNER_KEY 0xC0222B10u       /* the corner B Back's name: no text key of the game's */
+static int s_cb_on;                     /* inside 0x00222B10 */
+static int s_cb_pic_ok;
+static float s_cb_pic[4];               /* the B picture: x0 y0 x1 y1, texture units (y down) */
+
+/* 0x0021D4B0 (fastcall: edx the picture's centre, texture px 0..256;
+ * [esp+4] / +8 its half width / height, negative = flipped; +0xC its
+ * alpha; eax the picture): a button picture into a plate's texture. In the
+ * corner B Back, its rectangle kept. */
+extern void sub_0021D4B0_gen(void);
+void sub_0021D4B0(void)
+{
+    if (s_cb_on) {
+        uint32_t c = g_edx;
+        float hw = fabsf(MEMF(g_esp + 4u)), hh = fabsf(MEMF(g_esp + 8u));
+        if (xact_va_ok(c) && hw > 0.0f && hw < 128.0f && hh > 0.0f && hh < 128.0f) {
+            float cx = MEMF(c) - 128.0f, cy = MEMF(c + 4u) - 128.0f;
+            if (cx > -256.0f && cx < 256.0f && cy > -256.0f && cy < 256.0f) {
+                s_cb_pic[0] = cx - hw;
+                s_cb_pic[1] = cy - hh;
+                s_cb_pic[2] = cx + hw;
+                s_cb_pic[3] = cy + hh;
+                s_cb_pic_ok = 1;
+            }
+        }
+    }
+    sub_0021D4B0_gen();
+}
+
+/* 0x00222B10 ([esp+4] the video object's alpha; caller pops): the Mission
+ * Brief's corner B Back. */
+extern void sub_00222B10_gen(void);
+void sub_00222B10(void)
+{
+    static const int cu[4] = { 0, 1, 1, 0 }, cv[4] = { 0, 0, 1, 1 };
+    MenuPlatePrompt pr;
+    float b[4];
+    int k;
+    if (s_pl_on || s_pl_draw) {         /* inside a plate: never seen */
+        sub_00222B10_gen();
+        return;
+    }
+    pl_begin(2, PL_CORNER_KEY);
+    s_pl_popup = 1;                     /* offered over the brief, as a popup's prompts */
+    s_pl_draw = 1;
+    s_cb_on = 1;
+    s_pl_text_ok = 0;
+    s_pl_flat_ok = 0;
+    s_cb_pic_ok = 0;
+    s_pl_x0 = 0.0f;
+    sub_00222B10_gen();
+    s_cb_on = 0;
+    s_pl_draw = 0;
+    if (s_pl_text_ok && s_pl_flat_ok) {
+        memcpy(b, s_pl_g, sizeof b);
+        if (s_cb_pic_ok) {
+            if (s_cb_pic[0] < b[0]) b[0] = s_cb_pic[0];
+            if (s_cb_pic[1] < b[1]) b[1] = s_cb_pic[1];
+            if (s_cb_pic[2] > b[2]) b[2] = s_cb_pic[2];
+            if (s_cb_pic[3] > b[3]) b[3] = s_cb_pic[3];
+        }
+        for (k = 0; k < 4; k++) {
+            b[k] = b[k] < -128.0f ? -128.0f : b[k] > 128.0f ? 128.0f : b[k];
+        }
+        if (b[2] > b[0] + 1.0f && b[3] > b[1] + 1.0f) {
+            memset(&pr, 0, sizeof pr);
+            for (k = 0; k < 4; k++)
+                pl_flat_pt(cu[k] ? b[2] : b[0], cv[k] ? b[3] : b[1], pr.pt[k]);
+            pr.n = 4;
+            if (pl_store(&pr))
+                fprintf(stderr, "[MPROMPT] B corner Back (Mission Brief) words (%.1f %.1f)-(%.1f %.1f)"
+                        " picture %s (%.1f %.1f)-(%.1f %.1f) screen (%.3f %.3f) (%.3f %.3f)"
+                        " (%.3f %.3f) (%.3f %.3f)\n", s_pl_g[0], s_pl_g[1], s_pl_g[2], s_pl_g[3],
+                        s_cb_pic_ok ? "yes" : "no", s_cb_pic[0], s_cb_pic[1], s_cb_pic[2],
+                        s_cb_pic[3], pr.pt[0][0], pr.pt[0][1], pr.pt[1][0], pr.pt[1][1],
+                        pr.pt[2][0], pr.pt[2][1], pr.pt[3][0], pr.pt[3][1]);
+        }
+    } else if (s_pl_log > 0) {
+        static DWORD at;
+        DWORD now = GetTickCount();
+        if (now - at >= 1000u) {
+            at = now;
+            fprintf(stderr, "[MPROMPT] B corner Back (Mission Brief) not placed: words %s,"
+                    " flat square %s\n", s_pl_text_ok ? "yes" : "no", s_pl_flat_ok ? "yes" : "no");
+        }
+    }
+    s_pl_on = 0;
+    s_pl_popup = 0;
+}
+
 /* The middle column's two bands (above and below the list, a scrolling
  * marquee of the screen's prompt: "Welcome --- A Select", "drop --- B
  * Back"): 0x0020DC60 draws the top one from the item 0x0084C298, 0x002162C0
@@ -8123,14 +8634,18 @@ void sub_002010E0(void)
 int conker_MenuPlateSnap(MenuPlateSnap *s)
 {
     DWORD now = GetTickCount();
-    int i;
+    int i, panel = now - s_pl_popup_at < PL_MS, brief = MEM32(0x00849C4Cu) != 0;
     memset(s, 0, sizeof *s);
     /* A popup panel drawn lately, or the waiting room's Mission Brief playing
-     * (its movie [0x00849C4C]; its own B Back is drawn elsewhere: right click) */
-    s->popup = now - s_pl_popup_at < PL_MS || MEM32(0x00849C4Cu) != 0;
+     * (its movie [0x00849C4C]): only the popup's own prompts, which for the
+     * brief are its corner B Back (sub_00222B10) and, as the user chose
+     * (2026-11-22, to-do 247), the screen's bottom B Back still drawn under
+     * it: both press B, which closes the brief. */
+    s->popup = panel || brief;
     AcquireSRWLockShared(&s_pl_lock);
     for (i = 0; i < PL_MAX && s->n < MENU_PLATE_PROMPTS; i++)
-        if (s_pl[i].p.key && now - s_pl[i].tick < PL_MS && (!s->popup || s_pl[i].popup))
+        if (s_pl[i].p.key && now - s_pl[i].tick < PL_MS
+            && (!s->popup || s_pl[i].popup || (brief && !panel && s_pl[i].p.button == 1)))
             s->p[s->n++] = s_pl[i].p;
     ReleaseSRWLockShared(&s_pl_lock);
     return s->n > 0;
@@ -10050,6 +10565,20 @@ static int dof_log_on(void)
     return dev_log(DLOG_DOF);
 }
 
+/* The end of view 0's 3D picture: each exit of the dof_update wrapper below,
+ * after the depth of field (its mark, the host's or the title's own draw),
+ * before the screen drops, glow, HUD and bubbles. Camera motion blur
+ * (to-do 235, motion_blur.c) asks for its host effect here. HDR10's "scene
+ * end" mark comes later, at the first layer-3 call (scene_end_mark, with
+ * the layer walker below): after every view and the glow. */
+static void world_end(void)
+{
+    uint32_t prm[MBLUR_PARAMS];
+
+    if (mblur_frame(dof_host_ok(), prm))
+        host_fx_mark(11u, prm, MBLUR_PARAMS);        /* NV_HOST_FX_MBLUR */
+}
+
 extern void sub_001C71A0_gen(void);
 void sub_001C71A0(void)
 {
@@ -10093,6 +10622,7 @@ void sub_001C71A0(void)
                 last_blur = blur;
             }
             dof_photo_draw(focus, blur, cn, cf);
+            world_end();
             g_esp += 4;                 /* ret */
             return;
         }
@@ -10107,10 +10637,174 @@ void sub_001C71A0(void)
             dof_host_draw(nr, fr, MEMF(0x0076F7ACu), MEMF(0x0076F7B0u),
                           mode == DOF_CINEMATIC);
         }
+        world_end();
         g_esp += 4;                     /* ret */
         return;
     }
     sub_001C71A0_gen();
+    world_end();
+}
+
+/* ── Ambient occlusion (to-do 52; F2 Graphics "Ambient occlusion") ────────
+ *
+ * The draw-layer system's draw (0x000D9950, cdecl: layer, view) draws layer
+ * 8 (types 0x90-0x92: 0x91 = grass) from one place only, the world draw of
+ * one view (0x002A5AA0), right after the level's opaque pass and its opaque
+ * placed objects and before grass, characters, fur, water, the screen copy
+ * and every transparent pass (r3 research, three traced frames). So for
+ * layer 8 this asks the runtime for its ambient occlusion first (toolkit
+ * host effect NV_HOST_FX_AO = 10, ao_d3d11.c): the depth buffer then holds
+ * only solid scenery, and grass, characters and everything after are not
+ * darkened. Split screen: once per view, on its clip rectangle.
+ *
+ * Parameters: near / far ([0x0076F7AC] / [0x0076F7B0], the depth of
+ * field's), the render camera's ([0x0084B868]) projection x / y scale
+ * (+0x90 m00, +0xA4 m11: they carry the field of view and our widened
+ * aspect), radius (world units), strength (0..1), flags (bit 0 AO alone,
+ * bit 1 leave stencil >= 8 alone: the glow's tags, so lamps keep their
+ * halo), the distance where it has faded out.
+ *
+ * RECOMP_AO=0|1|2 (ambient_occlusion; 2 = the AO term alone, grey, for
+ * tuning), RECOMP_AO_STRENGTH (0-100 %, default 50), RECOMP_AO_RADIUS
+ * (10-100 units, default 50: Conker is ~90 units tall and the mansion's
+ * walls 3000+ away; user 2026-11-25: look B (100 / 100, the toolkit's floor
+ * 0.3) chosen, then both 50 as the default: 100 a little too intense, kept
+ * on the sliders); conker_SetAo from the F2 menu and the
+ * console's ao. Test switch RECOMP_AO_FADE: the fade-out distance (default
+ * 8000; it starts at 0.3 of that). RECOMP_AO_LOG=1 ([AO] lines). Drawn on
+ * the GPU path only (dof_host_ok). */
+#define AO_STRENGTH_DEF 50.0f
+#define AO_RADIUS_DEF   50.0f
+#define AO_FADE_DEF     8000.0f
+#define AO_RADIUS_MAX   100.0f
+static volatile int g_ao_mode = -1;     /* < 0 = not read yet */
+static volatile float g_ao_strength = -1.0f, g_ao_radius = -1.0f;
+
+static float ao_env(const char *name, float lo, float hi, float def)
+{
+    const char *e = getenv(name);
+    float v = e && *e ? (float)atof(e) : def;
+    return v >= lo && v <= hi ? v : def;
+}
+
+static void ao_read(void)
+{
+    if (g_ao_mode < 0) {
+        const char *e = getenv("RECOMP_AO");
+        g_ao_mode = e && *e >= '0' && *e <= '2' ? *e - '0' : 1;
+    }
+    if (g_ao_strength < 0.0f)
+        g_ao_strength = ao_env("RECOMP_AO_STRENGTH", 0.0f, 100.0f,
+                               AO_STRENGTH_DEF);
+    if (g_ao_radius < 0.0f)
+        g_ao_radius = ao_env("RECOMP_AO_RADIUS", 10.0f, AO_RADIUS_MAX,
+                             AO_RADIUS_DEF);
+}
+
+void conker_SetAo(int mode, float strength, float radius)
+{
+    ao_read();
+    if (mode >= 0 && mode <= 2)
+        g_ao_mode = mode;
+    if (strength >= 0.0f && strength <= 100.0f)
+        g_ao_strength = strength;
+    if (radius >= 10.0f && radius <= AO_RADIUS_MAX)
+        g_ao_radius = radius;
+}
+
+void conker_GetAo(int *mode, float *strength, float *radius)
+{
+    ao_read();
+    if (mode) *mode = g_ao_mode;
+    if (strength) *strength = g_ao_strength;
+    if (radius) *radius = g_ao_radius;
+}
+
+/* HDR output (to-do 239): toolkit host effect NV_HOST_FX_SCENE_END = 12 at
+ * the first layer-3 call of a frame. game_draw (0x002A3FD0) draws every
+ * view's 3D picture, the glow, depth of field and the split-screen piece
+ * first, then per view layer 3 (speech bubbles, sights, the haze), layer 4
+ * (the multiplayer HUD), the story HUD, layers 5-7, the menus and texts
+ * (r4 looks plan; r5 checks 3: [esp+4] = the layer, Verified). What is
+ * drawn after the mark stays at the paper white; the 3D picture before it
+ * gets the HDR highlights. Not in the main menu (level 0x1D, user
+ * 2026-11-22: all of it at the paper white), which calls layer 3 every
+ * frame for its 3D room. The haze (0x001BCBC0) marks again after it: a
+ * full-screen wash, part of the picture. Sent only while the toolkit's HDR
+ * step runs (xbox_HdrStepOn), so SDR frames are drawn exactly as before. */
+static int s_scene_marked;              /* this frame; cleared at game_draw */
+extern int xbox_HdrStepOn(void);
+
+static void scene_end_mark(int again)
+{
+    if (again ? !s_scene_marked
+              : s_scene_marked || MEM32(0x007FA1F8u) == CONKER_LEVEL_FRONT_END
+                || !xbox_HdrStepOn())
+        return;
+    host_fx_mark(12u, NULL, 0);                         /* NV_HOST_FX_SCENE_END */
+    s_scene_marked = 1;
+}
+
+extern void sub_000D9950_gen(void);
+void sub_000D9950(void)
+{
+    static uint32_t sent, not_sent, last_log;
+    static uint32_t last_prm[8];
+    static int last_mode = -1;
+    uint32_t layer = MEM32(g_esp + 4u);
+
+    if (layer == 3u)
+        scene_end_mark(0);
+    if (layer == 8u) {
+        int mode;
+        ao_read();
+        mode = g_ao_mode;
+        if (mode && dof_host_ok()) {
+            static float fade = -1.0f;
+            uint32_t cam = MEM32(0x0084B868u), prm[8];
+            if (fade < 0.0f)
+                fade = ao_env("RECOMP_AO_FADE", 100.0f, 150000.0f,
+                              AO_FADE_DEF);
+            prm[0] = MEM32(0x0076F7ACu);                     /* near */
+            prm[1] = MEM32(0x0076F7B0u);                     /* far */
+            prm[2] = cam ? MEM32(cam + 0x90u) : 0u;          /* m00 */
+            prm[3] = cam ? MEM32(cam + 0xA4u) : 0u;          /* m11 */
+            prm[4] = f2u(g_ao_radius);
+            prm[5] = f2u(g_ao_strength / 100.0f);
+            prm[6] = (mode == 2 ? 1u : 0u) | 2u;  /* NV_HOST_AO_ALONE, _STENCIL */
+            prm[7] = f2u(fade);
+            host_fx_mark(10u, prm, 8);                       /* NV_HOST_FX_AO */
+            sent++;
+            if (dev_log(DLOG_AO)
+                && (mode != last_mode || memcmp(prm, last_prm, sizeof prm))) {
+                float f[8];
+                memcpy(f, prm, sizeof f);
+                fprintf(stderr, "[AO] t=%ld %s: radius %g, strength %g, near %g"
+                        " far %g, projection %g %g (camera %08X), fade out at"
+                        " %g\n", attach_ms(), mode == 2 ? "AO alone" : "on",
+                        f[4], f[5], f[0], f[1], f[2], f[3], cam, f[7]);
+                memcpy(last_prm, prm, sizeof prm);
+            }
+        } else {
+            not_sent++;
+        }
+        if (dev_log(DLOG_AO)) {
+            uint32_t now = (uint32_t)GetTickCount64();
+            if (mode != last_mode && !mode)
+                fprintf(stderr, "[AO] t=%ld off\n", attach_ms());
+            if (now - last_log >= 10000u) {
+                if (last_log)
+                    fprintf(stderr, "[AO] t=%ld last 10 s: %u views asked for"
+                            " it, %u not (%s)\n", attach_ms(), sent, not_sent,
+                            !mode ? "off" : dof_host_ok() ? "-"
+                                                          : "software renderer");
+                sent = not_sent = 0;
+                last_log = now;
+            }
+        }
+        last_mode = mode;
+    }
+    sub_000D9950_gen();
 }
 
 /* ── Conker: cutscene skip (F2 Cutscenes; to-do 16, SPEC 10.2) ───────────
@@ -14114,6 +14808,7 @@ static void size_view_frame(void);
 
 void sub_002A3FD0_enter(void)
 {
+    s_scene_marked = 0;                 /* HDR scene end (to-do 239) */
     size_frame();
     photo_render_begin();
     size_view_frame();
@@ -14140,7 +14835,17 @@ void sub_00204060(void)
     }
     pause_cheats_frame();               /* to-do 196: X Cheats */
     mp_begin();                         /* mouse in menus (to-do 40): the texts' boxes */
-    sub_00204060_gen();
+    {
+        /* Widescreen HUD (to-do 237): stretched as before (its pictures and
+         * words in their own shape with HUD Shape 4:3: pz_begin), or the
+         * whole screen in 4:3 with pause_screen 4:3. */
+        int b = pause_at_middle();
+        s_pause_drawing = 1;
+        sub_00204060_gen();
+        s_pause_drawing = 0;
+        if (b)
+            hud_end();
+    }
     mp_end(MENU_SCREEN_PAUSE);
 }
 
@@ -15446,6 +16151,7 @@ void sub_001BCBC0(void)
         return;
     }
     sub_001BCBC0_gen();
+    scene_end_mark(1);                  /* HDR (to-do 239): the haze is 3D */
 }
 
 /* 0x001557D0 (fastcall, ecx = the object): the underwater dome, drawn last
@@ -15719,6 +16425,466 @@ void sub_00317780(void)
     sub_00317780_gen();
 }
 
+/* Widescreen HUD (to-do 237): hud_draw's pieces, each in its 4:3 shape at
+ * its side (r5 2026-11-22, seen live): the chocolate bar top left, the oxygen
+ * head and its rising air bubbles top right, the Uga Buga bomb run's timer
+ * panel top right (its stick runs off the right edge), the beehive gun's
+ * radar top middle. 0x00318D50 draws nothing (multiplayer). Written out
+ * one by one: the pipeline's scanner reads the definitions as lines. */
+static void hud_piece(void (*gen)(void), float share)
+{
+    int b = hud_at_share(share);
+    gen();
+    if (b)
+        hud_end();
+}
+
+/* The chocolate bar. */
+extern void sub_00317900_gen(void);
+void sub_00317900(void)
+{
+    hud_piece(sub_00317900_gen, 0.0f);
+}
+
+/* The oxygen head. */
+extern void sub_00318CB0_gen(void);
+void sub_00318CB0(void)
+{
+    hud_piece(sub_00318CB0_gen, 1.0f);
+}
+
+/* Its rising air bubbles. */
+extern void sub_00318720_gen(void);
+void sub_00318720(void)
+{
+    hud_piece(sub_00318720_gen, 1.0f);
+}
+
+/* The bomb-run timer panel. */
+extern void sub_00318ED0_gen(void);
+void sub_00318ED0(void)
+{
+    hud_piece(sub_00318ED0_gen, 1.0f);
+}
+
+/* The beehive gun's radar. */
+extern void sub_003195B0_gen(void);
+void sub_003195B0(void)
+{
+    hud_piece(sub_003195B0_gen, 0.5f);
+}
+
+/* The multiplayer HUD (to-do 237; user 2026-11-27: before the release).
+ * Draw-layer type 0x7F's draw 0x001C7C60 (layer table 0x005906A0) draws one
+ * player's HUD through the callees below; each is bracketed round its side
+ * of that player's view (the view [0x0084A148]: centre +0x224, half width
+ * +0x1FC, so a split screen's view has its own edges), HUD Placement pulling the
+ * edges in as in the story. Types 0x82 (0x001ECF40), 0x83 (0x001EC620, the
+ * talking heads) and 0x79 (0x000AEB20, the bazooka's sight) the same way.
+ * Pieces stay as drawn until their anchor is known (MPA_NONE). Console (test,
+ * --debug): `hud mptest <hex mask>` squeezes those pieces round the view's
+ * middle, so a piece shows itself by moving; `hud mppiece <n> none|left|mid|
+ * right` sets an anchor for this run. Two helpers (0x001CAAA0, 0x001CB0E0)
+ * are called from elsewhere too: bracketed only when 0x001C7C60 calls them. */
+enum { MPA_NONE, MPA_LEFT, MPA_MID, MPA_RIGHT };
+#define MP_PIECES 29
+static const uint32_t s_mp_fn[MP_PIECES] = {
+    0x001C7C10u, 0x001C9DF0u, 0x001CA190u, 0x001CAAA0u, 0x001CB060u, 0x001CB0E0u, 0x001CB1A0u,
+    0x001CB330u, 0x001CB700u, 0x001CB910u, 0x001CBD70u, 0x001CC030u, 0x001CC770u, 0x001CCC70u,
+    0x001CCDD0u, 0x001CCF80u, 0x001CD370u, 0x001C7C60u, 0x001ECF40u, 0x001EC620u, 0x000AEB20u,
+    0x0037C020u, 0x001D6F50u, 0x000E6E70u, 0x00330AB0u, 0x001E6F30u, 0x001CC9F0u, 0x001CCD90u,
+    0x001C79D0u,
+};
+/* Found 2026-11-27 in a Dumbots match (Fortress Deux, 1920x1080; each
+ * piece squeezed alone round the middle with `hud mptest`): 7 the team
+ * icons (top middle), 11 the health bar's frame and the weapon panel's
+ * circles and button letters (right), 18 = type 0x82: the timer's backing
+ * bar (top left; its small pictures in the middle go by their own third
+ * through 0x001CAAA0), 21 the radar and its blips (bottom left). The rest
+ * showed nothing of their own (texts go through the text pass, the sights
+ * are screen sprites); kept for the test switch. */
+static volatile uint8_t s_mp_anchor[MP_PIECES] = {
+    [7] = MPA_MID, [11] = MPA_RIGHT, [18] = MPA_LEFT, [21] = MPA_LEFT,
+};
+static volatile uint32_t g_mp_test;
+static int s_mp_in;                     /* inside 0x001C7C60 */
+
+void conker_SetMpHudTest(uint32_t mask)
+{
+    g_mp_test = mask;
+}
+
+int conker_SetMpHudPiece(int n, int anchor)
+{
+    if (n < 0 || n >= MP_PIECES || anchor < MPA_NONE || anchor > MPA_RIGHT)
+        return 0;
+    s_mp_anchor[n] = (uint8_t)anchor;
+    return 1;
+}
+
+/* For the console: piece n's routine and anchor; 0 = no such piece. */
+uint32_t conker_GetMpHudPiece(int n, int *anchor)
+{
+    if (n < 0 || n >= MP_PIECES)
+        return 0;
+    *anchor = s_mp_anchor[n];
+    return s_mp_fn[n];
+}
+
+static int mp_piece_begin(int n)
+{
+    uint32_t vp;
+    float cx, half, gx;
+    int a = (g_mp_test >> n) & 1u ? MPA_MID : s_mp_anchor[n];
+
+    if (a == MPA_NONE || !hud_wide() || (!((g_mp_test >> n) & 1u) && hud_shape() != HS_43))
+        return 0;
+    vp = MEM32(0x0084A13Cu) + MEM32(0x0084A148u) * 0x2B0u;
+    cx = MEMF(vp + 0x224u);
+    half = MEMF(vp + 0x1FCu);
+    if (!(half > 8.0f && half <= 640.0f && cx > 0.0f && cx < 640.0f)) {
+        cx = 320.0f;
+        half = 320.0f;
+    }
+    gx = a == MPA_LEFT ? cx - half * hud_area() : a == MPA_RIGHT ? cx + half * hud_area() : cx;
+    if (hud_log()) {
+        static uint32_t told;
+        if (!(told & (1u << n))) {
+            told |= 1u << n;
+            fprintf(stderr, "[HUD] mp piece %d (0x%08X) anchor %d at x %.1f (view %u: centre %.1f,"
+                    " half %.1f)\n", n, s_mp_fn[n], a, gx, MEM32(0x0084A148u), cx, half);
+        }
+    }
+    hud_begin(gx, 1u);                  /* NV_HOST_LAYOUT_ABS */
+    return 1;
+}
+
+static void mp_piece(int n, void (*gen)(void))
+{
+    int b = mp_piece_begin(n);
+    gen();
+    if (b)
+        hud_end();
+}
+
+/* A helper bracketed only when the HUD's own draw calls it. */
+static void mp_helper(int n, void (*gen)(void))
+{
+    uint32_t ra = MEM32(g_esp);
+    if (s_mp_in && ra >= 0x001C7C60u && ra < 0x001C9DAAu)
+        mp_piece(n, gen);
+    else
+        gen();
+}
+
+extern void sub_001C7C60_gen(void);
+void sub_001C7C60(void)
+{
+    int was = s_mp_in, b = mp_piece_begin(17);
+    s_mp_in = 1;
+    sub_001C7C60_gen();
+    s_mp_in = was;
+    if (b)
+        hud_end();
+}
+
+extern void sub_001C7C10_gen(void);
+void sub_001C7C10(void)
+{
+    mp_piece(0, sub_001C7C10_gen);
+}
+
+extern void sub_001C9DF0_gen(void);
+void sub_001C9DF0(void)
+{
+    mp_piece(1, sub_001C9DF0_gen);
+}
+
+extern void sub_001CA190_gen(void);
+void sub_001CA190(void)
+{
+    mp_piece(2, sub_001CA190_gen);
+}
+
+/* 0x001CAAA0 (thiscall; [esp+4..+0x10] point at the four corners' screen
+ * x / y, guest pixels) sets the 2D state and draws one flat picture through
+ * 0x001CA7F0: the multiplayer HUD's pictures come this way from several
+ * widgets. In a match each picture gets the anchor of the widget drawing it,
+ * found as the nearest return address on the guest stack inside one of the
+ * widget routines below; an unknown widget's picture goes by its own third.
+ * RECOMP_HUD_LOG=1: `[HUD] mp quad` once per call site (its box, the widget). */
+typedef struct { uint32_t lo, hi; uint8_t anchor; const char *name; } MpWidget;
+static MpWidget s_mp_widgets[] = {
+    /* the weapon panel's bracket, x 406-414: in the middle third, so pinned
+     * right with the panel; the others by their own third (the health bar's
+     * fill, the weapon and class pictures right, the radar's blips left) */
+    { 0x00330AB0u, 0x00330BF0u, MPA_RIGHT, "0x00330AB0" },
+    { 0x0037A9F0u, 0x0037AE6Du, MPA_NONE, "0x0037A9F0" },
+    { 0x001E6F30u, 0x001E7248u, MPA_NONE, "type 0x75" },
+    { 0x001C9DF0u, 0x001C9FC5u, MPA_NONE, "0x001C9DF0" },
+    { 0x001CA190u, 0x001CA7E3u, MPA_NONE, "0x001CA190" },
+    { 0x001CB0E0u, 0x001CB194u, MPA_NONE, "0x001CB0E0" },
+    { 0x001CB1A0u, 0x001CB256u, MPA_NONE, "0x001CB1A0" },
+    { 0x001CC770u, 0x001CC85Au, MPA_NONE, "0x001CC770" },
+    { 0x001C7C60u, 0x001C9DAAu, MPA_NONE, "type 0x7F" },
+    { 0x001EC6A0u, 0x001EC7F0u, MPA_NONE, "0x001EC6A0" },
+    { 0x001EC750u, 0x001EC7F0u, MPA_NONE, "0x001EC750" },
+};
+#define MP_WIDGETS ((int)(sizeof(s_mp_widgets) / sizeof(s_mp_widgets[0])))
+
+int conker_SetMpHudWidget(int n, int anchor)
+{
+    if (n < 0 || n >= MP_WIDGETS || anchor < MPA_NONE || anchor > MPA_RIGHT)
+        return 0;
+    s_mp_widgets[n].anchor = (uint8_t)anchor;
+    return 1;
+}
+
+const char *conker_GetMpHudWidget(int n, int *anchor)
+{
+    if (n < 0 || n >= MP_WIDGETS)
+        return NULL;
+    *anchor = s_mp_widgets[n].anchor;
+    return s_mp_widgets[n].name;
+}
+
+/* The widget drawing now: the nearest known return address up the stack. */
+static int mp_widget(void)
+{
+    int k, w;
+    for (k = 0; k < 160; k++) {
+        uint32_t v = MEM32(g_esp + 4u * (uint32_t)k);
+        for (w = 0; w < MP_WIDGETS; w++)
+            if (v > s_mp_widgets[w].lo && v < s_mp_widgets[w].hi)
+                return w;
+    }
+    return -1;
+}
+
+static int mp_quad_begin(void)
+{
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, gx, cx, half;
+    int k, w, a, test = (g_mp_test >> 3) & 1u;
+    uint32_t vp;
+
+    if (!MEM8(0x007819D5u) || !hud_wide() || (!test && hud_shape() != HS_43))
+        return 0;
+    for (k = 1; k <= 4; k++) {
+        uint32_t p = MEM32(g_esp + 4u * (uint32_t)k);
+        float x, y;
+        if (!xact_va_ok(p))
+            return 0;
+        x = MEMF(p);
+        y = MEMF(p + 4u);
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+    }
+    if (!(x1 >= x0 && x0 > -2000.0f && x1 < 2000.0f))
+        return 0;
+    w = mp_widget();
+    a = test ? MPA_MID : w >= 0 ? s_mp_widgets[w].anchor : MPA_NONE;
+    if (hud_log()) {
+        static uint32_t seen[64];
+        static unsigned n;
+        uint32_t ra = MEM32(g_esp), i;
+        for (i = 0; i < 64 && seen[i] != ra; i++)
+            ;
+        if (i == 64 && n < 64) {
+            seen[n++] = ra;
+            fprintf(stderr, "[HUD] mp quad from 0x%08X: x %.0f-%.0f y %.0f-%.0f, widget %s, anchor %d\n",
+                    ra, x0, x1, y0, y1, w >= 0 ? s_mp_widgets[w].name : "unknown", a);
+        }
+    }
+    vp = MEM32(0x0084A13Cu) + MEM32(0x0084A148u) * 0x2B0u;
+    cx = MEMF(vp + 0x224u);
+    half = MEMF(vp + 0x1FCu);
+    if (!(half > 8.0f && half <= 640.0f && cx > 0.0f && cx < 640.0f)) {
+        cx = 320.0f;
+        half = 320.0f;
+    }
+    if (a == MPA_NONE) {            /* by its own third of the view */
+        float m = 0.5f * (x0 + x1);
+        a = m < cx - half / 3.0f ? MPA_LEFT : m > cx + half / 3.0f ? MPA_RIGHT : MPA_MID;
+    }
+    gx = a == MPA_LEFT ? cx - half * hud_area() : a == MPA_RIGHT ? cx + half * hud_area() : cx;
+    hud_begin(gx, 1u);                  /* NV_HOST_LAYOUT_ABS */
+    return 1;
+}
+
+extern void sub_001CAAA0_gen(void);
+void sub_001CAAA0(void)
+{
+    int b = mp_quad_begin();
+    sub_001CAAA0_gen();
+    if (b)
+        hud_end();
+}
+
+extern void sub_001CB060_gen(void);
+void sub_001CB060(void)
+{
+    mp_piece(4, sub_001CB060_gen);
+}
+
+extern void sub_001CB0E0_gen(void);
+void sub_001CB0E0(void)
+{
+    mp_helper(5, sub_001CB0E0_gen);
+}
+
+extern void sub_001CB1A0_gen(void);
+void sub_001CB1A0(void)
+{
+    mp_piece(6, sub_001CB1A0_gen);
+}
+
+extern void sub_001CB330_gen(void);
+void sub_001CB330(void)
+{
+    mp_piece(7, sub_001CB330_gen);
+}
+
+extern void sub_001CB700_gen(void);
+void sub_001CB700(void)
+{
+    mp_piece(8, sub_001CB700_gen);
+}
+
+extern void sub_001CB910_gen(void);
+void sub_001CB910(void)
+{
+    mp_piece(9, sub_001CB910_gen);
+}
+
+extern void sub_001CBD70_gen(void);
+void sub_001CBD70(void)
+{
+    mp_piece(10, sub_001CBD70_gen);
+}
+
+extern void sub_001CC030_gen(void);
+void sub_001CC030(void)
+{
+    mp_piece(11, sub_001CC030_gen);
+}
+
+extern void sub_001CC770_gen(void);
+void sub_001CC770(void)
+{
+    mp_piece(12, sub_001CC770_gen);
+}
+
+extern void sub_001CCC70_gen(void);
+void sub_001CCC70(void)
+{
+    mp_piece(13, sub_001CCC70_gen);
+}
+
+extern void sub_001CCDD0_gen(void);
+void sub_001CCDD0(void)
+{
+    mp_piece(14, sub_001CCDD0_gen);
+}
+
+extern void sub_001CCF80_gen(void);
+void sub_001CCF80(void)
+{
+    mp_piece(15, sub_001CCF80_gen);
+}
+
+extern void sub_001CD370_gen(void);
+void sub_001CD370(void)
+{
+    mp_piece(16, sub_001CD370_gen);
+}
+
+/* Draw-layer type 0x82. */
+extern void sub_001ECF40_gen(void);
+void sub_001ECF40(void)
+{
+    mp_piece(18, sub_001ECF40_gen);
+}
+
+/* Draw-layer type 0x83: the talking heads (multiplayer only). */
+extern void sub_001EC620_gen(void);
+void sub_001EC620(void)
+{
+    mp_piece(19, sub_001EC620_gen);
+}
+
+/* Draw-layer type 0x79: the bazooka's sight. */
+extern void sub_000AEB20_gen(void);
+void sub_000AEB20(void)
+{
+    mp_piece(20, sub_000AEB20_gen);
+}
+
+/* Candidates for the rest (radar, weapon panel): the draw's 2D stage call
+ * 0x0037C020 (to 0x0037A9F0), types 0x7B and 0x7D, the per-weapon table's
+ * 0x00330AB0 (thiscall: the bracket leaves ecx and the stack alone), type
+ * 0x75, two more HUD calls and type 0x7E's callback 0x001C79D0. */
+extern void sub_0037C020_gen(void);
+void sub_0037C020(void)
+{
+    mp_piece(21, sub_0037C020_gen);
+}
+
+extern void sub_001D6F50_gen(void);
+void sub_001D6F50(void)
+{
+    mp_piece(22, sub_001D6F50_gen);
+}
+
+extern void sub_000E6E70_gen(void);
+void sub_000E6E70(void)
+{
+    mp_piece(23, sub_000E6E70_gen);
+}
+
+extern void sub_00330AB0_gen(void);
+void sub_00330AB0(void)
+{
+    mp_piece(24, sub_00330AB0_gen);
+}
+
+extern void sub_001E6F30_gen(void);
+void sub_001E6F30(void)
+{
+    mp_piece(25, sub_001E6F30_gen);
+}
+
+extern void sub_001CC9F0_gen(void);
+void sub_001CC9F0(void)
+{
+    mp_piece(26, sub_001CC9F0_gen);
+}
+
+extern void sub_001CCD90_gen(void);
+void sub_001CCD90(void)
+{
+    mp_piece(27, sub_001CCD90_gen);
+}
+
+extern void sub_001C79D0_gen(void);
+void sub_001C79D0(void)
+{
+    mp_piece(28, sub_001C79D0_gen);
+}
+
+/* Draw-layer type 0x87 (layer 5): the lives counter's squirrel tail, top
+ * right after a respawn (r5: the number beside it is drawn elsewhere). */
+extern void sub_000A6BC0_gen(void);
+void sub_000A6BC0(void)
+{
+    uint32_t obj = MEM32(g_esp + 4u);
+    int b = obj && MEM8(obj) == 0x87u && hud_at_share(1.0f);
+    sub_000A6BC0_gen();
+    if (b)
+        hud_end();
+}
+
 /* Speech bubbles (cutscenes and in play): object type 0x7C of the draw
  * layers (layer 3), made by 0x000E0850 with the "speechbubble" textures.
  * Left out with the HUD in photo mode, like the weapon sight (user
@@ -15746,14 +16912,348 @@ static int play_bubbles_hidden(void)
     return !photo_active() && g_hide_bubbles;
 }
 
+/* ── Wide speech bubbles (to-do 53; F2 Display "Wide Speech Bubbles") ───────
+ *
+ * The game wraps a bubble's text at 20 characters (0x000DFD90, by count, not
+ * pixels) and shows at most 4 lines: a longer text gets a box of fixed
+ * height 160 (the layouts 0x000E0850 and its twin 0x000E0CD0 / 0x000E0E00)
+ * and scrolls up through it while the line is spoken (the text draw
+ * 0x000E2940). Wide: lines up to 27 characters and up to 6 lines shown
+ * whole (idea and addresses: rashevskyv's Conker recomp, MIT; our own code;
+ * 27 = the original's share of a 16:9 picture, user 2026-11-27: 40 covered
+ * the speakers' faces):
+ *  - sub_000DFD90: the wrap with 27 as its least width. Japanese (language
+ *    2) keeps the game's rule (no least width; its letters are twice as
+ *    wide);
+ *  - sub_000E1880 (the bubble's draw, which ends in the text draw): a box
+ *    the game made 160 high (220 for a bubble without speech timing) for 5
+ *    or 6 lines gets the 4-line rule instead, the text's height + 60;
+ *  - sub_000E2940: the text draw scrolls by (all lines' height) x (the
+ *    share of the line's time gone by), held between 2 lines above and 2
+ *    below the middle; at half the time the text sits centred, and up to 6
+ *    lines then fall inside the band it draws unfaded (3 line heights
+ *    either side of the middle). So for 5-6 lines the draw sees half the
+ *    time gone by, and the real times are put back after it;
+ *  - sub_000E2600: the draw's per-letter callback also fades letters more
+ *    than 1.75 line gaps from the middle when there are 5 lines or more
+ *    (the original's 4-line window); for a held draw it is told 4 lines.
+ * A script's own box height (+0xA0 not -1) is left alone. 7 lines or more
+ * still scroll, in the game's 160 box. Auto (default) = on while the
+ * picture is wider than 4:3 (user 2026-11-17), so off in a 4:3 cutscene
+ * (Cutscenes in 4:3). RECOMP_WIDE_BUBBLES=auto|on|off. Decided at each
+ * wrap and draw: a shape change in the middle of a line (rare) can leave
+ * one line wrapped one way and boxed the other. */
+enum { WB_AUTO, WB_ON, WB_OFF };
+static const char *const s_wb_names[] = { "auto", "on", "off" };
+static volatile int g_wide_bubbles = -1;
+#define BUBBLE_WIDE_W 27u               /* least wrap width when wide */
+#define BUBBLE_WIDE_LINES 6u            /* lines shown whole when wide */
+
+/* The least wrap width when wide: BUBBLE_WIDE_W, or RECOMP_BUBBLE_WRAP
+ * (20-80; a test switch: the throne monologue at 50-60 makes 5-6 lines). */
+static uint32_t bubble_wide_w(void)
+{
+    static uint32_t w;
+    if (!w) {
+        const char *e = getenv("RECOMP_BUBBLE_WRAP");
+        int v = e ? atoi(e) : 0;
+        w = v >= 20 && v <= 80 ? (uint32_t)v : BUBBLE_WIDE_W;
+    }
+    return w;
+}
+
+void conker_SetWideBubbles(int mode)
+{
+    g_wide_bubbles = mode >= WB_AUTO && mode <= WB_OFF ? mode : WB_AUTO;
+    fprintf(stderr, "[BUBBLES] wide speech bubbles: %s\n", s_wb_names[g_wide_bubbles]);
+}
+
+static int bubbles_wide(void)
+{
+    int m = g_wide_bubbles;
+    if (m < 0) {
+        const char *e = getenv("RECOMP_WIDE_BUBBLES");
+        m = WB_AUTO;
+        if (e)
+            for (int i = 0; i < 3; i++)
+                if (!_stricmp(e, s_wb_names[i]))
+                    m = i;
+        if (e && (!strcmp(e, "1") || !strcmp(e, "0")))
+            m = *e == '1' ? WB_ON : WB_OFF;
+        g_wide_bubbles = m;
+        fprintf(stderr, "[BUBBLES] wide speech bubbles: %s\n", s_wb_names[m]);
+    }
+    return m == WB_ON || (m == WB_AUTO && display_widen43() > 1.001f);
+}
+
+/* A game function with no arguments: its eax (the other scratch registers
+ * kept). */
+static uint32_t bubble_call0(void (*fn)(void))
+{
+    uint32_t eax = g_eax, ecx = g_ecx, edx = g_edx, r;
+    g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
+    fn();
+    r = g_eax;
+    g_eax = eax; g_ecx = ecx; g_edx = edx;
+    return r;
+}
+
+extern void sub_0042B72A(void);          /* GetTickCount */
+void sub_0042C91F(void);                 /* XGetLanguage (our wrapper, below) */
+extern void sub_000E22E0(void);          /* measure: edx text, [edi] w, [esi] h */
+
+/* Lines of a bubble text: newlines + 1, up to its end or a paragraph mark
+ * (0x000E2280). */
+static uint32_t bubble_lines(uint32_t text)
+{
+    uint32_t n = 1;
+    uint16_t c;
+    if (!text)
+        return 0;
+    for (; (c = MEM16(text)) != 0 && c != 0xBDu; text += 2)
+        if (c == 0x0Au)
+            n++;
+    return n;
+}
+
+/* The text's height as the layouts measure it (0x000E22E0: the bubble's
+ * text scale applied, as for the 4-line rule). */
+static float bubble_text_height(uint32_t text)
+{
+    uint32_t esp = g_esp, eax = g_eax, ecx = g_ecx, edx = g_edx;
+    uint32_t esi = g_esi, edi = g_edi;
+    uint32_t out = (g_esp - 64u) & ~15u;
+    float h;
+
+    g_esp = out;
+    g_esp -= 4; MEM32(g_esp) = 0;       /* return address, popped by the callee */
+    g_edx = text;
+    g_edi = out;                        /* width */
+    g_esi = out + 4u;                   /* height */
+    sub_000E22E0();
+    h = MEMF(out + 4u);
+    g_esp = esp; g_eax = eax; g_ecx = ecx; g_edx = edx;
+    g_esi = esi; g_edi = edi;
+    return h;
+}
+
+/* Our wrap (0x000DFD90, cdecl: [esp+4] the paragraph, [esp+8] the bubble):
+ * the game's, with BUBBLE_WIDE_W as the least width when wide. */
+extern void sub_000DFD90_gen(void);
+void sub_000DFD90(void)
+{
+    uint32_t text = MEM32(g_esp + 4u), b = MEM32(g_esp + 8u);
+    uint32_t w, count = 0, i = 0, lang;
+    int32_t brk = -1;
+    float t;
+    uint16_t c;
+
+    if (!bubbles_wide()) {
+        sub_000DFD90_gen();
+        return;
+    }
+    t = (float)(int32_t)MEM32(b + 0x2044u) * 0.016666668f;  /* frames -> s */
+    if (t * 0.6f < 5.0f)
+        w = 20u;
+    else {
+        /* 0x000DFEC0: the paragraph's length / (0.6 x seconds), cut. */
+        uint32_t len = 0;
+        while ((c = MEM16(text + len * 2u)) != 0 && c != 0xBDu)
+            len++;
+        w = (uint32_t)(int32_t)((double)len / ((double)0.6f * (double)t));
+    }
+    lang = bubble_call0(sub_0042C91F);  /* XGetLanguage; 2 = Japanese */
+    if (lang != 2u && w < bubble_wide_w())
+        w = bubble_wide_w();
+    if (!MEM16(text)) {
+        MEM16(b + 8u) = 0;
+        g_esp += 4;                     /* ret (cdecl) */
+        return;
+    }
+    do {
+        c = MEM16(text + i * 2u);
+        MEM16(b + 8u + i * 2u) = c;
+        if (c == 0xBDu) {               /* a paragraph ends the bubble's text */
+            MEM16(b + 8u + i * 2u) = 0;
+            g_esp += 4;
+            return;
+        }
+        count++;
+        if (c == 0x20u || c == 0xFEu)   /* a space or {PMARKER} */
+            brk = (int32_t)i;
+        if (count > w && brk != -1) {
+            MEM16(b + 8u + (uint32_t)brk * 2u) = 0x0Au;
+            count = i - (uint32_t)brk;
+            brk = -1;
+        }
+        i++;
+    } while (MEM16(text + i * 2u) != 0);
+    MEM16(b + 8u + i * 2u) = 0;
+    g_esp += 4;                         /* ret (cdecl) */
+}
+
+/* The draw object's text as wide bubbles handle it: 5-6 lines, no script
+ * height. 0 = leave it to the game. */
+static uint32_t bubble_wide_lines(uint32_t obj)
+{
+    uint32_t lines;
+    if (!obj || !bubbles_wide() || MEM32(obj + 0xA0u) != 0xFFFFFFFFu)
+        return 0;
+    lines = bubble_lines(MEM32(obj + 0x4Cu));
+    return lines >= 5u && lines <= BUBBLE_WIDE_LINES ? lines : 0;
+}
+
+/* A 160 box (220 without speech timing) for 5-6 lines: the text's height +
+ * 60 (+60), as the game's 4-line rule. Every draw, before the box is drawn:
+ * the twin layout may set 160 again as words come. */
+static void bubble_tall_fix(uint32_t obj)
+{
+    static int told;
+    float h, extra;
+    uint32_t lines = bubble_wide_lines(obj);
+
+    if (!lines)
+        return;
+    h = MEMF(obj + 0x64u);
+    if (h == 160.0f)
+        extra = 0.0f;
+    else if (h == 220.0f)
+        extra = 60.0f;
+    else
+        return;                         /* not the game's fixed box */
+    MEMF(obj + 0x64u) = bubble_text_height(MEM32(obj + 0x4Cu)) + 60.0f + extra;
+    if (!told) {
+        told = 1;
+        fprintf(stderr, "[BUBBLES] a %u-line bubble shown whole: box %.0f x %.0f (was "
+                "%.0f high)\n", lines, MEMF(obj + 0x60u), MEMF(obj + 0x64u), h);
+    }
+}
+
+/* While a held 5-6-line draw runs (sub_000E2940 below). */
+static int s_bubble_held;
+
+/* The text draw's per-letter callback (0x000E2600, put in [0x00807668] by
+ * the text draw for its own letters only): with 5 lines or more
+ * ([0x008472E0]) it fades each letter more than 1.75 line gaps from the
+ * middle (0x00649224), the original's 4-line window for scrolling text. A
+ * held draw shows its 5-6 lines whole, so the callback is told 4 lines. */
+extern void sub_000E2600_gen(void);
+void sub_000E2600(void)
+{
+    uint32_t n;
+    if (!s_bubble_held) {
+        sub_000E2600_gen();
+        return;
+    }
+    n = MEM32(0x008472E0u);
+    MEM32(0x008472E0u) = 4u;
+    sub_000E2600_gen();
+    MEM32(0x008472E0u) = n;
+}
+
+/* The text draw (0x000E2940, eax = the draw object): 5-6 wide lines drawn
+ * at half their time gone by (centred, no scroll; its per-line fade band,
+ * 3 line gaps either side, then holds all 6) and with no per-letter fade
+ * (sub_000E2600); the times put back. Only when the draw gets as far as its
+ * clock (its early returns copied here). */
+extern void sub_000E2940_gen(void);
+void sub_000E2940(void)
+{
+    static int told;
+    uint32_t obj = g_eax, b, idx, fr, dur, now, s2044, s2048, s2050, s2054;
+    uint32_t n = 0, lines;
+    uint8_t style;
+    float p, total, scroll;
+
+    static int log_on = -1, logged;
+    int log_now;
+    if (log_on < 0)
+        log_on = env_on("RECOMP_BUBBLE_LOG", 0);
+    log_now = log_on && obj && logged < 400 && (++logged % 20) == 1;
+    if (!obj || MEM8(0x00847150u) || !MEM32(obj + 0x48u)
+        || !(lines = bubble_wide_lines(obj))) {
+        sub_000E2940_gen();
+        if (log_now)
+            fprintf(stderr, "[BUBBLES] draw: %u lines, gap %.2f, centre y %.1f (drawn %.1f), "
+                    "box %.1f x %.1f, last line end %.1f\n", MEM32(0x008472E0u),
+                    MEMF(0x008472D4u), MEMF(obj + 0x7Cu), MEMF(obj + 0x74u),
+                    MEMF(obj + 0x60u), MEMF(obj + 0x64u), MEMF(0x008472D0u));
+        return;
+    }
+    style = MEM8(obj + 0x35u);
+    while (MEM16(MEM32(obj + 0x48u) + n * 2u))
+        n++;
+    if (!n || (style != 0x20u && style != 0x10u && style != 0x08u && style != 0x40u)) {
+        sub_000E2940_gen();
+        return;
+    }
+    b = MEM32(obj + 0x30u);
+    s2044 = MEM32(b + 0x2044u);         /* the line's time, frames */
+    s2048 = MEM32(b + 0x2048u);         /* its first frame (frame-counted clock) */
+    s2050 = MEM32(b + 0x2050u);         /* ms gone by */
+    s2054 = MEM32(b + 0x2054u);         /* the tick of the last draw */
+    dur = s2044 ? s2044 : 60u;          /* no time: any, at its half */
+    idx = MEM32(b + 0x2038u);
+    fr = MEM32(0x0076F0F8u + idx * 4u);
+    now = bubble_call0(sub_0042B72A);
+    MEM32(b + 0x2044u) = dur;
+    MEM32(b + 0x2048u) = fr - dur / 2u;
+    MEM32(b + 0x2050u) = dur * 1000u / 120u;   /* half of dur / 60 s, in ms */
+    MEM32(b + 0x2054u) = now;
+    s_bubble_held = 1;
+    sub_000E2940_gen();
+    s_bubble_held = 0;
+    /* Put the clock back as the draw would have left it. */
+    now = MEM32(b + 0x2054u);           /* the tick the draw read */
+    MEM32(b + 0x2044u) = s2044;
+    MEM32(b + 0x2048u) = s2048;
+    MEM32(b + 0x2050u) = s2050 + (MEM8(0x007FA275u) ? 0u : now - s2054);
+    /* +0x200C: the scroll the draw would have stored (+0x2010 added; only
+     * the twin layout's paragraph step reads it). */
+    if (!s2044)
+        p = 0.0f;
+    else if (MEM8(0x0076EC82u) && MEM32(0x008472A0u) == 0xDu)
+        p = (float)(int32_t)(fr - s2048) / (float)(int32_t)s2044;
+    else
+        p = (float)MEM32(b + 0x2050u) * 0.001f / ((float)(int32_t)s2044 * 0.016666668f);
+    total = (float)lines * MEMF(0x008472D4u);   /* lines x line height */
+    scroll = total * p;
+    if (scroll < 0.0f)
+        scroll = 0.0f;
+    if (scroll > total)
+        scroll = total;
+    MEMF(b + 0x200Cu) = scroll + MEMF(b + 0x2010u);
+    if (log_now)
+        fprintf(stderr, "[BUBBLES] held draw: %u lines, gap %.2f, centre y %.1f (drawn %.1f), "
+                "box %.1f x %.1f, last line end %.1f, time %u ms of %u frames (branch %s)\n",
+                MEM32(0x008472E0u), MEMF(0x008472D4u), MEMF(obj + 0x7Cu), MEMF(obj + 0x74u),
+                MEMF(obj + 0x60u), MEMF(obj + 0x64u), MEMF(0x008472D0u),
+                MEM32(b + 0x2050u), s2044,
+                MEM8(0x0076EC82u) && MEM32(0x008472A0u) == 0xDu ? "frames" : "ms");
+    if (!told) {
+        told = 1;
+        fprintf(stderr, "[BUBBLES] %u lines drawn centred instead of scrolling\n", lines);
+    }
+}
+
+/* Widescreen HUD (to-do 237): with bubble_shape 4:3 a bubble (its text too,
+ * drawn inside) gets its 4:3 shape round its tail tip +0x68 (640x480 units,
+ * set once a line; user 2026-11-22 and 2026-11-27: the tail stays on the
+ * speaker). */
 extern void sub_000E1880_gen(void);
 void sub_000E1880(void)
 {
+    uint32_t obj = MEM32(g_esp + 4u);
+    int b;
     if (photo_hud_hidden() || play_bubbles_hidden()) {
         g_esp += 4;                     /* ret (cdecl) */
         return;
     }
+    bubble_tall_fix(obj);
+    b = bubble_at(MEMF(obj + 0x68u));
     sub_000E1880_gen();
+    if (b)
+        hud_end();
 }
 
 /* The same draw also does type 0x72 (layer 2): a full-screen vignette,
@@ -15780,7 +17280,38 @@ void sub_0015CAF0(void)
         g_esp += 4;                     /* ret (cdecl) */
         return;
     }
-    sub_0015CAF0_gen();
+    {
+        /* Widescreen HUD (to-do 237): a screen sprite narrower than the
+         * view gets its 4:3 shape by its place, as the text pass's items
+         * (hud_at_place): Chemical Warfare's SMG sight (type 0x7A) in the
+         * middle, the lives number after a respawn (a 0x72 sprite at x 588,
+         * beside its tail) at the right edge. The vignette (0x72 too) and
+         * anything near the full width stay as they are. Its centre and
+         * half size as the draw works them out: +0x2C / +0x34 in a 280-wide
+         * space (x 640/280) unless flag 0x10000, from the view's middle
+         * (+0x224 = 320 for a full view). */
+        uint32_t obj = MEM32(g_esp + 4u), fl = MEM32(obj + 0x40u);
+        uint32_t view = MEM32(0x0084A148u) * 0x2B0u + MEM32(0x0084A13Cu);
+        float k = (fl & 0x10000u) ? 1.0f : 2.2857144f;
+        float cx = MEMF(obj + 0x2Cu) * k + MEMF(view + 0x224u);
+        float hw = MEMF(obj + 0x34u) * k;
+        int b = hw > 0.0f && hw < 0.45f * 640.0f && hud_at_place(cx);
+        if (b && hud_log()) {
+            static uint32_t seen[16];
+            static unsigned n;
+            uint32_t key = (uint32_t)MEM8(obj) | ((uint32_t)(int)cx << 8), i;
+            for (i = 0; i < 16 && seen[i] != key; i++)
+                ;
+            if (i == 16) {
+                seen[n++ & 15u] = key;
+                fprintf(stderr, "[HUD] screen sprite type 0x%02X at x %.0f, %.0f wide\n",
+                        MEM8(obj), (double)cx, (double)(2.0f * hw));
+            }
+        }
+        sub_0015CAF0_gen();
+        if (b)
+            hud_end();
+    }
 }
 
 /* 0x00205490 (frontend_draw.cpp): the front end's menu draw, front-end
@@ -16339,6 +17870,91 @@ static int guest_wstr_is(uint32_t va, const char *s)
     return MEM16(va + 2u * i) == 0;
 }
 
+/* The main menu's board titles in the game's language (to-do 290; conker-notes
+ * 2026-11-26 "board titles by language"). The language is [0x007FA1DC]
+ * (XGetLanguage: 1 English, 2 Japanese, 3 German, 4 French, 5 Spanish,
+ * 6 Italian).
+ * - Game 1-3 are callbacks (0x00204E80 / 0x00204EE0 / 0x00204F40; cdecl:
+ *   element, &text buffer, &colour) that copy their slot record's
+ *   ([0x0084B120 + 4 slot]) found save's name (+8), else the slot's name in
+ *   the current language (+0x2C4, what an empty slot shows). A save is named in
+ *   the language it was made in, so a save made in English said "Game 1" in
+ *   German too. The title now always shows +0x2C4; the save keeps its name
+ *   (0x00352EB0 finds slot and language by it, and the save folders follow it).
+ *   Japanese's own slot name is "Game 1" as well: ゲーム 1-3 there (the game's
+ *   word, as in 新しいゲーム).
+ * - Options and Chapters are the UIFrontend keys OPTIONS / CHAPTERS (read by
+ *   0x001F4F40, as LIVE). The Japanese bank holds them in English, so there
+ *   the found text is rewritten in place: オプション (the game's FT_OptionsTitle)
+ *   and チャプター (from its "チャプター X"). The Japanese title font has those
+ *   characters; they look plain, as マルチプレイヤー does.
+ * RECOMP_TITLE_LANG=0 = original. */
+#define GAME_LANGUAGE    0x007FA1DCu
+#define GAME_LANG_JAPAN  2u
+
+static int title_lang_on(void)
+{
+    static int on = -1;
+    if (on < 0)
+        on = env_on("RECOMP_TITLE_LANG", 1);
+    return on;
+}
+
+/* A guest wide string's text replaced in place by the shorter w (n units),
+ * only while it still reads en. */
+static void title_rewrite(uint32_t t, const char *en, const uint16_t *w, uint32_t n)
+{
+    uint32_t i;
+
+    if (!xact_va_ok(t) || !guest_wstr_is(t, en) || n >= strlen(en) + 1u)
+        return;
+    for (i = 0; i < n; i++)
+        MEM16(t + 2u * i) = w[i];
+    MEM16(t + 2u * n) = 0;
+}
+
+extern void sub_00204E80(void);
+extern void sub_00204EE0(void);
+extern void sub_00204F40(void);
+
+static void game_title(uint32_t slot)
+{
+    static const uint16_t jp[] = { 0x30B2, 0x30FC, 0x30E0, ' ' };   /* ゲーム */
+    uint32_t pbuf = MEM32(g_esp + 8u), dst, rec, src, i;
+
+    dst = xact_va_ok(pbuf) ? MEM32(pbuf) : 0;
+    if (slot == 0)
+        sub_00204E80();
+    else if (slot == 1)
+        sub_00204EE0();
+    else
+        sub_00204F40();
+    rec = MEM32(0x0084B120u + 4u * slot);
+    if (!title_lang_on() || !xact_va_ok(dst) || !xact_va_ok(rec))
+        return;
+    if (MEM32(GAME_LANGUAGE) == GAME_LANG_JAPAN) {
+        for (i = 0; i < 4; i++)
+            MEM16(dst + 2u * i) = jp[i];
+        MEM16(dst + 8u) = (uint16_t)('1' + slot);
+        MEM16(dst + 10u) = 0;
+        return;
+    }
+    src = MEM32(rec + 0x2C4u);
+    if (!xact_va_ok(src) || !MEM16(src))
+        return;
+    for (i = 0; i < 31; i++) {
+        uint16_t c = MEM16(src + 2u * i);
+        MEM16(dst + 2u * i) = c;
+        if (!c)
+            return;
+    }
+    MEM16(dst + 2u * i) = 0;
+}
+
+static void game1_title(void) { game_title(0); }
+static void game2_title(void) { game_title(1); }
+static void game3_title(void) { game_title(2); }
+
 extern void sub_003F9CB0_gen(void);
 void sub_003F9CB0(void)
 {
@@ -16358,6 +17974,16 @@ void sub_003F9CB0(void)
             MEM32(out) = mp;
         else if (guest_wstr_is(key, "LIVE2"))
             MEM32(out) = 0x00563B70u;
+    }
+    /* To-do 290: Options / Chapters in Japanese (see title_rewrite above). */
+    if (ret == 0x001F4F5Du && (int)g_eax != -1 && title_lang_on()
+        && MEM32(GAME_LANGUAGE) == GAME_LANG_JAPAN) {
+        static const uint16_t options[] = { 0x30AA, 0x30D7, 0x30B7, 0x30E7, 0x30F3 };
+        static const uint16_t chapters[] = { 0x30C1, 0x30E3, 0x30D7, 0x30BF, 0x30FC };
+        if (guest_wstr_is(key, "OPTIONS"))
+            title_rewrite(MEM32(out), "Options", options, 5);
+        else if (guest_wstr_is(key, "CHAPTERS"))
+            title_rewrite(MEM32(out), "Chapters", chapters, 5);
     }
     /* To-do 196: the Options page's demo row is our Cheats row, and the
      * pause menu's X prompt has our key. */

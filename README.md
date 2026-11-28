@@ -162,8 +162,13 @@ included.
 | Texture filtering | Original | Original, or anisotropic up to 16x |
 | Character shadows | Original | Up to 16x sharper, with adjustable softness |
 | World shadows | Blocky edges | Smooth |
+| Character lighting | Worked out at the model's corners: light edges crawl along tails and arms | **Per pixel**: smooth light and shade, and soft edges on the shadows characters cast on each other |
+| Ambient occlusion | — | Creases and corners in the scenery shaded, adjustable |
+| Motion blur | — | Camera motion blur on quick turns, adjustable (off by default) |
+| HDR | — | **HDR10** where Windows HDR is on: the sun, lamps and glints brighter than white, the HUD and menus at your paper white |
 | Anti-aliasing | — | FXAA or SMAA |
 | Sharpening | — | AMD FidelityFX CAS, adjustable |
+| Text and buttons | Original | **Sharper**: the game's letters and button pictures cleaned up on your PC from your own game files (on by default) |
 | Character & foliage detail | Grass, fur and distant characters thin out or vanish | **Extended**: full detail at any distance (grass and flowers, characters, fur and ambient particles (experimental) can each be turned on or off), and distant characters keep their full model twice as far; **Original** as on the Xbox; **Low** for a weaker PC |
 | Cutscene blur (depth of field) | Original | Off, original, updated or cinematic |
 | Glow | Always on | Adjustable 0–100 % |
@@ -171,9 +176,10 @@ included.
 | Haze | Always on | Can be turned off for a clear view (e.g. the green gas in some levels) |
 | Vignette | Always on | Can be turned off |
 | Screen drops | Always on | Water and blood drops on the screen can be turned off |
-| Picture adjustments | — | Gamma, contrast, saturation |
+| Picture adjustments | — | Gamma, contrast, saturation, black level |
 | Retro look | — | Scanlines or CRT effect, adjustable |
-| Movies | 4:3 | Kept 4:3 with black bars on a wide screen, or stretched to fill it |
+| HUD | 4:3 | **Widescreen HUD**: the HUD and speech bubbles keep their correct 4:3 shape on a wide screen (or stretched, if you prefer), the side pieces at the screen's edges or nearer the middle; the pause screen fills a wide screen, or 4:3 with black bars |
+| Movies | 4:3, stretched from their small size | Upscaled with AMD FSR 1; kept 4:3 with black bars on a wide screen, or stretched to fill it |
 | Cutscenes | 4:3 | As wide as your screen, or in their original 4:3 with black bars |
 
 <table>
@@ -269,8 +275,9 @@ included.
   the button you choose, with Classic and Modern each keeping their own set
   (F3 menu or the launcher's Controls tab).
 - **Mouse in menus**: point and click in the game's own menus, from the main
-  menu (drag the room around by hand) and the pause screen to every
-  multiplayer menu. Touchscreens work too, without the mouse cursor showing
+  menu (drag the room around by hand, and a **Back** to click on its pages)
+  and the pause screen to every multiplayer menu. Touchscreens work too,
+  without the mouse cursor showing
   (F2 → Display → **Show cursor for touch** brings it back).
 - Two single-player layouts: **Classic** (the controller one-to-one) and
   **Modern** (hold the right mouse button to aim, a separate action key).
@@ -376,6 +383,9 @@ On a wide screen, cutscenes fill it like the rest of the game, or turn on
   chapter part, with or without cutscenes.
 - **Input Display**: the controller drawn in a corner, showing what you press.
 - **Hide HUD** and **Hide Speech Bubbles**.
+- **Wide Speech Bubbles**: on a wide screen, up to 27 letters a line and up to
+  6 lines shown at once, instead of 4-line windows that scroll (Auto, On or
+  Off).
 - **Skip Intro**: straight to the main menu, without the logo, the intro
   movie or the walk into the bar.
 - **Idle Demo** can be turned off.
@@ -450,10 +460,11 @@ Text, menus and subtitles in English, French, German, Italian, Spanish or
 Japanese, chosen in F2 or the launcher (on the Xbox it followed the
 console's language). Voices are English in all of them.
 
-This port's own menus (F2, F3, photo mode) come in the same six languages:
-**Menu language** follows the text language, or pick one of its own. They are
-machine translations using the game's own words; corrections from native
-speakers are welcome in an [issue](../../issues).
+This port's own menus (F2, F3, photo mode) and the launcher come in the same
+six languages: **Menu language** follows the text language, or pick one of its
+own (the launcher switches the moment you change it). They are machine
+translations using the game's own words; corrections from native speakers are
+welcome in an [issue](../../issues).
 
 ### Uncensored
 
@@ -478,6 +489,9 @@ A few glitches the Xbox version has too are fixed:
 - The pause screen's Quit? Yes / No works with the D-pad and arrow keys.
 - The hole in the fire imp's back at the main menu is closed, and the soldier
   who loses his arm in It's War is no longer see-through.
+- The main menu's headings follow the menu language: Game 1–3 kept the
+  language their save was made in, and in Japanese, Options, Chapters and the
+  save slots were in English.
 
 ### The launcher
 
@@ -486,9 +500,12 @@ A few glitches the Xbox version has too are fixed:
   (found by itself, one click), and checks it is a supported release.
 - **Prepares game assets**: a few seconds after an import, it reads the parts
   of your game files that some features need ahead (with the port's own
-  package reader); they stay with your saves, and **Delete Assets** clears them.
+  package reader) and makes the sharper text and buttons from them; they stay
+  with your saves, and **Delete Assets** clears them.
 - Every in-game setting and control before you start, in the same tabs as
   the game's menus, with the same quality presets.
+- **In your language**: it follows the game's Menu language (English, French,
+  German, Italian, Spanish or Japanese), its tooltips and messages too.
 - **Works with a controller**: every tab, setting and button by pad, with
   on-screen button hints.
 - Its own **file browser** for choosing your game or the patch, by mouse,
@@ -521,8 +538,14 @@ A few glitches the Xbox version has too are fixed:
 
 ### For modders
 
-- **Texture replacement**: PNG files in a `textures\` folder next to the game
-  replace the game's textures, matched by a hash of each texture.
+- **Texture packs**: **Export Textures** on the launcher's Files tab saves
+  every texture of your game files as a PNG (about 9,600), under the game's own
+  folder and file names. Edit the ones you want and put them in a folder of
+  their own in `textures\packs`; players turn packs on in F2 → Extras →
+  **Texture Packs** (or the launcher's list), several at once, the top one
+  winning. How to make and share one: [TEXTURE_PACKS.md](TEXTURE_PACKS.md).
+- PNG files named by a texture's hash, right in the `textures\` folder next to
+  the game, still replace that texture under every pack.
 
 ---
 
@@ -566,7 +589,7 @@ Saves, settings, photos and logs are in the `userdata` folder next to `conker.ex
 Ideas for future updates, in no particular order. Plans can change.
 
 - Frame rates above 120 fps
-- HD-friendly GUI / expanded button prompts
+- Expanded button prompts
 - Improved water and fluids
 - Achievements
 - Working online play (via System Link emulation)
@@ -643,12 +666,15 @@ minutes.
   music).
 - **[yacineolivier-maker/ConkerLR-Recomp](https://github.com/yacineolivier-maker/ConkerLR-Recomp)**:
   the Full DSP sound effects (speaker crosstalk, filters, reverb) follow their
-  effect code (MIT); thank you.
+  effect code, and the ambient occlusion their GTAO shader (MIT); thank you.
 - **[Txukie/xboxrecomp-conker](https://github.com/Txukie/xboxrecomp-conker)**:
   the package reader's resource extraction follows their `conker_caff.c`,
   and the [Extras](#extras)' Frying Pan, the Milk Fix's glass of milk and Free
   Swing follow their weapon, intro and Swing Button code (all MIT). They
   worked out how a single model can be written as a loose file; thank you.
+- **[rashevskyv/conker-lr-recomp](https://github.com/rashevskyv/conker-lr-recomp)**:
+  the Wide Speech Bubbles follow their bubble work (the idea, and where the
+  game wraps and sizes its bubbles; MIT); thank you.
 - **[codepdbh/xboxrecomp-conker](https://github.com/codepdbh/xboxrecomp-conker)**,
   the *[Conker Xbox 60fps + Widescreen patch](https://www.moddb.com/mods/conker-live-reloaded-wip-60fps-patch)
   by picardsfish*, **[XboxDev/ghidra-xbe](https://github.com/XboxDev/ghidra-xbe)**

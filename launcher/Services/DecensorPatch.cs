@@ -54,7 +54,7 @@ public sealed class DecensorPatch(GameFolder folder)
         CleanLeftovers();
         try
         {
-            progress.Report(new JobProgress("Opening the patch", null));
+            progress.Report(new JobProgress(S("Opening the patch"), null));
             using var archive = ImportTools.OpenArchive(archivePath);
             List<(string Key, long Size)> files = ImportTools.ListFiles(archive);
 
@@ -63,7 +63,7 @@ public sealed class DecensorPatch(GameFolder folder)
             string? prefix = at < 0 ? null : files.Select(f => f.Key).First(k => DvddataAt(k) == at)[..at];
             if (prefix is null)
             {
-                throw new ImportException($"{Path.GetFileName(archivePath)} isn't the decensor patch (it has no dvddata folder).");
+                throw new ImportException(S("{0} isn't the decensor patch (it has no dvddata folder).", Path.GetFileName(archivePath)));
             }
 
             List<(string Key, long Size)> wanted = [.. files.Where(f => f.Key.StartsWith(prefix + "dvddata/", StringComparison.OrdinalIgnoreCase))];
@@ -71,9 +71,9 @@ public sealed class DecensorPatch(GameFolder folder)
             ImportTools.RequireSpace(folder.Root, total);
             ImportTools.Extract(archive, Staging,
                 key => key.StartsWith(prefix + "dvddata/", StringComparison.OrdinalIgnoreCase) ? key[prefix.Length..] : null,
-                new ByteProgress(progress, "Unpacking the decensor patch", total), cancel);
+                new ByteProgress(progress, S("Unpacking the decensor patch"), total), cancel);
             File.WriteAllText(Path.Combine(Staging, "version.txt"), (version ?? VersionFromName(archivePath) ?? "") + Environment.NewLine);
-            progress.Report(new JobProgress("Finishing", null));
+            progress.Report(new JobProgress(S("Finishing"), null));
             ImportTools.Swap(Staging, Dir);
         }
         finally
@@ -87,7 +87,7 @@ public sealed class DecensorPatch(GameFolder folder)
     {
         if (release.AssetUrl is null)
         {
-            throw new ImportException($"The latest decensor release ({release.Tag}) has no .7z or .zip to download.");
+            throw new ImportException(S("The latest decensor release ({0}) has no .7z or .zip to download.", release.Tag));
         }
 
         ImportTools.RequireSpace(folder.Root, release.AssetSize * 3);
@@ -95,7 +95,7 @@ public sealed class DecensorPatch(GameFolder folder)
         try
         {
             await GitHubReleases.DownloadAsync(release.AssetUrl, download,
-                new ByteProgress(progress, $"Downloading the decensor patch {release.Tag}", release.AssetSize), cancel);
+                new ByteProgress(progress, S("Downloading the decensor patch {0}", release.Tag), release.AssetSize), cancel);
             await Task.Run(() => Install(download, release.Tag, progress, cancel), cancel);
         }
         finally

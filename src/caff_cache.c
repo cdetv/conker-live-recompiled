@@ -9,6 +9,13 @@
  *                       the launcher's carve, which opens all 266 packages
  *   assets\lipsync.bin  the lip-sync timelines (to-do 216; caff_cache.h),
  *                       read by src/voice_pitch.c, never by the game
+ *   assets\texnames.tsv the texture name table (to-do 288; texkit.h): every
+ *                       picture's pack name -> its replacement hash, made in
+ *                       the inventory pass and kept or dropped with it
+ *   assets\sharp\       sharper text and buttons (to-do 53; sharp_gui.c): the
+ *                       fonts and button pictures cleaned up, <HASH>_<name>.png,
+ *                       loaded as the lowest texture pack; the stamp's "sharp"
+ *                       is SHARP_FORMAT when they were made
  *   assets\stamp.json   what the cache was made from and what it holds
  *
  * Recipes say what to carve, one per line:
@@ -28,10 +35,11 @@
  *
  * The stamp holds the cache format, a fingerprint of the game's packages
  * (path, size and date of every .rbm / .rba under dvddata\aid, from the folder
- * listing: no file is opened), a fingerprint of the recipes, "inventory": 1
- * when inventory.json was made, and every carved file with its size (the
- * inventory too; and the recipes that failed). The launcher's check also
- * wants the inventory, so a cache from before it is carved once more; the
+ * listing: no file is opened), a fingerprint of the recipes, "inventory": 2
+ * when inventory.json and texnames.tsv were made (1 before the name table),
+ * and every carved file with its size (those two too; and the recipes that
+ * failed). The launcher's check also wants both at this format, so a cache
+ * from before them is carved once more; the
  * game at start needs only its features' files. A carve deletes the stamp
  * first and writes it last, so a carve stopped midway always reads as stale;
  * a carved file whose size isn't the stamp's is carved again.
@@ -41,6 +49,10 @@
  * when a feature that is on needs a file the cache lacks (caff_cache_start;
  * "voice" = the Mouse or Bear cheat unlocked or on, main.c). Unpacking needs
  * the game's own code, so carving runs only before the game runs.
+ * The sharper text and buttons are made by the launcher's carve every time
+ * and by the game's when they are missing ("sharp", always on in main.c, as
+ * the pan and the milk); a carve that doesn't make them keeps the last set
+ * when it came from the same packages.
  */
 #include <windows.h>
 #include <stdint.h>
@@ -51,10 +63,16 @@
 #include "caff.h"
 #include "caff_cache.h"
 #include "milk_glass.h"
+#include "sharp_gui.h"
+#include "texkit.h"
 
 #define CACHE_FORMAT      1
-#define INVENTORY_FORMAT  1                 /* the stamp's "inventory" */
+/* The stamp's "inventory": 2 = with the texture name table (to-do 288,
+ * 2026-11-26), so every cache from before reads stale to the launcher once
+ * and is carved again (the game at start needs neither). */
+#define INVENTORY_FORMAT  2
 #define INVENTORY_FILE    "inventory.json"  /* in assets\, listed in the stamp */
+#define NAMES_FILE        TEXKIT_NAMES_FILE /* likewise; made in the same pass */
 #define CAP               1024
 
 typedef struct {
@@ -306,6 +324,7 @@ typedef struct { char path[256]; uint64_t size; int failed; } Out;
 
 typedef struct {
     int      format, packages, inventory;
+    int      sharp;             /* SHARP_FORMAT: the sharper text and buttons made */
     uint64_t sources, recipes;
     Out     *out;
     int      nout, cap;
@@ -382,7 +401,8 @@ static int stamp_read(const char *save, Stamp *s)
             *next++ = 0;
         if (sscanf(line, " \"format\": %d", &s->format) == 1
             || sscanf(line, " \"packages\": %d", &s->packages) == 1
-            || sscanf(line, " \"inventory\": %d", &s->inventory) == 1)
+            || sscanf(line, " \"inventory\": %d", &s->inventory) == 1
+            || sscanf(line, " \"sharp\": %d", &s->sharp) == 1)
             continue;
         if (sscanf(line, " \"sources\": \"%llx\"", &v) == 1) {
             s->sources = v;
@@ -434,9 +454,9 @@ static int stamp_write(const char *save, const Stamp *s)
     p = buf;
 #define PUT(...) do { k = snprintf(p, left, __VA_ARGS__); p += k; left -= (size_t)k; } while (0)
     PUT("{\n \"format\": %d,\n \"packages\": %d,\n \"sources\": \"%016llX\",\n"
-        " \"recipes\": \"%016llX\",\n \"inventory\": %d,\n \"outputs\": [\n",
+        " \"recipes\": \"%016llX\",\n \"inventory\": %d,\n \"sharp\": %d,\n \"outputs\": [\n",
         s->format, s->packages, (unsigned long long)s->sources,
-        (unsigned long long)s->recipes, s->inventory);
+        (unsigned long long)s->recipes, s->inventory, s->sharp);
     for (i = 0; i < s->nout; i++) {
         if (s->out[i].failed) {
             nf++;
@@ -466,9 +486,10 @@ static int stamp_write(const char *save, const Stamp *s)
 
 /* ── Check ─────────────────────────────────────────────────────────────── */
 
-/* Up to date for these recipes? Every listed file must still have its size. */
+/* Up to date for these recipes (and the sharper text and buttons when
+ * `sharp`)? Every listed file must still have its size. */
 static int fresh(const char *game, const char *save, const Recipe *r, int n,
-                 int whole_set, int *packages)
+                 int whole_set, int sharp, int *packages)
 {
     Stamp s;
     uint64_t h;
@@ -483,7 +504,8 @@ static int fresh(const char *game, const char *save, const Recipe *r, int n,
      * at start needs only its features' files. */
     if (s.format != CACHE_FORMAT || s.sources != h || s.packages != *packages
         || (whole_set && (s.recipes != recipes_hash(r, n) || s.inventory != INVENTORY_FORMAT
-                          || !stamp_find(&s, INVENTORY_FILE))))
+                          || !stamp_find(&s, INVENTORY_FILE) || !stamp_find(&s, NAMES_FILE)))
+        || (sharp && s.sharp != SHARP_FORMAT))
         ok = 0;
     for (i = 0; ok && i < n; i++)
         if (!stamp_find(&s, recipe_out(&r[i])))
@@ -528,9 +550,21 @@ int caff_cache_check(const char *game, const char *save)
     Recipe *r;
     int n = load_recipes(&r), packages, rc;
 
-    rc = fresh(game, save, r, n, 1, &packages);
+    rc = fresh(game, save, r, n, 1, 1, &packages);
     free(r);
     return rc;
+}
+
+int caff_cache_sharp(const char *save)
+{
+    Stamp s;
+    int ok;
+
+    if (!stamp_read(save, &s))
+        return 0;
+    ok = s.sharp == SHARP_FORMAT;
+    stamp_free(&s);
+    return ok;
 }
 
 /* ── The lip-sync table (to-do 216) ────────────────────────────────────── */
@@ -653,6 +687,25 @@ static void lips_visit(const CaffPkg *k, const char *path, void *vctx)
             v->got[j] += lips_take(v->lips, k, v->r[j].resource, v->r[j].package);
 }
 
+/* The inventory pass's one visit: the lip recipes, then the texture name
+ * table, which wants the package's path below aid. */
+typedef struct {
+    LipVisit    *lips;          /* NULL: no lip recipe */
+    TexkitNames *names;
+    const char  *aid;           /* <game>\dvddata\aid, as the pass joins it */
+} CarveVisit;
+
+static void carve_visit(const CaffPkg *k, const char *path, void *vctx)
+{
+    CarveVisit *v = vctx;
+    size_t n = strlen(v->aid);
+
+    if (v->lips)
+        lips_visit(k, path, v->lips);
+    if (v->names && !_strnicmp(path, v->aid, n) && path[n] == '\\')
+        texkit_names_add(v->names, k, path + n + 1);
+}
+
 static int lip_cmp(const void *a, const void *b)
 {
     return strcmp(((const LipTrack *)a)->name, ((const LipTrack *)b)->name);
@@ -728,6 +781,35 @@ unsigned char *caff_cache_lips(const char *save, size_t *n)
     return data;
 }
 
+char *caff_cache_names(const char *save, size_t *n)
+{
+    static const char head[] = "texnames\t1\n";
+    Stamp s;
+    const Out *o;
+    char path[CAP], *t;
+    uint8_t *data = NULL;
+    size_t len = 0;
+
+    *n = 0;
+    if (!stamp_read(save, &s))
+        return NULL;
+    o = stamp_find(&s, NAMES_FILE);
+    snprintf(path, sizeof path, "%s\\assets\\%s", save, NAMES_FILE);
+    if (!o || o->failed || caff_read_file(path, &data, &len) || len != o->size) {
+        free(data);
+        data = NULL;
+    }
+    stamp_free(&s);
+    if (!data || len < sizeof head - 1 || memcmp(data, head, sizeof head - 1)
+        || !(t = realloc(data, len + 1))) {
+        free(data);
+        return NULL;
+    }
+    t[len] = 0;
+    *n = len;
+    return t;
+}
+
 /* ── Carve ─────────────────────────────────────────────────────────────── */
 
 /* Every file under assets\aid that the new stamp doesn't list goes (an old
@@ -789,41 +871,132 @@ static void inv_progress(int done, int total, const char *what, void *ctx)
     p->progress(at < p->total ? at : p->total, p->total, what, p->ctx);
 }
 
-/* The last carve's inventory, when it was made from these same packages and
- * is still whole: its size, else 0. */
-static uint64_t inventory_kept(const char *save, uint64_t sources_hash, int packages)
+/* One of the last carve's files, when the stamp lists it whole: its size. */
+static int kept_size(const char *save, const Stamp *old, const char *name, uint64_t *size)
+{
+    const Out *o = stamp_find(old, name);
+    char path[CAP];
+
+    snprintf(path, sizeof path, "%s\\assets\\%s", save, name);
+    return o && !o->failed && file_size_u(path, size) && *size == o->size;
+}
+
+/* The last carve's inventory and name table, when they were made from these
+ * same packages and are still whole: 1 and their sizes, else 0. */
+static int inventory_kept(const char *save, uint64_t sources_hash, int packages,
+                          uint64_t *inv_size, uint64_t *names_size)
 {
     Stamp old;
-    const Out *o;
-    char path[CAP];
-    uint64_t size = 0, got;
+    int ok;
 
     if (!stamp_read(save, &old))
         return 0;
-    snprintf(path, sizeof path, "%s\\assets\\%s", save, INVENTORY_FILE);
-    o = stamp_find(&old, INVENTORY_FILE);
-    if (old.inventory == INVENTORY_FORMAT && old.sources == sources_hash && old.packages == packages
-        && o && !o->failed && file_size_u(path, &got) && got == o->size)
-        size = got;
+    ok = old.inventory == INVENTORY_FORMAT && old.sources == sources_hash && old.packages == packages
+         && kept_size(save, &old, INVENTORY_FILE, inv_size) && kept_size(save, &old, NAMES_FILE, names_size);
     stamp_free(&old);
-    return size;
+    return ok;
 }
 
-int caff_cache_carve(const char *game, const char *save, int inventory,
+/* ── Sharper text and buttons (to-do 53) ───────────────────────────────── */
+
+typedef struct {
+    Stamp            *s;
+    int               files, bad;
+    CaffCarveProgress progress;
+    void             *ctx;
+    int               done, total;
+    char              last[64];     /* the piece being made */
+} SharpVisit;
+
+/* Before each piece: the one before it reported done, by name. */
+static void sharp_step(const char *what, void *vctx)
+{
+    SharpVisit *v = vctx;
+
+    if (v->last[0] && v->progress)
+        v->progress(++v->done < v->total ? v->done : v->total, v->total, v->last, v->ctx);
+    snprintf(v->last, sizeof v->last, "%s", what);
+}
+
+static void sharp_file(const char *rel, uint64_t size, int failed, void *vctx)
+{
+    SharpVisit *v = vctx;
+
+    stamp_add(v->s, rel, size, failed);
+    v->files++;
+    v->bad += failed;
+}
+
+/* Every file in assets\sharp\ deleted: a new set may have other hashes, and
+ * the game loads every PNG there. */
+static void sharp_clear(const char *save)
+{
+    char pat8[CAP];
+    WCHAR pat[CAP], dir[CAP], full[CAP];
+    WIN32_FIND_DATAW fd;
+    HANDLE f;
+
+    snprintf(pat8, sizeof pat8, "%s\\assets\\" SHARP_DIR, save);
+    if (!to_wide(pat8, dir, CAP))
+        return;
+    swprintf_s(pat, CAP, L"%s\\*", dir);
+    f = FindFirstFileW(pat, &fd);
+    if (f == INVALID_HANDLE_VALUE)
+        return;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+        swprintf_s(full, CAP, L"%s\\%s", dir, fd.cFileName);
+        DeleteFileW(full);
+    } while (FindNextFileW(f, &fd));
+    FindClose(f);
+}
+
+/* The last carve's set, when made from these same packages and still whole:
+ * its entries into *keep (keep->sharp set). Read before the stamp goes. */
+static void sharp_kept(const char *save, uint64_t sources_hash, int packages, Stamp *keep)
+{
+    Stamp old;
+    int i, ok;
+    const size_t pre = sizeof SHARP_DIR;        /* "sharp\" */
+
+    memset(keep, 0, sizeof *keep);
+    if (!stamp_read(save, &old))
+        return;
+    ok = old.sharp == SHARP_FORMAT && old.sources == sources_hash && old.packages == packages;
+    for (i = 0; ok && i < old.nout; i++) {
+        uint64_t size;
+
+        if (_strnicmp(old.out[i].path, SHARP_DIR "\\", pre))
+            continue;
+        if (!old.out[i].failed && !kept_size(save, &old, old.out[i].path, &size))
+            ok = 0;
+    }
+    for (i = 0; ok && i < old.nout; i++)
+        if (!_strnicmp(old.out[i].path, SHARP_DIR "\\", pre))
+            stamp_add(keep, old.out[i].path, old.out[i].size, old.out[i].failed);
+    keep->sharp = ok ? SHARP_FORMAT : 0;
+    stamp_free(&old);
+    if (!ok)
+        stamp_free(keep);
+}
+
+int caff_cache_carve(const char *game, const char *save, int inventory, int sharp,
                      CaffCarveProgress progress, void *ctx)
 {
     Recipe *r;
-    Stamp s;
-    char path[CAP], pkg[CAP], inv[CAP];
+    Stamp s, sharp_keep;
+    char path[CAP], pkg[CAP], inv[CAP], names[CAP];
     WCHAR wroot[CAP];
     int n = load_recipes(&r), i, j, done = 0, total = 0, bad = 0, rc, inv_failed = 0;
-    int nlips = 0, lips_bad = 0;
+    int nlips = 0, lips_bad = 0, inv_keep = 0, all, nsharp = 0;
     uint8_t *seen = n ? calloc((size_t)n, 1) : NULL;
-    uint64_t inv_keep = 0;
+    uint64_t inv_size = 0, names_size = 0;
     DWORD t0 = GetTickCount();
     Lips lips;
 
     memset(&lips, 0, sizeof lips);
+    memset(&sharp_keep, 0, sizeof sharp_keep);
 
     memset(&s, 0, sizeof s);
     s.format = CACHE_FORMAT;
@@ -836,6 +1009,7 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
     }
     snprintf(path, sizeof path, "%s\\assets\\stamp.json", save);
     snprintf(inv, sizeof inv, "%s\\assets\\%s", save, INVENTORY_FILE);
+    snprintf(names, sizeof names, "%s\\assets\\%s", save, NAMES_FILE);
     /* A folder that can't be written fails here at once, not after the
      * inventory's ~10 s. The launcher shows the last [CAFF] line. */
     {
@@ -851,10 +1025,15 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
         }
         delete_u(probe);
     }
-    /* A carve without the inventory (the game's own at start) keeps one the
-     * last carve made from the same packages. */
-    if (!inventory && !(inv_keep = inventory_kept(save, s.sources, s.packages)))
+    /* A carve without the inventory (the game's own at start) keeps the
+     * inventory and name table the last carve made from the same packages. */
+    if (!inventory && !(inv_keep = inventory_kept(save, s.sources, s.packages, &inv_size, &names_size))) {
         delete_u(inv);
+        delete_u(names);
+    }
+    /* Likewise a carve that doesn't make the sharper set keeps the last one. */
+    if (!sharp)
+        sharp_kept(save, s.sources, s.packages, &sharp_keep);
     delete_u(path);
 
     /* Lip recipes wait for the inventory pass when there is one: it opens
@@ -870,8 +1049,9 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
         }
     if (seen)
         memset(seen, 0, (size_t)n);
+    all = total + (inventory ? s.packages : 0) + (sharp ? SHARP_STEPS : 0);
     if (progress)
-        progress(0, total + (inventory ? s.packages : 0), "", ctx);
+        progress(0, all, "", ctx);
     for (i = 0; i < n; i++) {
         CaffPkg *k = NULL;
 
@@ -935,17 +1115,20 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
         }
         caff_close(k);
         if (progress)
-            progress(++done, total + (inventory ? s.packages : 0), r[i].package, ctx);
+            progress(++done, all, r[i].package, ctx);
     }
 
     /* Every package's directory, after the recipes (it opens all of them),
-     * the deferred lip recipes taking their tracks on the way. */
+     * the deferred lip recipes taking their tracks on the way, and every
+     * picture's name for the texture name table. */
     if (inventory) {
-        InvProgress ip = { progress, ctx, done, total + s.packages };
+        InvProgress ip = { progress, ctx, done, all };
         CaffInventoryResult ir;
         char aid[CAP];
         DWORD t1 = GetTickCount();
         LipVisit lv;
+        CarveVisit cv;
+        unsigned long long nb = 0;
 
         lv.lips = &lips;
         lv.r = r;
@@ -958,16 +1141,31 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
             if (r[j].lips && !caff_resolve_package(game, r[j].package, lv.path[j], CAP))
                 lv.path[j][0] = 0;
         snprintf(aid, sizeof aid, "%s\\dvddata\\aid", game);
-        if (caff_inventory_write_visit(aid, caff_guest_unpack, inv, progress ? inv_progress : NULL,
-                                       &ip, lv.n ? lips_visit : NULL, &lv, &ir) == CAFF_OK) {
+        cv.lips = lv.n ? &lv : NULL;
+        cv.names = texkit_names_new();
+        cv.aid = aid;
+        /* Both or neither: the stamp vouches for the pair (a missing table
+         * leaves the cache stale for the launcher, as a missing inventory). */
+        if (!cv.names) {
+            fprintf(stderr, "[CAFF] out of memory for the texture name table\n");
+            inv_failed = 1;
+        } else if (caff_inventory_write_visit(aid, caff_guest_unpack, inv, progress ? inv_progress : NULL,
+                                              &ip, carve_visit, &cv, &ir) != CAFF_OK
+                   || texkit_names_write(cv.names, names, &nb) != CAFF_OK) {
+            inv_failed = 1;
+        } else {
+            int pics, hashed, nfail;
+
             s.inventory = INVENTORY_FORMAT;
             stamp_add(&s, INVENTORY_FILE, ir.bytes, 0);
-            fprintf(stderr, "[CAFF] inventory: %d packages, %d resources, %d error(s), %zu bytes, "
-                    "in %lu ms\n", ir.packages, ir.resources, ir.errors, ir.bytes,
+            stamp_add(&s, NAMES_FILE, nb, 0);
+            texkit_names_counts(cv.names, &pics, &hashed, &nfail);
+            fprintf(stderr, "[CAFF] inventory: %d packages, %d resources, %d error(s), %zu bytes; "
+                    "texture names: %d pictures (%d a pack can replace), %d package(s) unread, %llu bytes; "
+                    "in %lu ms\n", ir.packages, ir.resources, ir.errors, ir.bytes, pics, hashed, nfail, nb,
                     GetTickCount() - t1);
-        } else {
-            inv_failed = 1;
         }
+        texkit_names_free(cv.names);
         for (j = 0; j < n; j++)
             if (r[j].lips) {
                 nlips++;
@@ -980,7 +1178,8 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
         free(lv.got);
     } else if (inv_keep) {
         s.inventory = INVENTORY_FORMAT;
-        stamp_add(&s, INVENTORY_FILE, inv_keep, 0);
+        stamp_add(&s, INVENTORY_FILE, inv_size, 0);
+        stamp_add(&s, NAMES_FILE, names_size, 0);
     }
 #undef DEFERRED
 
@@ -995,6 +1194,35 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
                 "differ), %llu bytes\n", lips.n, nlips, lips_bad, lips.differ, (unsigned long long)size);
     }
     lips_free(&lips);
+
+    /* The sharper text and buttons: made (the folder cleared first), or the
+     * last set kept. Failures are [SHARP] lines and failed entries, never a
+     * failed carve: the next check is up to date all the same. */
+    if (sharp) {
+        SharpVisit sv;
+        SharpResult sr;
+        DWORD t2 = GetTickCount();
+
+        memset(&sv, 0, sizeof sv);
+        sv.s = &s;
+        sv.progress = progress;
+        sv.ctx = ctx;
+        sv.done = done + (inventory ? s.packages : 0);
+        sv.total = all;
+        sharp_clear(save);
+        sharp_make(game, save, caff_guest_unpack, sharp_step, sharp_file, &sv, &sr);
+        sharp_step("", &sv);                    /* the last piece done */
+        s.sharp = SHARP_FORMAT;
+        nsharp = sv.files;
+        fprintf(stderr, "[SHARP] sharper text and buttons: %d picture(s) made, %d failed, %llu bytes, "
+                "in %lu ms\n", sr.made, sr.failed, sr.bytes, GetTickCount() - t2);
+    } else if (sharp_keep.sharp) {
+        for (i = 0; i < sharp_keep.nout; i++)
+            stamp_add(&s, sharp_keep.out[i].path, sharp_keep.out[i].size, sharp_keep.out[i].failed);
+        s.sharp = SHARP_FORMAT;
+        nsharp = sharp_keep.nout;
+    }
+    stamp_free(&sharp_keep);
 
     if (to_wide(save, wroot, CAP)) {
         WCHAR aid[CAP];
@@ -1011,11 +1239,11 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
      * the missing inventory leaves the stamp stale for the launcher. */
     rc = stamp_write(save, &s);
     fprintf(stderr, "[CAFF] carved %d file(s) from %d package(s), %d failed, in %lu ms%s\n",
-            s.nout - bad - (s.inventory ? 1 : 0), total, bad, GetTickCount() - t0,
+            s.nout - bad - (s.inventory ? 2 : 0) - nsharp, total, bad, GetTickCount() - t0,
             rc ? "; the stamp can't be written" : "");
     if (rc || inv_failed)               /* the launcher shows the last line */
         fprintf(stderr, "[CAFF] can't write %s in %s\\assets (no write rights there, or the disk is full)\n",
-                rc ? "stamp.json" : INVENTORY_FILE, save);
+                rc ? "stamp.json" : INVENTORY_FILE " / " NAMES_FILE, save);
     stamp_free(&s);
     free(r);
     free(seen);
@@ -1027,11 +1255,11 @@ int caff_cache_carve(const char *game, const char *save, int inventory,
 void caff_cache_start(const char *game, const char *save, int (*on)(const char *))
 {
     Recipe *r;
-    int n = load_recipes(&r), i, want = 0, packages;
+    int n = load_recipes(&r), i, want = 0, packages, sharp = on && on("sharp"), make_sharp;
 
     for (i = 0; i < n; i++)
         want += feature_on(&r[i], on);
-    if (!want) {                    /* nothing on needs the cache: no wait */
+    if (!want && !sharp) {          /* nothing on needs the cache: no wait */
         free(r);
         return;
     }
@@ -1039,14 +1267,16 @@ void caff_cache_start(const char *game, const char *save, int (*on)(const char *
     for (i = 0; i < n; i++)
         if (!feature_on(&r[i], on))
             r[i--] = r[--n];
-    if (fresh(game, save, r, n, 0, &packages) == CAFF_CACHE_OK) {
+    if (fresh(game, save, r, n, 0, sharp, &packages) == CAFF_CACHE_OK) {
         free(r);
         return;
     }
     free(r);
+    /* The sharper set made again only when it is what's missing. */
+    make_sharp = sharp && fresh(game, save, NULL, 0, 0, 1, &packages) != CAFF_CACHE_OK;
     fprintf(stderr, "[CAFF] the asset cache lacks what a feature needs: carving now\n");
     if (caff_guest_begin() == CAFF_OK) {
-        caff_cache_carve(game, save, 0, NULL, NULL);
+        caff_cache_carve(game, save, 0, make_sharp, NULL, NULL);
         caff_guest_end();
     }
 }

@@ -109,11 +109,13 @@ set(GAME_SOURCES
     src/edit_save.c
     src/controls.c
     src/photo_mode.c
+    src/motion_blur.c
     src/decensor.c
     src/voice_pitch.c
     src/save_names.c
     src/shadows.c
     src/lightmaps.c
+    src/char_lighting.c
     src/precompile.c
     src/padfeed.c
     src/bug_report.c
@@ -137,6 +139,13 @@ set(GAME_SOURCES
     src/caff_cache.c
     src/caff_inventory.c
     src/caff_guard.c
+    src/texkit.c
+    src/texkit_pixels.c
+    src/texkit_tool.c
+    src/tex_packs.c
+    src/sharp_gui.c
+    src/png_write.c
+    src/deflate.c
     src/overlay.cpp
     src/ui_text.cpp
     src/menu_mouse.cpp

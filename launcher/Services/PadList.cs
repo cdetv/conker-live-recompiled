@@ -19,7 +19,7 @@ public static class PadList
             RedirectStandardOutput = true,
             StandardOutputEncoding = System.Text.Encoding.UTF8,    // pad names are UTF-8 (to-do 262)
         };
-        using Process process = OwnProcesses.Start(start) ?? throw new IOException("conker.exe didn't start.");
+        using Process process = OwnProcesses.Start(start) ?? throw new SaidIOException(S("conker.exe didn't start."));
         string json;
         try
         {
@@ -34,7 +34,7 @@ public static class PadList
 
         if (process.ExitCode != 0)
         {
-            throw new IOException($"conker.exe --list-pads ended with {process.ExitCode}.");
+            throw new SaidIOException(S("conker.exe --list-pads ended with {0}.", process.ExitCode));
         }
 
         using JsonDocument doc = JsonDocument.Parse(json);

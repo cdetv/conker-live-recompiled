@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ConkerLauncher.ViewModels"
+             xmlns:l="using:ConkerLauncher.Services"
              x:Class="ConkerLauncher.Views.FileBrowserView"
              x:DataType="vm:FileBrowserViewModel">
   <!-- The launcher's own file browser (to-do 122, SPEC 9.3): MainWindow's BrowserOverlay shows it
@@ -65,26 +66,26 @@
         <!-- Up one folder, for the mouse and touch (to-do 268); not a pad stop: B does it, Backspace on the keyboard.
              Greyed out at a drive's top. -->
         <Button x:Name="UpButton" Classes="up" Command="{Binding GoUpCommand}" Focusable="False" Padding="10,0"
-                VerticalAlignment="Stretch" AutomationProperties.Name="Up one folder" ToolTip.Tip="Up one folder (Backspace)">
+                VerticalAlignment="Stretch" AutomationProperties.Name="{l:T 'Up one folder'}" ToolTip.Tip="{l:T 'Up one folder (Backspace)'}">
           <Path Data="{StaticResource UpIcon}" Fill="{StaticResource XboxGreenBrush}" Width="12" Height="13" Stretch="Uniform" />
         </Button>
         <!-- Type or paste a folder or a file, Enter (mouse and keyboard; the pad skips it). -->
         <TextBox x:Name="AddressBox" Grid.Column="1" Text="{Binding AddressText}"
-                 AutomationProperties.Name="Address" PlaceholderText="Type or paste a folder or a file, then press Enter"
-                 ToolTip.Tip="Type or paste a folder or a file, then press Enter" />
+                 AutomationProperties.Name="{l:T 'Address'}" PlaceholderText="{l:T 'Type or paste a folder or a file, then press Enter'}"
+                 ToolTip.Tip="{l:T 'Type or paste a folder or a file, then press Enter'}" />
       </Grid>
 
       <!-- Windows dialog... / Cancel / Choose -->
       <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" Margin="0,10,0,0">
-        <Button Content="Windows dialog..." Command="{Binding UseWindowsDialogCommand}" IsVisible="{Binding CanUseWindowsDialog}"
-                VerticalAlignment="Center" ToolTip.Tip="Choose the file with the Windows Open dialog instead" />
-        <Button Grid.Column="2" Classes="secondary safe" Content="Cancel" Command="{Binding CancelCommand}" />
-        <Button Grid.Column="3" Classes="play" Content="Choose" Command="{Binding ChooseCommand}" MinWidth="150" />
+        <Button Content="{l:T 'Windows dialog...'}" Command="{Binding UseWindowsDialogCommand}" IsVisible="{Binding CanUseWindowsDialog}"
+                VerticalAlignment="Center" ToolTip.Tip="{l:T 'Choose the file with the Windows Open dialog instead'}" />
+        <Button Grid.Column="2" Classes="secondary safe" Content="{l:T 'Cancel'}" Command="{Binding CancelCommand}" />
+        <Button Grid.Column="3" Classes="play" Content="{l:T 'Choose'}" Command="{Binding ChooseCommand}" MinWidth="150" />
       </Grid>
 
       <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*" Margin="0,4,0,0">
-        <CheckBox Content="Show all files" IsChecked="{Binding ShowAllFiles}" FontSize="13" MinHeight="26"
-                  ToolTip.Tip="List every file, not only the ones this choice takes" />
+        <CheckBox Content="{l:T 'Show all files'}" IsChecked="{Binding ShowAllFiles}" FontSize="13" MinHeight="26"
+                  ToolTip.Tip="{l:T 'List every file, not only the ones this choice takes'}" />
         <!-- "or drag a file here"; while a drag it won't take hovers, why (MainWindow's drag handlers). -->
         <TextBlock x:Name="HintLine" Grid.Column="1" Text="{Binding HintText}" FontSize="13" TextTrimming="CharacterEllipsis"
                    Classes.dim="{Binding !HintIsProblem}" Classes.error="{Binding HintIsProblem}" Margin="12,0,0,0"
@@ -93,7 +94,7 @@
 
       <!-- What went wrong, or "Reading..." while a slow folder is read (FileBrowserView.axaml.cs). -->
       <Panel DockPanel.Dock="Bottom" MinHeight="20" Margin="0,6,0,0">
-        <TextBlock x:Name="ReadingLine" Classes="dim" Text="Reading..." FontSize="13" IsVisible="False" />
+        <TextBlock x:Name="ReadingLine" Classes="dim" Text="{l:T 'Reading...'}" FontSize="13" IsVisible="False" />
         <TextBlock Classes="error" Text="{Binding Message}" FontSize="13" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                    IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
       </Panel>
@@ -101,8 +102,8 @@
       <Grid ColumnDefinitions="165,*" ColumnSpacing="10">
         <!-- Places: the launcher's folder, recent folders, Desktop, Downloads, Documents, drives. -->
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Classes="dim" Text="Places" FontSize="12" Margin="10,0,0,4" />
-          <ListBox x:Name="PlacesList" Classes="browser places" ItemsSource="{Binding Places}" AutomationProperties.Name="Places">
+          <TextBlock DockPanel.Dock="Top" Classes="dim" Text="{l:T 'Places'}" FontSize="12" Margin="10,0,0,4" />
+          <ListBox x:Name="PlacesList" Classes="browser places" ItemsSource="{Binding Places}" AutomationProperties.Name="{l:T 'Places'}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:BrowserPlace">
                 <StackPanel ToolTip.Tip="{Binding Path}" Background="Transparent">
@@ -120,13 +121,13 @@
 
         <DockPanel Grid.Column="1">
           <Grid DockPanel.Dock="Top" ColumnDefinitions="22,*,74,112" ColumnSpacing="6" Margin="11,0,9,4">
-            <TextBlock Grid.Column="1" Classes="dim" Text="Name" FontSize="12" />
-            <TextBlock Grid.Column="2" Classes="dim" Text="Size" FontSize="12" HorizontalAlignment="Right" />
-            <TextBlock Grid.Column="3" Classes="dim" Text="Modified" FontSize="12" />
+            <TextBlock Grid.Column="1" Classes="dim" Text="{l:T 'Name'}" FontSize="12" />
+            <TextBlock Grid.Column="2" Classes="dim" Text="{l:T 'Size'}" FontSize="12" HorizontalAlignment="Right" />
+            <TextBlock Grid.Column="3" Classes="dim" Text="{l:T 'Modified'}" FontSize="12" />
           </Grid>
           <Panel>
             <ListBox x:Name="EntryList" Classes="browser" ItemsSource="{Binding Entries}" SelectedItem="{Binding SelectedEntry}"
-                     AutomationProperties.Name="Files">
+                     AutomationProperties.Name="{l:T 'Files'}">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:BrowserEntry">
                   <Grid ColumnDefinitions="22,*,74,112" ColumnSpacing="6" Classes.other="{Binding IsOther}" Background="Transparent"

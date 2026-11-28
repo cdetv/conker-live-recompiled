@@ -90,6 +90,16 @@ const char *settings_bind_command(int i);
 int settings_bind_set(const char *key, const char *command);   /* NULL = unbind */
 int settings_binds_reset(void);
 
+/* Texture packs (to-do 288): settings.ini's [texture_packs], one line a
+ * pack in the list's order, the top one first: "on = <folder name>" or
+ * "off = <folder name>". The names as written (tex_packs.c checks them).
+ * settings_packs_set replaces the whole list (names[i], on[i] nonzero = on)
+ * and writes the file: 1 on success. Executor thread for the writes. */
+int settings_pack_count(void);
+const char *settings_pack_name(int i);
+int settings_pack_on(int i);
+int settings_packs_set(int n, const char *const *names, const int *on);
+
 #ifdef __cplusplus
 }
 #endif

@@ -6,14 +6,19 @@ using SharpCompress.Readers;
 
 namespace ConkerLauncher.Services;
 
-/// <summary>A problem the player should read (shown as is in the Files tab).</summary>
-public sealed class ImportException(string message) : Exception(message);
+/// <summary>A problem the player should read (shown as is in the Files tab, in the language shown).</summary>
+public sealed class ImportException(Said text) : Exception
+{
+    public Said Text { get; } = text;
+
+    public override string Message => Text.ToString();
+}
 
 /// <summary>What a long job is doing: a line of text and how far it is (0 to 1, or null).</summary>
-public sealed record JobProgress(string Text, double? Fraction);
+public sealed record JobProgress(Said Text, double? Fraction);
 
 /// <summary>Byte counting with a progress line at most ten times a second.</summary>
-public sealed class ByteProgress(IProgress<JobProgress> progress, string verb, long total)
+public sealed class ByteProgress(IProgress<JobProgress> progress, Said verb, long total)
 {
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private long done;
@@ -28,12 +33,10 @@ public sealed class ByteProgress(IProgress<JobProgress> progress, string verb, l
             lastReport = now;
             double seconds = Math.Max(clock.Elapsed.TotalSeconds, 0.001);
             progress.Report(new JobProgress(
-                $"{verb}: {Gb(done)} of {Gb(total)} GB ({done / seconds / (1 << 20):0} MB/s)",
+                S("{0}: {1:0.00} of {2:0.00} GB ({3:0} MB/s)", verb, done / 1e9, total / 1e9, done / seconds / (1 << 20)),
                 total > 0 ? (double)done / total : null));
         }
     }
-
-    public static string Gb(long bytes) => (bytes / 1e9).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>Folders, free space and archives, shared by the game and decensor imports.</summary>
@@ -48,9 +51,8 @@ public static class ImportTools
         long free = FreeSpace(full);
         if (free < bytes + SpaceMargin)
         {
-            throw new ImportException(
-                $"Not enough free space on {Path.GetPathRoot(full)!.TrimEnd('\\')}: this needs {ByteProgress.Gb(bytes + SpaceMargin)} GB, " +
-                $"{ByteProgress.Gb(free)} GB is free.");
+            throw new ImportException(S("Not enough free space on {0}: this needs {1:0.00} GB, {2:0.00} GB is free.",
+                Path.GetPathRoot(full)!.TrimEnd('\\'), (bytes + SpaceMargin) / 1e9, free / 1e9));
         }
     }
 
@@ -145,7 +147,7 @@ public static class ImportTools
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            throw new ImportException($"{Path.GetFileName(path)} couldn't be opened as an archive: {e.Message}");
+            throw new ImportException(S("{0} couldn't be opened as an archive: {1}", Path.GetFileName(path), e.Message));
         }
     }
 
@@ -180,7 +182,7 @@ public static class ImportTools
         }
         catch (SharpCompressException e)
         {
-            throw new ImportException($"The archive couldn't be unpacked: {e.Message}");
+            throw new ImportException(S("The archive couldn't be unpacked: {0}", e.Message));
         }
     }
 
@@ -192,7 +194,7 @@ public static class ImportTools
             return;
         }
 
-        string path = SafePath(root, relative) ?? throw new ImportException($"The archive holds a file outside its folder ({key}).");
+        string path = SafePath(root, relative) ?? throw new ImportException(S("The archive holds a file outside its folder ({0}).", key));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using FileStream output = new(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20);
         using Stream input = open();

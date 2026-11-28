@@ -150,8 +150,11 @@
 #include "gpu_busy.h"
 #include "audio_fx.h"               /* Processing (to-do 50, --debug) */
 #include "speaker_test.h"           /* to-do 231 (--debug) */
+#include "motion_blur.h"            /* to-do 235 */
+#include "char_lighting.h"          /* to-do 51 */
 #include "addons.h"                 /* Extras (0.6.0's Recomp Addons) */
 #include "swing.h"                  /* Extras: the swing piece */
+#include "tex_packs.h"              /* Extras: Texture Packs (to-do 288) */
 #include "room_reverb.h"            /* to-do 232 (--debug) */
 #include "legacy_cp.h"              /* WM_CHAR's code page (to-do 262) */
 #include "ui_text.h"                /* T(), TL(), N_(): the menu language (to-do 229) */
@@ -179,6 +182,7 @@ void xbox_SetGpuFrameTiming(int on);
 double xbox_GpuFrameMs(unsigned *frames);
 unsigned long conker_GameThreadId(void);
 int xbox_SetPicture(float gamma, float contrast, float saturation);
+int xbox_SetBlackLevel(float percent);
 int xbox_SetSharpen(float percent);
 int xbox_SetAntiAlias(int mode);
 int xbox_SetRenderScale(int percent);
@@ -187,6 +191,11 @@ int xbox_SetUpscaler(int mode);
 void xbox_PrepareUpscaler(void);
 int xbox_SetVsync(int mode);
 int xbox_SetCrt(int mode, float strength);
+int xbox_SetHdr(int mode);
+int xbox_SetHdrLevels(float paper, float peak, float stretch);
+int xbox_HdrDisplay(float *peak, float *sdr_white);
+int xbox_HdrActive(void);
+void *xbox_GpuOverlayTarget(void);
 void conker_SetGlow(float pct);
 void conker_SetSoundChannel(int ch, float pct, int mute);
 void conker_SetSoundSolo(int ch);
@@ -230,6 +239,7 @@ void conker_SetScreenDrops(int on);
 void conker_SetUnderwaterOverlay(int on);
 void conker_SetPooFix(int on);
 void xbox_SetMovieStretch(int on);
+void xbox_SetMovieUpscale(int on);
 void conker_SetCutscene43(int on);
 void conker_SetIdleDemo(int on);
 void conker_SetUnlockedCamera(int on);
@@ -238,6 +248,12 @@ void conker_InputDisplayState(unsigned short *buttons, unsigned char analog[8],
                               short sticks[4]);
 void conker_SetHideHud(int on);
 void conker_SetHideBubbles(int on);
+void conker_SetWideBubbles(int mode);   /* 0 auto, 1 on, 2 off (to-do 53) */
+void conker_SetHudShape(int shape);     /* 0 stretched, 1 4:3 (to-do 237) */
+void conker_SetBubbleShape(int shape);  /* 0 stretched, 1 4:3 (to-do 237) */
+void conker_SetPauseScreen(int shape);  /* 0 stretched, 1 4:3 (to-do 237) */
+void conker_SetHudArea(float pct);      /* 0-100 (to-do 237) */
+void conker_SetSharpGui(int on);        /* src/tex_packs.c (to-do 53 step 5) */
 int conker_HideHud(void);
 void conker_StartSoak(void);
 int conker_SoakState(void);
@@ -956,6 +972,7 @@ static bool s_capture_cancel;   /* Esc pressed: the question closes, nothing set
 static int s_capture_first;     /* a key held while setting one: alone when let
                                  * go, a combo's hold key when another follows */
 static int s_ask_reset = -1;  /* "Reset all ...?" is up for this set */
+static bool s_packs_open;     /* Extras' Texture Packs window (to-do 288) is up */
 static int s_slot_opts = -1;  /* F3 Slots: this slot's Options window is up */
 static int s_goto_slot_opts = -1; /* F3 to open on Slots with this slot's Options */
 /* F3 Slots > Chords (to-do 39): the window up, and "press the chord" for one
@@ -996,6 +1013,7 @@ static bool s_report_unfocus; /* Report Bug: Esc / B in the description: the
 static bool s_focus;          /* give the menu the focus next frame */
 static WORD s_pad_prev;       /* pad buttons last frame, for presses */
 static WORD s_pad_latch;      /* held at opening, kept from ImGui until let go */
+static bool s_stick_latch;    /* the left stick likewise, until back at rest */
 static WORD s_opens_prev;     /* pad_opens_menu: the pad at its last look */
 static int s_tab_step;        /* F2's tabs: LB (-1) or RB (+1) this frame */
 static int s_tab_cur;         /* the F2 tab shown */
@@ -1141,7 +1159,8 @@ static bool read_pad(XINPUT_STATE *st)
     /* RECOMP_MENU_PAD=<file> (tests, nobody at the pad): the file's hex
      * XInput buttons are slot 1's controller for the menus (0030 = Back +
      * Start, 1000 = A), then optionally the triggers 0-255 ("0000 0 255" =
-     * RT). */
+     * RT) and the sticks, -32768..32767, left x y then right x y (to-do 287:
+     * "0000 0 0 0 -30000" = left stick down). */
     static const char *test_file;
     static bool test_looked;
     if (!test_looked) {
@@ -1151,19 +1170,27 @@ static bool read_pad(XINPUT_STATE *st)
     if (test_file) {
         FILE *f;
         unsigned b = 0, lt = 0, rt = 0;
+        int s[4] = { 0, 0, 0, 0 };
         memset(st, 0, sizeof(*st));
         f = _fsopen(test_file, "r", _SH_DENYNO);   /* the test writes to it */
         if (f) {
-            int n = fscanf_s(f, "%x %u %u", &b, &lt, &rt);
+            int n = fscanf_s(f, "%x %u %u %d %d %d %d", &b, &lt, &rt,
+                             &s[0], &s[1], &s[2], &s[3]);
             if (n < 1)
                 b = 0;
             if (n < 3)
                 lt = rt = 0;
+            for (int i = n < 3 ? 0 : n - 3; i < 4; i++)
+                s[i] = 0;
             fclose(f);
         }
         st->Gamepad.wButtons = (WORD)b;
         st->Gamepad.bLeftTrigger = (BYTE)(lt > 255u ? 255u : lt);
         st->Gamepad.bRightTrigger = (BYTE)(rt > 255u ? 255u : rt);
+        for (int i = 0; i < 4; i++) {
+            int v = s[i] < -32768 ? -32768 : s[i] > 32767 ? 32767 : s[i];
+            (&st->Gamepad.sThumbLX)[i] = (SHORT)v;
+        }
         return true;
     }
     int pad = controls_pad_of_port(0);
@@ -1240,6 +1267,41 @@ static void add_system_fonts(ImFontAtlas *atlas)
     ui_text_set_japanese_font(jp);
 }
 
+/* To-do 291: a font of its own for our "Back" over the main menu's pages, in
+ * the look of the game's title font (a fat-face italic): a bold italic serif
+ * of Windows' (nothing bundled), the first found. NULL without one (Proton
+ * prefixes may lack them): the menu mouse then leans the default font. Latin
+ * only; Japanese draws with the default font's merged Japanese one. */
+static ImFont *s_title_font;
+
+static void add_title_font(ImFontAtlas *atlas)
+{
+    static const char *const files[] = { "georgiaz.ttf", "palabi.ttf", "timesbi.ttf" };
+    wchar_t wdir[MAX_PATH];
+    char dir[MAX_PATH * 3], path[MAX_PATH * 3 + 32];
+    UINT n = GetWindowsDirectoryW(wdir, MAX_PATH);
+
+    if (!n || n >= MAX_PATH
+        || !WideCharToMultiByte(CP_UTF8, 0, wdir, -1, dir, sizeof dir, NULL, NULL))
+        return;
+    for (size_t i = 0; i < sizeof files / sizeof *files; i++) {
+        snprintf(path, sizeof path, "%s\\Fonts\\%s", dir, files[i]);
+        if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES)
+            continue;
+        ImFontConfig cfg;
+        if ((s_title_font = atlas->AddFontFromFileTTF(path, 0.0f, &cfg)) != NULL) {
+            fprintf(stderr, "[OVERLAY] title font %s\n", files[i]);
+            return;
+        }
+    }
+    fprintf(stderr, "[OVERLAY] no bold italic serif font: the menus' Back leans the default font\n");
+}
+
+ImFont *overlay_title_font(void)
+{
+    return s_title_font;
+}
+
 static bool init_imgui(ID3D11Device *dev, ID3D11DeviceContext *ctx,
                        unsigned h)
 {
@@ -1259,6 +1321,7 @@ static bool init_imgui(ID3D11Device *dev, ID3D11DeviceContext *ctx,
 
     io.Fonts->AddFontDefaultVector();
     add_system_fonts(io.Fonts);
+    add_title_font(io.Fonts);         /* after the merges: the default stays font 0 */
     set_style(h);
 
     if (!ImGui_ImplDX11_Init(dev, ctx)) {
@@ -1279,6 +1342,7 @@ static void open_menu(void)
     read_pad(&pad);
     s_pad_prev = pad.Gamepad.wButtons;   /* a held button is not a press */
     s_pad_latch = pad.Gamepad.wButtons;  /* nor a key down for ImGui */
+    s_stick_latch = true;                /* nor a pushed stick a move */
     s_menu = (int)s_want_open;
     /* The console is keyboard only: the pad stays the game's, not even
      * stopped until its buttons are let go. */
@@ -1297,6 +1361,7 @@ static void open_menu(void)
     s_quit_closed_at = -1.0e9;
     s_capture_idx = -1;
     s_ask_reset = -1;
+    s_packs_open = false;
     s_slot_opts = -1;
     s_chords_open = false;
     s_chord_capture = -1;
@@ -1327,6 +1392,7 @@ static void switch_menu(void)
     s_ask_quit = s_menu == MENU_QUIT;
     s_capture_idx = -1;
     s_ask_reset = -1;
+    s_packs_open = false;
     s_slot_opts = -1;
     s_chords_open = false;
     s_chord_capture = -1;
@@ -1373,6 +1439,8 @@ static void pad_to_menu(bool on)
     if (on == s_pad_menu)
         return;
     s_pad_menu = on;
+    if (on)
+        s_stick_latch = true;
     xbox_InputSetBlocked(on || (photo_frozen() && !photo_freecam_game()));   /* photo mode keeps it */
     fprintf(stderr, "[OVERLAY] pad to the %s\n", on ? "menu" : "game");
 }
@@ -2490,9 +2558,120 @@ static void capture_bind(const XINPUT_GAMEPAD *g)
                  "pick another button (Back cancels)");
 }
 
-/* The pad into ImGui's gamepad keys, as imgui_impl_win32 maps it. Start,
- * Back, or B with no list open close the menu. While the pad is the
- * game's, the menu sees it at rest. */
+/* To-do 287 (user 2026-11-25, the launcher's pad rules, SPEC 9.3): the left
+ * stick moves like the D-pad. ImGui itself would scroll with it and never
+ * reads the right stick, so feed_pad gives ImGui the right stick as its
+ * "left stick" (scrolling) and this stick as D-pad presses: the axis pushed
+ * further, on past half way, held until it falls back under a third (no
+ * flicker at the edge, no diagonal double moves). A stick already pushed
+ * when the pad comes to the menu counts once it was back at rest. */
+static WORD stick_dirs(int x, int y)
+{
+    static WORD held;
+    const int on = 16000, off = 11000;
+    int ax = abs(x), ay = abs(y);
+
+    if (s_stick_latch) {
+        if (ax < off && ay < off)
+            s_stick_latch = false;
+        held = 0;
+        return 0;
+    }
+    if (held) {
+        int keep = held == XINPUT_GAMEPAD_DPAD_UP ? y
+                 : held == XINPUT_GAMEPAD_DPAD_DOWN ? -y
+                 : held == XINPUT_GAMEPAD_DPAD_RIGHT ? x : -x;
+        if (keep > off)
+            return held;
+        held = 0;
+    }
+    if (ax > on || ay > on)
+        held = ay >= ax ? (y > 0 ? XINPUT_GAMEPAD_DPAD_UP : XINPUT_GAMEPAD_DPAD_DOWN)
+                        : (x > 0 ? XINPUT_GAMEPAD_DPAD_RIGHT : XINPUT_GAMEPAD_DPAD_LEFT);
+    return held;
+}
+
+/* To-do 287: a slider being adjusted with the pad (ImGui: a tap of A turns
+ * adjusting on, another off; Left / Right then change it, else they move
+ * between the slider and its reset icon). Held A: when Left or Right was
+ * pressed while A was down, letting go of A ends the adjusting. Read
+ * between frames (ImGui's state as the last frame left it). */
+static bool pad_adjusting(void)
+{
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    return g.ActiveId != 0 && g.ActiveIdSource == ImGuiInputSource_Gamepad
+           && (g.ActiveIdUsingNavDirMask & ((1u << ImGuiDir_Left)
+                                            | (1u << ImGuiDir_Right)))
+           && g.InputTextState.ID != g.ActiveId;
+}
+
+static void pad_slider_hold(bool a_down, WORD nav)
+{
+    static bool a_was, moved;
+    static WORD nav_was;
+    const WORD lr = XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT;
+    bool adjusting = pad_adjusting();
+
+    if (a_down && adjusting && (nav & ~nav_was & lr))
+        moved = true;
+    if (!a_down && a_was && moved && adjusting) {
+        ImGui::ClearActiveID();
+        fprintf(stderr, "[OVERLAY] pad: slider adjusted with A held, let go:"
+                " done\n");
+    }
+    if (!a_down)
+        moved = false;
+    a_was = a_down;
+    nav_was = nav;
+}
+
+/* To-do 287 (user 2026-11-25: "slow it down, make it slowly speed up"):
+ * Left / Right held on a slider being adjusted with the pad. ImGui repeats
+ * a held direction there ~60 steps a second (0 to 100 in under 2 s), so
+ * while adjusting ImGui gets presses of our own instead: one at once, the
+ * next after 0.4 s, then every 0.12 s, the gap halving every 0.6 s held
+ * down to 0.025 s (about 8, then 16, then 40 steps a second; 0 to 100 in
+ * ~3.5 s). A press is the key down for one frame and up the next, so
+ * ImGui counts each and never repeats one itself. Off a slider (moving
+ * between controls) ImGui's own repeat stays. Returns nav as ImGui gets
+ * it. */
+static WORD tweak_dirs(WORD nav)
+{
+    static WORD held;
+    static double since, next;
+    static bool was_down;
+    const WORD lr = XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT;
+    const WORD dir = (WORD)(nav & lr);
+    const double now = ImGui::GetTime();
+
+    if (!pad_adjusting() || !dir || dir == lr) {
+        held = 0;
+        was_down = false;
+        return nav;
+    }
+    nav = (WORD)(nav & ~lr);
+    if (dir != held) {                  /* a new press: one step now */
+        held = dir;
+        since = now;
+        next = now + 0.4;
+        was_down = true;
+        return (WORD)(nav | dir);
+    }
+    if (was_down || now < next) {       /* up between two presses */
+        was_down = false;
+        return nav;
+    }
+    {
+        double gap = 0.12 * pow(0.5, (now - since - 0.4) / 0.6);
+        next = now + (gap < 0.025 ? 0.025 : gap);
+    }
+    was_down = true;
+    return (WORD)(nav | dir);
+}
+
+/* The pad into ImGui's gamepad keys, as imgui_impl_win32 maps it but for
+ * the sticks (above). Start, Back, or B with no list open close the menu.
+ * While the pad is the game's, the menu sees it at rest. */
 static void feed_pad(bool *close)
 {
     ImGuiIO &io = ImGui::GetIO();
@@ -2562,27 +2741,55 @@ static void feed_pad(bool *close)
         s_tab_step = (pressed & XINPUT_GAMEPAD_RIGHT_SHOULDER) ? 1
                    : (pressed & XINPUT_GAMEPAD_LEFT_SHOULDER) ? -1 : 0;
 
+    /* To-do 287: the D-pad and the left stick are one set of directions;
+     * the right stick scrolls (ImGui's "left stick" keys). */
+    const WORD nav_held = (WORD)((g.wButtons & (XINPUT_GAMEPAD_DPAD_LEFT
+                                                | XINPUT_GAMEPAD_DPAD_RIGHT
+                                                | XINPUT_GAMEPAD_DPAD_UP
+                                                | XINPUT_GAMEPAD_DPAD_DOWN))
+                                 | stick_dirs(g.sThumbLX, g.sThumbLY));
+    pad_slider_hold((g.wButtons & XINPUT_GAMEPAD_A) != 0, nav_held);
+    const WORD nav = tweak_dirs(nav_held);
+    /* ImGui turns a slider into a text box when A is held 0.6 s on it
+     * (typing a value: no use without a keyboard, and it ate "hold A and
+     * move", to-do 287): on such an item ImGui sees A for 0.3 s at most;
+     * pad_slider_hold above still reads the real button. */
+    bool a_imgui = (g.wButtons & XINPUT_GAMEPAD_A) != 0;
+    {
+        static double a_since = -1.0;
+        if (!a_imgui)
+            a_since = -1.0;
+        else if (a_since < 0.0)
+            a_since = ImGui::GetTime();
+        else if (ImGui::GetTime() - a_since > 0.3
+                 && (ImGui::GetCurrentContext()->NavIdItemFlags
+                     & ImGuiItemFlags_Inputable))
+            a_imgui = false;
+    }
+
 #define BTN(key, bit) io.AddKeyEvent(key, (g.wButtons & (bit)) != 0)
+#define DIR(key, bit) io.AddKeyEvent(key, (nav & (bit)) != 0)
 #define ANALOG(key, v, lo, hi) do { \
         float f = ((float)(v) - (lo)) / ((float)(hi) - (lo)); \
         f = f < 0.0f ? 0.0f : f > 1.0f ? 1.0f : f; \
         io.AddKeyAnalogEvent(key, f > 0.10f, f); } while (0)
-    BTN(ImGuiKey_GamepadFaceDown, XINPUT_GAMEPAD_A);
+    io.AddKeyEvent(ImGuiKey_GamepadFaceDown, a_imgui);
     BTN(ImGuiKey_GamepadFaceRight, XINPUT_GAMEPAD_B);
     BTN(ImGuiKey_GamepadFaceLeft, XINPUT_GAMEPAD_X);
     BTN(ImGuiKey_GamepadFaceUp, XINPUT_GAMEPAD_Y);
-    BTN(ImGuiKey_GamepadDpadLeft, XINPUT_GAMEPAD_DPAD_LEFT);
-    BTN(ImGuiKey_GamepadDpadRight, XINPUT_GAMEPAD_DPAD_RIGHT);
-    BTN(ImGuiKey_GamepadDpadUp, XINPUT_GAMEPAD_DPAD_UP);
-    BTN(ImGuiKey_GamepadDpadDown, XINPUT_GAMEPAD_DPAD_DOWN);
+    DIR(ImGuiKey_GamepadDpadLeft, XINPUT_GAMEPAD_DPAD_LEFT);
+    DIR(ImGuiKey_GamepadDpadRight, XINPUT_GAMEPAD_DPAD_RIGHT);
+    DIR(ImGuiKey_GamepadDpadUp, XINPUT_GAMEPAD_DPAD_UP);
+    DIR(ImGuiKey_GamepadDpadDown, XINPUT_GAMEPAD_DPAD_DOWN);
     BTN(ImGuiKey_GamepadL1, XINPUT_GAMEPAD_LEFT_SHOULDER);
     BTN(ImGuiKey_GamepadR1, XINPUT_GAMEPAD_RIGHT_SHOULDER);
     ANALOG(ImGuiKey_GamepadL2, g.bLeftTrigger, XINPUT_GAMEPAD_TRIGGER_THRESHOLD, 255);
     ANALOG(ImGuiKey_GamepadR2, g.bRightTrigger, XINPUT_GAMEPAD_TRIGGER_THRESHOLD, 255);
-    ANALOG(ImGuiKey_GamepadLStickLeft, g.sThumbLX, -XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, -32768);
-    ANALOG(ImGuiKey_GamepadLStickRight, g.sThumbLX, +XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, +32767);
-    ANALOG(ImGuiKey_GamepadLStickUp, g.sThumbLY, +XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, +32767);
-    ANALOG(ImGuiKey_GamepadLStickDown, g.sThumbLY, -XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, -32768);
+    ANALOG(ImGuiKey_GamepadLStickLeft, g.sThumbRX, -XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, -32768);
+    ANALOG(ImGuiKey_GamepadLStickRight, g.sThumbRX, +XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, +32767);
+    ANALOG(ImGuiKey_GamepadLStickUp, g.sThumbRY, +XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, +32767);
+    ANALOG(ImGuiKey_GamepadLStickDown, g.sThumbRY, -XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, -32768);
+#undef DIR
 #undef BTN
 #undef ANALOG
 }
@@ -2850,6 +3057,8 @@ static void checkbox(const char *label, const char *key, bool applies_now,
             room_reverb_apply_settings();
         if (!strcmp(key, "hide_bubbles"))
             conker_SetHideBubbles(on);
+        if (!strcmp(key, "sharp_gui") && !settings_env_override(key))
+            conker_SetSharpGui(on);
         if (!strncmp(key, "rumble", 6))
             controls_apply_pad_feel(key[6] - '1', -1.0f, -1.0f);
         if (!strncmp(key, "gyro_", 5))
@@ -2907,6 +3116,13 @@ static void checkbox(const char *label, const char *key, bool applies_now,
         if (!strcmp(key, "smooth_world_shadows")
             && !settings_env_override(key))
             conker_SetSmoothLightmaps(on);
+        if (!strcmp(key, "ambient_occlusion") && !settings_env_override(key))
+            conker_SetAo(on ? 1 : 0, -1.0f, -1.0f);
+        if (!strcmp(key, "per_pixel_lighting")
+            && !settings_env_override(key))
+            conker_SetPerPixel(on ? 1 : 0);
+        if (!strcmp(key, "motion_blur") && !settings_env_override(key))
+            conker_SetMotionBlur(on ? 1 : 0, -1.0f);
         /* Audio waits for the next start: the voice banks stay open. */
         if (!strcmp(key, "uncensored_text") && !settings_env_override(key))
             decensor_set(1, on);
@@ -3047,6 +3263,8 @@ static void apply_crt(void)
         }
 }
 
+static void apply_hdr(void);            /* to-do 239, with the sliders below */
+
 /* A drop-down over values[], shown as names[]. The current value is always
  * in the list, even one only reachable by editing the file. */
 /* off: values that can't be picked now (bit i = values[i]), greyed with
@@ -3113,6 +3331,8 @@ static void choice(const char *label, const char *key,
                     apply_aa();
                 if (!s_error[0] && !strcmp(key, "crt"))
                     apply_crt();
+                if (!s_error[0] && !strcmp(key, "hdr"))
+                    apply_hdr();
                 if (!s_error[0] && (!strcmp(key, "processing") || !strcmp(key, "output")))
                     audio_fx_apply_settings();
                 if (!s_error[0] && !strcmp(key, "frame_rate")
@@ -3121,6 +3341,21 @@ static void choice(const char *label, const char *key,
                 if (!s_error[0] && !strcmp(key, "cutscene_blur")
                     && !settings_env_override(key))
                     conker_SetCutsceneBlur(i);
+                if (!s_error[0] && !strcmp(key, "movie_upscale")
+                    && !settings_env_override(key))
+                    xbox_SetMovieUpscale(i);
+                if (!s_error[0] && !strcmp(key, "wide_bubbles")
+                    && !settings_env_override(key))
+                    conker_SetWideBubbles(i);
+                if (!s_error[0] && !strcmp(key, "hud_shape")
+                    && !settings_env_override(key))
+                    conker_SetHudShape(!strcmp(values[i], "4:3"));
+                if (!s_error[0] && !strcmp(key, "bubble_shape")
+                    && !settings_env_override(key))
+                    conker_SetBubbleShape(!strcmp(values[i], "4:3"));
+                if (!s_error[0] && !strcmp(key, "pause_screen")
+                    && !settings_env_override(key))
+                    conker_SetPauseScreen(!strcmp(values[i], "4:3"));
                 if (!s_error[0] && !strcmp(key, "weapon")
                     && !settings_env_override(key))
                     addons_set_weapon(values[i]);
@@ -3170,6 +3405,10 @@ static Slide s_slides[] = {
     { "sharpen", 0.0f, false },
     { "crt_strength", 50.0f, false },
     { "glow", 100.0f, false },
+    { "black_level", 0.0f, false },               /* to-do 236 */
+    { "ao_strength", 50.0f, false },              /* to-do 52 */
+    { "ao_radius", 50.0f, false },
+    { "motion_blur_strength", 50.0f, false },     /* to-do 235 */
     { "story_mouse_x", 100.0f, false },
     { "story_mouse_y", 100.0f, false },
     { "mp_mouse_x", 100.0f, false },
@@ -3177,6 +3416,10 @@ static Slide s_slides[] = {
     { "particle_density", 15.0f, false },
     { "shadow_softness", 50.0f, false },
     { "field_of_view", 50.0f, false },
+    { "hud_area", 100.0f, false },                /* to-do 237 */
+    { "hdr_paper_white", 0.0f, false },           /* to-do 239: 0 = Windows' */
+    { "hdr_peak", 0.0f, false },                  /* 0 = the monitor's */
+    { "hdr_stretch", 50.0f, false },
     { "rumble_strength1", 100.0f, false },
     { "rumble_strength2", 100.0f, false },
     { "rumble_strength3", 100.0f, false },
@@ -3254,9 +3497,33 @@ static void apply_picture(void)
     xbox_SetCrt(-1, v[4]);
     if (v[5] >= 0.0f)
         conker_SetGlow(v[5]);
+    /* Below 0 is a value here, so the environment is asked directly. */
+    if (!settings_env_override("black_level"))
+        xbox_SetBlackLevel(slide_value(slide_for("black_level")));
 }
 
 static bool reset_icon(const char *id, const char *tip);
+
+/* HDR output (to-do 239): the hdr choice and its three sliders to the
+ * toolkit, each unless the environment decides it (paper white and peak 0 =
+ * automatic: Windows' SDR content brightness, the monitor's peak). */
+static void apply_hdr(void)
+{
+    static const char *const modes[] = { "off", "on", "mask" };
+    float v[3];
+    const char *const keys[3] = { "hdr_paper_white", "hdr_peak", "hdr_stretch" };
+
+    if (!settings_env_override("hdr")) {
+        const char *m = settings_get("hdr");
+        for (int i = 0; i < 3; i++)
+            if (!_stricmp(m, modes[i]))
+                xbox_SetHdr(i);
+    }
+    for (int i = 0; i < 3; i++)
+        v[i] = settings_env_override(keys[i]) ? -1.0f
+                                              : slide_value(slide_for(keys[i]));
+    xbox_SetHdrLevels(v[0], v[1], v[2]);
+}
 
 /* A slider's value to where it is used: the picture's to the renderer
  * while it moves, the mouse's to the controls once saved (the game does
@@ -3278,10 +3545,36 @@ static void apply_slider(const char *key, bool saved)
             conker_SetShadowSoftness(slide_value(slide_for(key)));
         return;
     }
+    /* To-do 52: live while it moves, from the game's next frame. */
+    if (!strcmp(key, "ao_strength") || !strcmp(key, "ao_radius")) {
+        if (!settings_env_override(key)) {
+            float v = slide_value(slide_for(key));
+            conker_SetAo(-1, key[3] == 's' ? v : -1.0f,
+                         key[3] == 'r' ? v : -1.0f);
+        }
+        return;
+    }
+    /* To-do 235: live while it moves, from the game's next frame. */
+    if (!strcmp(key, "motion_blur_strength")) {
+        if (!settings_env_override(key))
+            conker_SetMotionBlur(-1, slide_value(slide_for(key)));
+        return;
+    }
     /* To-do 228: live while it moves, from the game's next frame. */
     if (!strcmp(key, "field_of_view")) {
         if (!settings_env_override(key))
             conker_SetFieldOfView(slide_value(slide_for(key)));
+        return;
+    }
+    /* To-do 237: live while it moves, from the game's next frame. */
+    if (!strcmp(key, "hud_area")) {
+        if (!settings_env_override(key))
+            conker_SetHudArea(slide_value(slide_for(key)));
+        return;
+    }
+    /* To-do 239: live while it moves, from the next present. */
+    if (!strncmp(key, "hdr_", 4)) {
+        apply_hdr();
         return;
     }
     /* Per slot (to-do 29): the live value while it moves. */
@@ -3334,15 +3627,22 @@ static void apply_slider(const char *key, bool saved)
  * icon (back to neutral, the original) at the end of the line. fmt shows
  * the value and rounds it as it shows it; tip is the icon's. mute: a sound
  * channel's mute key, a Mute box after the name (and a Solo box for testing
- * with --debug, solo_ch the channel; F2 only, not saved). */
+ * with --debug, solo_ch the channel; F2 only, not saved). auto_fmt: the
+ * saved value 0 means "automatic" (HDR's paper white and peak, to-do 239),
+ * shown at auto_v with auto_fmt (translated); moved, it becomes a value. */
 static void slider(const char *label, const char *key, float lo, float hi,
                    const char *neutral, const char *fmt, const char *tip,
-                   const char *mute = NULL, int solo_ch = -1)
+                   const char *mute = NULL, int solo_ch = -1,
+                   float auto_v = 0.0f, const char *auto_fmt = NULL)
 {
     Slide *s = slide_for(key);
     float v = slide_value(s);
     float gap = ImGui::GetStyle().ItemInnerSpacing.x;
     char id[64];
+    const bool is_auto = auto_fmt && !s->dirty && v == 0.0f;
+
+    if (is_auto)
+        v = auto_v < lo ? lo : auto_v > hi ? hi : auto_v;
 
     if (dump_item("slider", label, key)) {
         /* fmt as decimals and a unit: "%.0f %%" is 0 and " %". */
@@ -3429,7 +3729,7 @@ static void slider(const char *label, const char *key, float lo, float hi,
         snprintf(id, sizeof(id), "##%s", key);
     }
     ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + gap));
-    if (ImGui::SliderFloat(id, &v, lo, hi, fmt,
+    if (ImGui::SliderFloat(id, &v, lo, hi, is_auto ? T(auto_fmt) : fmt,
                            ImGuiSliderFlags_AlwaysClamp)) {
         s->v = v;
         s->dirty = true;
@@ -3460,7 +3760,10 @@ static bool reset_icon(const char *id, const char *tip)
 {
     float sz = ImGui::GetFrameHeight();
     ImVec2 p = ImGui::GetCursorScreenPos();
-    bool pressed = ImGui::InvisibleButton(id, ImVec2(sz, sz));
+    /* EnableNav: an InvisibleButton is left out of pad / keyboard navigation
+     * otherwise, so Right from a slider never reached it (to-do 287). */
+    bool pressed = ImGui::InvisibleButton(id, ImVec2(sz, sz),
+                                          ImGuiButtonFlags_EnableNav);
     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
     ImDrawList *dl = ImGui::GetWindowDrawList();
     ImU32 bg = ImGui::GetColorU32(ImGui::IsItemActive() ? ImGuiCol_ButtonActive
@@ -3474,6 +3777,8 @@ static bool reset_icon(const char *id, const char *tip)
         th = 1.5f;
     dl->AddRectFilled(p, ImVec2(p.x + sz, p.y + sz), bg,
                       ImGui::GetStyle().FrameRounding);
+    ImGui::RenderNavCursor(ImRect(p, ImVec2(p.x + sz, p.y + sz)),
+                           ImGui::GetItemID());
     /* Angles grow clockwise on screen; -pi/2 is the top. From the top round
      * to the upper left, leaving a gap there. */
     const float pi = 3.14159265f;
@@ -3670,6 +3975,47 @@ static void display_tab(unsigned w, unsigned h, bool *close)
     }
     choice(N_("VSync"), "vsync", vsync_values, vsync_names,
            (int)(sizeof(vsync_values) / sizeof(vsync_values[0])), true);
+    /* To-do 239 (user 2026-11-17: in the Display tab; the defaults confirmed
+     * at the user's monitor 2026-11-27). Greyed out where Windows HDR is off
+     * for the window's monitor (the launcher can't tell: it shows the row).
+     * The three levels are F2's only: they need the picture in front of
+     * you, and 0 means "automatic", which the launcher's sliders don't
+     * have. The red HUD mask is a --debug choice. */
+    {
+        static const char *const hdr_values[] = { "off", "on", "mask" };
+        static const char *const hdr_names[] = {
+            N_("Off"), N_("On (HDR10)"), "On, HUD mask in red (debug)",
+        };
+        float peak = 0.0f, white = 0.0f;
+        const bool windows_hdr = xbox_HdrDisplay(&peak, &white) != 0;
+        begin_needs("windows_hdr", !windows_hdr && !s_dump);
+        choice(N_("HDR"), "hdr", hdr_values, hdr_names, settings_debug() ? 3 : 2,
+               true,
+               N_("HDR10: the brightest parts of the 3D picture (sun, lamps, gunfire, "
+                  "glints) shine brighter than white, while the HUD, text and menus "
+                  "stay at the paper white. Needs Windows HDR on for the monitor"));
+        end_needs();
+        if (!s_dump && !windows_hdr)
+            note(N_("    Windows HDR is off for this screen: turn on \"Use HDR\" in "
+                    "Windows' display settings to use it"));
+        if (!s_dump) {
+            begin_needs("hdr", !xbox_HdrActive());
+            slider(N_("Paper White"), "hdr_paper_white", 80.0f, 500.0f, "0",
+                   "%.0f nits",
+                   N_("Back to the default (the same as Windows' SDR content "
+                      "brightness)"),
+                   NULL, -1, white > 0.0f ? white : 200.0f,
+                   N_("%.0f nits (Windows)"));
+            slider(N_("Peak Brightness"), "hdr_peak", 100.0f, 2000.0f, "0",
+                   "%.0f nits",
+                   N_("Back to the default (what the monitor says it can show)"),
+                   NULL, -1, peak > 0.0f ? peak : 400.0f,
+                   N_("%.0f nits (monitor)"));
+            slider(N_("Highlight Stretch"), "hdr_stretch", 0.0f, 100.0f, "50",
+                   "%.0f %%", N_("Back to the default (50 %)"));
+            end_needs();
+        }
+    }
     /* Was "Text and menus" under its own Language heading (to-do 11). */
     choice(N_("Text language"), "language", lang_values, lang_names,
            (int)(sizeof(lang_values) / sizeof(lang_values[0])), false);
@@ -3691,6 +4037,48 @@ static void display_tab(unsigned w, unsigned h, bool *close)
     checkbox(N_("Hide Speech Bubbles"), "hide_bubbles", true,
              N_("Speech bubbles hidden, in cutscenes and in play (photo mode's "
                 "HUD key hides them anyway)"));
+    /* To-do 53, in conker_SetWideBubbles's order. */
+    static const char *const wb_values[] = { "auto", "on", "off" };
+    static const char *const wb_names[] = {
+        N_("Auto (wider than 4:3)"), N_("On"), N_("Off (original)"),
+    };
+    choice(N_("Wide Speech Bubbles"), "wide_bubbles", wb_values, wb_names,
+           (int)(sizeof(wb_values) / sizeof(wb_values[0])), true,
+           N_("Speech bubbles up to 27 letters wide and 6 lines tall, so a long "
+              "line shows at once instead of scrolling (the original: 20 letters, "
+              "4 lines). Auto: while the picture is wider than 4:3. From the next "
+              "bubble"));
+    /* To-do 237 (user 2026-11-27: HUD Shape and HUD Placement; then bubbles and
+     * the pause screen on rows of their own); HUD Placement greyed out while
+     * stretched. Names and order (user 2026-11-28): Correct (4:3) / Stretched,
+     * Widescreen (stretched) / 4:3 for the pause screen, the default on top;
+     * the setters take the value (1 = 4:3), not the row. */
+    static const char *const hs_values[] = { "4:3", "stretched" };
+    static const char *const hs_names[] = { N_("Correct"), N_("Stretched") };
+    static const char *const ps_values[] = { "stretched", "4:3" };
+    static const char *const ps_names[] = { N_("Widescreen"), "4:3" };
+    choice(N_("HUD Shape"), "hud_shape", hs_values, hs_names,
+           (int)(sizeof(hs_values) / sizeof(hs_values[0])), true,
+           N_("On a picture wider than 4:3: the HUD and on-screen texts in their "
+              "original shape instead of stretched to the picture's width"));
+    begin_needs("hud_shape", strcmp(settings_get("hud_shape"), "4:3") != 0);
+    slider(N_("HUD Placement"), "hud_area", 0.0f, 100.0f, "100", "%.0f %%",
+           N_("Back to the default (100 %: the screen's edges; 0 %: the 4:3 area "
+              "in the middle)"));
+    end_needs();
+    choice(N_("Bubble Shape"), "bubble_shape", hs_values, hs_names,
+           (int)(sizeof(hs_values) / sizeof(hs_values[0])), true,
+           N_("On a picture wider than 4:3: speech bubbles in their original shape "
+              "instead of stretched to the picture's width"));
+    choice(N_("Pause Screen"), "pause_screen", ps_values, ps_names,
+           (int)(sizeof(ps_values) / sizeof(ps_values[0])), true,
+           N_("On a picture wider than 4:3: Widescreen fills the screen (with HUD "
+              "Shape Correct its pictures and words keep their own shape); 4:3 keeps "
+              "its original shape, with black bars at the sides"));
+    /* To-do 53 step 5 (user 2026-11-27). */
+    checkbox(N_("Sharper Text and Buttons"), "sharp_gui", true,
+             N_("The game's letters and button pictures made sharper on this PC from "
+                "your own game files. Texture packs you turn on still win"));
     checkbox(N_("Speedrun Timer"), "speedrun_timer", true,
              N_("Game time without loads from a new game, in the top right "
                 "corner: the total and the current chapter's part"));
@@ -3868,12 +4256,37 @@ static void graphics_tab(unsigned w, unsigned h, bool *close)
              N_("The shadows baked into the levels (fences, plants, buildings) "
                 "read smoothly instead of as blocky steps. Off = as the "
                 "original"));
+    /* To-do 52 (0.7.0): the sliders greyed out while it is off. */
+    checkbox(N_("Ambient occlusion"), "ambient_occlusion", true,
+             N_("Darkens creases and corners where light can't reach: under "
+                "fences, between rocks, at the foot of walls. Characters, grass "
+                "and water are not darkened. Costs some GPU time. Off = as the "
+                "original"));
+    begin_needs("ambient_occlusion",
+                !strcmp(settings_get("ambient_occlusion"), "0"));
+    slider(N_("AO strength"), "ao_strength", 0.0f, 100.0f, "50", "%.0f %%",
+           N_("Back to the default (50 %)"));
+    slider(N_("AO radius"), "ao_radius", 10.0f, 100.0f, "50", "%.0f",
+           N_("Back to the default (50)"));
+    end_needs();
+    /* To-do 51 (0.7.0; user 2026-11-25: after the AO sliders, on by
+     * default, off on the Low preset). */
+    checkbox(N_("Per-pixel character lighting"), "per_pixel_lighting", true,
+             N_("Light and shadow on characters worked out per pixel: no "
+                "light edges crawling along tails and arms; soft edges on the "
+                "shadows characters cast on each other. Off = as the "
+                "original"));
     character_foliage_detail_choice();
     {
         static const char *const orig = N_("Back to the original (1.00)");
         slider(N_("Gamma"), "gamma", 0.5f, 1.5f, "1", "%.2f", orig);
         slider(N_("Contrast"), "contrast", 0.5f, 1.5f, "1", "%.2f", orig);
         slider(N_("Saturation"), "saturation", 0.0f, 2.0f, "1", "%.2f", orig);
+        /* To-do 236: + = greyer blacks (user 2026-11-25). No "%+" in the
+         * format: ImGui takes the step from it, and a flag before the
+         * precision leaves pad and arrow-key steps stuck at 0. */
+        slider(N_("Black level"), "black_level", -20.0f, 20.0f, "0",
+               "%.0f %%", N_("Back to the original (0 %)"));
         slider(N_("Sharpening"), "sharpen", 0.0f, 100.0f, "0", "%.0f %%",
                N_("Back to off (0 %)"));
         slider(N_("Glow (the game's own)"), "glow", 0.0f, 100.0f, "100",
@@ -3899,6 +4312,21 @@ static void graphics_tab(unsigned w, unsigned h, bool *close)
              N_("The movies (boot intro, idle demo, multiplayer briefings) "
                 "stretched to the window. Off = their own 4:3 shape with black "
                 "bars at the sides. Story cutscenes: Cutscenes in 4:3"));
+    {
+        /* To-do 54 (0.7.0). Values in xbox_SetMovieUpscale's order. */
+        static const char *const mv_values[] = { "original", "fsr" };
+        static const char *const mv_names[] = {
+            N_("Original (plain stretch, soft)"),
+            N_("AMD FSR 1 (sharper edges)"),
+        };
+        choice(N_("Movie upscaling"), "movie_upscale", mv_values, mv_names,
+               2, true,
+               N_("How the movies (boot intro, idle demo, multiplayer "
+                  "briefings) are enlarged to the window. AMD FSR 1: sharper "
+                  "edges and smooth colour edges. Original: the original's "
+                  "plain stretch, softer. Story cutscenes are drawn by the "
+                  "game and stay as they are"));
+    }
     checkbox(N_("Cutscenes in 4:3"), "cutscenes_43", true,
              N_("Story cutscenes in the original 4:3 shape with black bars at "
                 "the sides. Off = they fill the window as gameplay does"));
@@ -3907,6 +4335,16 @@ static void graphics_tab(unsigned w, unsigned h, bool *close)
                 "a band at eye level. Off = a clear view under water"));
     choice(N_("Cutscene blur"), "cutscene_blur", dof_values, dof_names,
            (int)(sizeof(dof_values) / sizeof(dof_values[0])), true);
+    /* To-do 235 (0.7.0): the slider greyed out while it is off. */
+    checkbox(N_("Camera motion blur"), "motion_blur", true,
+             N_("Blurs the picture during quick camera turns, as a film camera "
+                "would; slow turns and the middle of the screen stay sharp. "
+                "Not in the main menu, photo mode or split screen. Costs some "
+                "GPU time while turning. Off = as the original"));
+    begin_needs("motion_blur", !strcmp(settings_get("motion_blur"), "0"));
+    slider(N_("Motion blur strength"), "motion_blur_strength", 0.0f, 100.0f,
+           "50", "%.0f %%", N_("Back to the default (50 %)"));
+    end_needs();
     choice(N_("CRT / scanlines"), "crt", crt_values, crt_names,
            (int)(sizeof(crt_values) / sizeof(crt_values[0])), true);
     slider(N_("CRT strength"), "crt_strength", 0.0f, 100.0f, "50", "%.0f %%",
@@ -4203,6 +4641,228 @@ static void group_apply(const char *key, const char *value)
     }
 }
 
+/* Texture packs (to-do 288 part 2c; user 2026-11-26: a button at the end of
+ * Extras opens their own window). The window lists the folders in
+ * textures\packs (tex_packs_list: settings.ini's order, new folders off at
+ * the bottom), a box each, the top one first: it wins where two packs change
+ * the same texture. A row is one Selectable, named by its pack (so its id,
+ * the pad's cursor and a held row follow it when it moves). Letting go of it
+ * without a move (a click, Enter, A or Space, held however long) ticks or
+ * unticks it; dragging it with the mouse,
+ * or holding A (or Space) and pressing up / down (the D-pad, left stick or
+ * arrow keys), moves it. While A holds a row it keeps Up / Down from ImGui's
+ * navigation (ActiveIdUsingNavDirMask, as a slider keeps Left / Right), so
+ * the cursor stays on the row as it moves. Each change is saved and applied
+ * at once (tex_packs_save), a move when the row is let go, so a drag over
+ * several rows switches the packs once. The folders are read again every
+ * 2 s while nothing is held, so a pack put in meanwhile shows up. Not in the
+ * launcher's dump (no option helpers here): its list is in the Files tab. */
+#define PACKS_MAX 64
+static TexPack s_packs[PACKS_MAX];
+static int s_npacks = -1;              /* -1: the textures folder is off */
+static double s_packs_read_at;
+static bool s_packs_moved;             /* the held row moved: save when let go */
+static bool s_packs_failed;            /* the last save did not work */
+static char s_packs_scroll[TEX_PACK_NAME]; /* a row moved by key: keep it in view */
+
+static void packs_save(void)
+{
+    s_packs_failed = !tex_packs_save(s_packs, s_npacks);
+}
+
+/* The packs on, as settings.ini has them: the Extras line, without reading
+ * the disk every frame. */
+static void packs_summary(char *out, size_t size)
+{
+    size_t at = 0;
+    out[0] = '\0';
+    for (int i = 0; i < settings_pack_count(); i++)
+        if (settings_pack_on(i)) {
+            int k = snprintf(out + at, size - at, "%s%s", at ? ", " : "",
+                             settings_pack_name(i));
+            if (k < 0 || (size_t)k >= size - at) {
+                out[at] = '\0';
+                break;
+            }
+            at += (size_t)k;
+        }
+}
+
+/* One row: the box, the name and a grip (or up / down arrows while the pad
+ * or keys hold it). Returns -1 / +1 for a move asked this frame, 0 none;
+ * *tap: let go without a move. */
+static int packs_row(int i, bool *tap)
+{
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    const ImGuiStyle &st = ImGui::GetStyle();
+    TexPack &p = s_packs[i];
+    const float h = ImGui::GetFrameHeight(), em = ImGui::GetFontSize();
+    int move = 0;
+
+    *tap = false;
+    ImGui::PushID(p.name);
+    ImGui::Selectable("##pack", false, ImGuiSelectableFlags_NoAutoClosePopups,
+                      ImVec2(0.0f, h));
+    const bool active = ImGui::IsItemActive();
+    const bool by_mouse = active && g.ActiveIdSource == ImGuiInputSource_Mouse;
+    if (ImGui::IsItemActivated())
+        s_packs_moved = false;
+    if (by_mouse) {
+        /* Past the row's top or bottom edge: one place that way (a fast drag
+         * catches up a row a frame, as ImGui's own reorder example). */
+        float y = ImGui::GetIO().MousePos.y;
+        if (y < ImGui::GetItemRectMin().y)
+            move = -1;
+        else if (y > ImGui::GetItemRectMax().y)
+            move = 1;
+    } else if (active) {
+        g.ActiveIdUsingNavDirMask |= (1u << ImGuiDir_Up) | (1u << ImGuiDir_Down);
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp) || ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+            move = -1;
+        else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown)
+                 || ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+            move = 1;
+    }
+    /* Let go without a move ticks, however long it was held (user
+     * 2026-11-26: a held A that never moved ticks the pack too). */
+    if (ImGui::IsItemDeactivated())
+        *tap = !s_packs_moved;
+    if (!strcmp(s_packs_scroll, p.name)) {
+        ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
+        s_packs_scroll[0] = '\0';
+    }
+
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+    const ImVec2 box(a.x, a.y + (b.y - a.y - h) * 0.5f);
+    ImGui::RenderFrame(box, ImVec2(box.x + h, box.y + h),
+                       ImGui::GetColorU32(ImGuiCol_FrameBg), true, st.FrameRounding);
+    if (p.on) {
+        const float pad = h / 6.0f > 1.0f ? (float)(int)(h / 6.0f) : 1.0f;
+        ImGui::RenderCheckMark(dl, ImVec2(box.x + pad, box.y + pad),
+                               ImGui::GetColorU32(ImGuiCol_CheckMark), h - pad * 2.0f);
+    }
+    const float grip_x = b.x - em * 1.3f;
+    const ImU32 dim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    if (active && !by_mouse) {          /* white: grey vanished on the held row's blue */
+        const ImU32 text = ImGui::GetColorU32(ImGuiCol_Text);
+        ImGui::RenderArrow(dl, ImVec2(grip_x, a.y), text, ImGuiDir_Up, 0.6f);
+        ImGui::RenderArrow(dl, ImVec2(grip_x, b.y - em * 0.6f), text, ImGuiDir_Down, 0.6f);
+    } else {
+        const float mid = (a.y + b.y) * 0.5f;
+        for (int k = -1; k <= 1; k++)
+            dl->AddLine(ImVec2(grip_x, mid + k * em * 0.22f),
+                        ImVec2(grip_x + em * 0.8f, mid + k * em * 0.22f), dim, 1.0f);
+    }
+    ImGui::RenderTextClipped(ImVec2(box.x + h + st.ItemInnerSpacing.x, a.y),
+                             ImVec2(grip_x - st.ItemInnerSpacing.x, b.y), p.name, NULL,
+                             NULL, ImVec2(0.0f, 0.5f));
+    ImGui::PopID();
+    return move;
+}
+
+static void packs_window(void)
+{
+    const char *id = TL("Texture Packs");
+    const float em = ImGui::GetFontSize();
+
+    if (!s_packs_open)
+        return;
+    if (!ImGui::IsPopupOpen(id)) {
+        ImGui::OpenPopup(id);
+        s_npacks = tex_packs_list(s_packs, PACKS_MAX);
+        s_packs_read_at = ImGui::GetTime();
+        s_packs_failed = false;
+    }
+    {
+        float wide = em * 32.0f, most = ImGui::GetMainViewport()->Size.x * 0.9f;
+        ImGui::SetNextWindowSize(ImVec2(wide < most ? wide : most, 0.0f));
+    }
+    if (!ImGui::BeginPopupModal(id, NULL, ImGuiWindowFlags_NoSavedSettings)) {
+        s_packs_open = false;
+        return;
+    }
+    s_popup_open = true;
+
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    const bool appearing = ImGui::IsWindowAppearing();
+    const bool holding = g.ActiveId != 0 && s_npacks > 0;
+    if (!holding && ImGui::GetTime() - s_packs_read_at > 2.0) {
+        s_npacks = tex_packs_list(s_packs, PACKS_MAX);
+        s_packs_read_at = ImGui::GetTime();
+    }
+    note(N_("Packs are folders of textures in the textures\\packs folder next to "
+            "conker.exe. Ticked packs are on; the top one wins where two packs "
+            "change the same texture. Changes apply at once"));
+    note(N_("To move a pack, drag it, or hold A (Space) and press up or down"));
+    ImGui::Spacing();
+
+    int from = -1, dir = 0, toggle = -1;
+    if (s_npacks <= 0) {
+        ImGui::TextWrapped("%s", T(s_npacks < 0
+            ? N_("The textures folder is off (RECOMP_TEX_REPLACE): no packs")
+            : N_("No packs yet: put a pack's folder in textures\\packs next to "
+                 "conker.exe")));
+    } else {
+        const float row = ImGui::GetFrameHeightWithSpacing();
+        const int shown = s_npacks < 10 ? s_npacks : 10;
+        ImGui::BeginChild("##packs", ImVec2(0.0f, row * shown),
+                          ImGuiChildFlags_NavFlattened);
+        for (int i = 0; i < s_npacks; i++) {
+            bool tap;
+            int m = packs_row(i, &tap);
+            if (i == 0 && appearing)
+                ImGui::SetItemDefaultFocus();   /* the pad's cursor on the top pack */
+            if (m && from < 0 && i + m >= 0 && i + m < s_npacks) {
+                from = i;
+                dir = m;
+            }
+            if (tap)
+                toggle = i;
+        }
+        ImGui::EndChild();
+    }
+    if (from >= 0) {
+        TexPack t = s_packs[from];
+        s_packs[from] = s_packs[from + dir];
+        s_packs[from + dir] = t;
+        s_packs_moved = true;
+        if (g.ActiveIdSource != ImGuiInputSource_Mouse)
+            snprintf(s_packs_scroll, sizeof s_packs_scroll, "%s", t.name);
+    }
+    if (toggle >= 0) {
+        s_packs[toggle].on = !s_packs[toggle].on;
+        packs_save();
+        fprintf(stderr, "[OVERLAY] texture pack \"%s\" %s\n", s_packs[toggle].name,
+                s_packs[toggle].on ? "on" : "off");
+    } else if (s_packs_moved && g.ActiveId == 0) {
+        s_packs_moved = false;          /* let go after a move */
+        packs_save();
+        fprintf(stderr, "[OVERLAY] texture packs moved: %s\n",
+                *tex_packs_on() ? tex_packs_on() : "none on");
+    }
+    if (s_packs_failed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+        ImGui::TextWrapped("%s", T("Could not save the texture packs (see the log)"));
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::Spacing();
+    bool done = ImGui::Button(TL("Close"));
+    if (appearing && s_npacks <= 0)
+        ImGui::SetItemDefaultFocus();
+    if (done || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+        || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+        if (s_packs_moved) {            /* closed with a moved row still held */
+            s_packs_moved = false;
+            packs_save();
+        }
+        s_packs_open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 static void addons_tab(unsigned w, unsigned h, bool *close)
 {
     static const char *const weapon_values[] = { "both", "bat", "pan" };
@@ -4301,6 +4961,32 @@ static void addons_tab(unsigned w, unsigned h, bool *close)
              N_("The controller's Reload button (X) or the keyboard's Attack key "
                 "(Mouse 1) takes the bat or frying pan out and swings at once; it "
                 "goes away as soon as the swinging is over. The camera stays free"));
+    /* Texture packs (to-do 288 part 2c; user 2026-11-26): a button that opens
+     * their own window (packs_window), and which are on. Plain ImGui, not an
+     * option helper: the launcher's list is in its Files tab, not Settings. */
+    ImGui::Separator();
+    if (ImGui::Button(TL("Texture Packs")))
+        s_packs_open = true;
+    if (ImGui::BeginItemTooltip()) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(T("Which texture packs are on, and their order"));
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+    {
+        char on[512];
+        packs_summary(on, sizeof on);
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        if (on[0])
+            ImGui::TextWrapped(T("On: %s"), on);
+        else
+            ImGui::TextWrapped("%s", T("No packs on"));
+        ImGui::PopStyleColor();
+    }
+    packs_window();
 }
 
 struct MenuTab {
@@ -4405,6 +5091,10 @@ static void apply_preset_key(const char *key)
     }
     else if (!strcmp(key, "smooth_world_shadows"))
         conker_SetSmoothLightmaps(strcmp(v, "0") != 0);
+    else if (!strcmp(key, "ambient_occlusion"))
+        conker_SetAo(strcmp(v, "0") ? 1 : 0, -1.0f, -1.0f);
+    else if (!strcmp(key, "per_pixel_lighting"))
+        conker_SetPerPixel(strcmp(v, "0") ? 1 : 0);
     else if (!strcmp(key, "cutscene_blur")) {
         for (int i = 0; i < 4; i++)
             if (!_stricmp(v, dof[i]))
@@ -4421,6 +5111,8 @@ static void preset_tip(int p, char *out, size_t n)
         { "shadow_resolution", N_("Shadows") },
         { "character_foliage_detail", N_("Character & foliage detail") },
         { "smooth_world_shadows", N_("Smooth world shadows") },
+        { "ambient_occlusion", N_("Ambient occlusion") },
+        { "per_pixel_lighting", N_("Per-pixel character lighting") },
         { "cutscene_blur", N_("Cutscene blur") },
         { "texture_filter", N_("Texture filtering") },
         { "hrtf", N_("3D sound (HRTF)") },
@@ -4466,12 +5158,14 @@ static void presets_choice(void)
     if (dump_item("presets", "Quality preset", NULL)) {
         dump_list("names", names, SETTINGS_PRESETS);
         fputs(", \"tip\": ", s_dump);
-        settings_json_string(s_dump, "Sets render scale, texture filtering, "
+        /* Only the launcher shows it (F2 has no tooltip here); N_: its
+         * line in lang\ so the launcher says it in its language (to-do 289). */
+        settings_json_string(s_dump, N_("Sets render scale, texture filtering, "
                              "anti-aliasing, shadows, smooth world shadows, "
                              "cutscene blur, frame rate, character & "
                              "foliage detail and "
                              "3D sound at once. High is the default; Low "
-                             "suits a weak PC.");
+                             "suits a weak PC."));
         fputs(" }", s_dump);
     }
     ImGui::TextUnformatted(T("Quality preset"));
@@ -7480,6 +8174,22 @@ static void take_picked_folder(void)
 /* The back buffer as the overlay hook gets it (after the filter chain,
  * before any ImGui) as 24-bit BGR rows, malloc'd, *pw x *ph; NULL with a
  * reason in *why. A staging copy read back at once: one short stall. */
+/* A 16-bit float as an 8-bit value, as the GPU writes a 0..1 colour into
+ * an 8-bit target (clamped, rounded to nearest). */
+static BYTE half_to_byte(UINT16 h)
+{
+    const unsigned e = (h >> 10) & 0x1F, m = h & 0x3FF;
+    float f;
+
+    if (h & 0x8000)
+        return 0;
+    if (e == 31)
+        return m ? 0 : 255;                     /* NaN, +inf */
+    f = e ? ldexpf((float)(m | 0x400), (int)e - 25)
+          : ldexpf((float)m, -24);
+    return f >= 1.0f ? 255 : (BYTE)(f * 255.0f + 0.5f);
+}
+
 static BYTE *grab_back_buffer(ID3D11Device *dev, ID3D11DeviceContext *ctx,
                               ID3D11RenderTargetView *rtv, unsigned *pw,
                               unsigned *ph, const char **why)
@@ -7489,7 +8199,7 @@ static BYTE *grab_back_buffer(ID3D11Device *dev, ID3D11DeviceContext *ctx,
     D3D11_TEXTURE2D_DESC d, sd;
     D3D11_MAPPED_SUBRESOURCE m;
     BYTE *bgr = NULL;
-    int order;          /* 0 BGRA, 1 RGBA, 2 RGB10A2 */
+    int order;          /* 0 BGRA, 1 RGBA, 2 RGB10A2, 3 RGBA 16-bit float */
 
     *why = NULL;
     rtv->GetResource(&res);
@@ -7508,6 +8218,10 @@ static BYTE *grab_back_buffer(ID3D11Device *dev, ID3D11DeviceContext *ctx,
         break;
     case DXGI_FORMAT_R10G10B10A2_UNORM:
         order = 2;
+        break;
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        /* HDR output (to-do 239): the SDR picture before the HDR step. */
+        order = 3;
         break;
     default:
         *why = "back buffer format not handled";
@@ -7549,11 +8263,18 @@ static BYTE *grab_back_buffer(ID3D11Device *dev, ID3D11DeviceContext *ctx,
     }
     bgr = (BYTE *)malloc((size_t)d.Width * d.Height * 3);
     if (bgr) {
+        const unsigned step = order == 3 ? 8 : 4;
         for (unsigned y = 0; y < d.Height; y++) {
             const BYTE *in = (const BYTE *)m.pData + (size_t)y * m.RowPitch;
             BYTE *out = bgr + (size_t)y * d.Width * 3;
-            for (unsigned x = 0; x < d.Width; x++, in += 4, out += 3) {
-                if (order == 0) {
+            for (unsigned x = 0; x < d.Width; x++, in += step, out += 3) {
+                if (order == 3) {
+                    UINT16 v[3];
+                    memcpy(v, in, sizeof v);
+                    out[2] = half_to_byte(v[0]);
+                    out[1] = half_to_byte(v[1]);
+                    out[0] = half_to_byte(v[2]);
+                } else if (order == 0) {
                     out[0] = in[0]; out[1] = in[1]; out[2] = in[2];
                 } else if (order == 1) {
                     out[0] = in[2]; out[1] = in[1]; out[2] = in[0];
@@ -9095,9 +9816,15 @@ static int overlay_draw(void *dev_, void *ctx_, void *rtv_, unsigned w,
     ImGui::Render();
     focus_log_end();
 
-    /* The back end does not touch the render targets; we put back ours. */
+    /* The back end does not touch the render targets; we put back ours.
+     * With HDR output (to-do 239) the toolkit gives a target of its own,
+     * SDR, laid over the HDR picture at the paper white; rtv then holds
+     * the SDR picture (for photos, above). */
+    ID3D11RenderTargetView *ui_rtv = (ID3D11RenderTargetView *)xbox_GpuOverlayTarget();
+    if (!ui_rtv)
+        ui_rtv = rtv;
     ctx->OMGetRenderTargets(1, &old_rtv, &old_dsv);
-    ctx->OMSetRenderTargets(1, &rtv, NULL);
+    ctx->OMSetRenderTargets(1, &ui_rtv, NULL);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     ctx->OMSetRenderTargets(1, &old_rtv, old_dsv);
     if (old_rtv)

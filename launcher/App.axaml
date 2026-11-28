@@ -73,6 +73,22 @@
         </FocusAdornerTemplate>
       </Setter>
     </Style>
+    <!-- A texture pack's row (Files tab, to-do 288 part 2d): a thin band; while dragged or held with A to
+         move it, it stands out as F2's held row does. -->
+    <Style Selector="Border.packrow">
+      <Setter Property="Padding" Value="6,1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.packrow.held">
+      <Setter Property="Background" Value="#4D5DBB1E" />
+    </Style>
+    <Style Selector="Border.packrow:pointerover">
+      <Setter Property="Background" Value="{StaticResource RowFocusBrush}" />
+    </Style>
+    <Style Selector="Border.packrow.held:pointerover">
+      <Setter Property="Background" Value="#4D5DBB1E" />
+    </Style>
     <!-- An option's row in Settings / Controls; lit while the pad or keyboard focus is in it
          (class "focused", MainWindow.OnFocusMoved). The band reaches 4 px past the content (2 above and below) without moving it. -->
     <Style Selector="Border.row">

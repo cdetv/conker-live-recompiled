@@ -69,7 +69,7 @@ public sealed class Updater(GameFolder folder)
     {
         if (release.AssetUrl is null)
         {
-            throw new ImportException($"Release {release.Tag} has no zip to download.");
+            throw new ImportException(S("Release {0} has no zip to download.", release.Tag));
         }
 
         ImportTools.RequireSpace(folder.Root, release.AssetSize * 4);
@@ -77,10 +77,10 @@ public sealed class Updater(GameFolder folder)
         try
         {
             await GitHubReleases.DownloadAsync(release.AssetUrl, Download,
-                new ByteProgress(progress, $"Downloading {release.Tag}", release.AssetSize), cancel);
-            progress.Report(new JobProgress("Unpacking the update", null));
+                new ByteProgress(progress, S("Downloading {0}", release.Tag), release.AssetSize), cancel);
+            progress.Report(new JobProgress(S("Unpacking the update"), null));
             List<string> files = await Task.Run(() => Unpack(cancel), cancel);
-            progress.Report(new JobProgress("Replacing the program files", null));
+            progress.Report(new JobProgress(S("Replacing the program files"), null));
             Install(files);
         }
         finally
@@ -177,11 +177,11 @@ public sealed class Updater(GameFolder folder)
 
                 if (Protected.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase)) || name.EndsWith(OldSuffix, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new ImportException($"The update holds {name}, which an update never replaces.");
+                    throw new ImportException(S("The update holds {0}, which an update never replaces.", name));
                 }
 
                 string path = ImportTools.SafePath(Staging, name)
-                    ?? throw new ImportException($"The update holds a file outside its folder ({name}).");
+                    ?? throw new ImportException(S("The update holds a file outside its folder ({0}).", name));
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 entry.ExtractToFile(path);
                 files.Add(Path.GetRelativePath(Staging, path));
@@ -189,14 +189,14 @@ public sealed class Updater(GameFolder folder)
         }
         catch (InvalidDataException e)
         {
-            throw new ImportException($"The update couldn't be unpacked, nothing was changed: {e.Message}");
+            throw new ImportException(S("The update couldn't be unpacked, nothing was changed: {0}", e.Message));
         }
 
         foreach (string needed in new[] { "conker.exe", "xemu_apu.dll", "conker-launcher.exe" })
         {
             if (!files.Contains(needed, StringComparer.OrdinalIgnoreCase))
             {
-                throw new ImportException($"The update has no {needed}.");
+                throw new ImportException(S("The update has no {0}.", needed));
             }
         }
 
@@ -237,7 +237,7 @@ public sealed class Updater(GameFolder folder)
                 }
             }
 
-            throw new ImportException($"The program files couldn't be replaced, nothing was changed: {e.Message}");
+            throw new ImportException(S("The program files couldn't be replaced, nothing was changed: {0}", e.Message));
         }
 
         File.AppendAllLines(CleanupList, done.Where(d => d.Old is not null).Select(d => d.Old!));

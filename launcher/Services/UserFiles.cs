@@ -77,8 +77,6 @@ public sealed class UserFiles(GameFolder folder)
 
     public string PathOf(UserFilesPlace place) => place == UserFilesPlace.GameFolder ? GameFolderPath : AppDataPath;
 
-    public static string NameOf(UserFilesPlace place) => place == UserFilesPlace.GameFolder ? "the game folder" : "AppData";
-
     /// <summary>Files in the place not in use, to move in (none when the game folder can't be written).</summary>
     public bool OtherPlaceHasFiles
     {
@@ -261,7 +259,8 @@ public sealed class UserFiles(GameFolder folder)
         }
 
         long total = moves.Sum(m => new FileInfo(m.From).Length);
-        ByteProgress? bytes = progress is null ? null : new ByteProgress(progress, $"Moving user files from {Label(from)}", total);
+        ByteProgress? bytes = progress is null ? null : new ByteProgress(progress,
+            from == UserFilesPlace.GameFolder ? S("Moving user files from the game folder") : S("Moving user files from AppData"), total);
         int moved = 0, failed = 0;
         foreach ((string fromFile, string toFile) in moves)
         {
